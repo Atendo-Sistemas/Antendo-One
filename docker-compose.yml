@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # BANCO DE DADOS RELACIONAL SQL (POSTGRESQL 16)
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: elo-log-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-elolog}
+      POSTGRES_USER: ${DB_USER:-elolog_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-elolog_secret_password_2026}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/db/schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    networks:
+      - elo-log-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-elolog_user} -d ${DB_NAME:-elolog}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ============================================================================
+  # APLICAÇÃO ELO LOG (SAAS MULTI-TENANT + COMPRESSÃO DE IMAGENS)
+  # ============================================================================
+  elo-log:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: elo-log-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Mapeia a porta interna 3000 do container para a porta 3000 (ou outra porta livre) da sua VPS
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET:-elolog_jwt_secret_token_change_in_prod}
+      # Conexão com o banco SQL PostgreSQL
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-elolog}
+      - DB_USER=${DB_USER:-elolog_user}
+      - DB_PASSWORD=${DB_PASSWORD:-elolog_secret_password_2026}
+      - DATABASE_URL=postgresql://${DB_USER:-elolog_user}:${DB_PASSWORD:-elolog_secret_password_2026}@postgres:5432/${DB_NAME:-elolog}
+      # Compressão Automática de Imagens
+      - IMAGE_COMPRESSION_ENABLED=true
+      - IMAGE_QUALITY=0.8
+      - IMAGE_MAX_WIDTH=1600
+      - IMAGE_MAX_HEIGHT=1600
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    networks:
+      - elo-log-network
+      # Caso use um proxy reverso global rodando em outra rede, descomente a rede abaixo:
+      # - proxy-network
+
+networks:
+  elo-log-network:
+    name: elo-log-network
+    driver: bridge
+  # Caso use rede externa para conectar com Nginx Proxy Manager, Traefik ou Caddy, descomente abaixo:
+  # proxy-network:
+  #   external: true
+
+volumes:
+  postgres_data:
+    name: elo_log_postgres_data

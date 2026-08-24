@@ -1,0 +1,84 @@
+version: '3.8'
+
+# ==============================================================================
+# 🚚 ELO LOG - PORTAINER STACK COMPOSE (POSTGRESQL + MULTI-TENANT + COMPRESSÃO)
+# ==============================================================================
+# Como implantar no Portainer:
+# 1. No painel do Portainer, vá em: Stacks -> Add stack
+# 2. Nome da Stack: "elo-log"
+# 3. No campo "Web editor", cole todo o conteúdo deste arquivo.
+# 4. Ajuste as variáveis em "Environment variables" se desejar personalizar senhas.
+# 5. Clique em "Deploy the stack". O banco e as tabelas serão criados sozinhos!
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # BANCO DE DADOS SQL (POSTGRESQL 16)
+  # ============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: elo-log-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-elolog}
+      POSTGRES_USER: ${DB_USER:-elolog_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-elolog_secret_password_2026}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    networks:
+      - elo-log-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-elolog_user} -d ${DB_NAME:-elolog}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ============================================================================
+  # APLICAÇÃO ELO LOG (SAAS MULTI-TENANT COM COMPRESSÃO E API)
+  # ============================================================================
+  elo-log:
+    image: node:20-alpine
+    container_name: elo-log-app
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install --production=false && npm run build && npm start"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - JWT_SECRET=${JWT_SECRET:-elolog_jwt_secret_token_change_in_prod}
+      # Conexão com o banco SQL PostgreSQL
+      - DB_TYPE=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-elolog}
+      - DB_USER=${DB_USER:-elolog_user}
+      - DB_PASSWORD=${DB_PASSWORD:-elolog_secret_password_2026}
+      - DATABASE_URL=postgresql://${DB_USER:-elolog_user}:${DB_PASSWORD:-elolog_secret_password_2026}@postgres:5432/${DB_NAME:-elolog}
+      # Otimização e Compressão de Fotos / Imagens
+      - IMAGE_COMPRESSION_ENABLED=true
+      - IMAGE_QUALITY=0.8
+      - IMAGE_MAX_WIDTH=1600
+      - IMAGE_MAX_HEIGHT=1600
+      # Integrações Opcionais
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - WHATSAPP_API_URL=${WHATSAPP_API_URL:-}
+      - WHATSAPP_API_TOKEN=${WHATSAPP_API_TOKEN:-}
+    networks:
+      - elo-log-network
+
+networks:
+  elo-log-network:
+    name: elo-log-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: elo_log_postgres_data
