@@ -57,6 +57,7 @@ class DatabaseStore {
     minDriverAge: 18,
     otpExpirationMinutes: 5,
     allowSelfRegistration: true,
+    showDemoSwitcher: false,
     plans: [
       { id: 'BASICO', name: 'Plano Básico', price: 299, maxFreightsPerMonth: 15, maxUsers: 2, maxDrivers: 5, isActive: true },
       { id: 'PROFISSIONAL', name: 'Plano Profissional', price: 599, maxFreightsPerMonth: 150, maxUsers: 10, maxDrivers: 30, isActive: true },

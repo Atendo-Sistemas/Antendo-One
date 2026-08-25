@@ -17,6 +17,7 @@ import { SuperAdminDashboard } from './components/superadmin/SuperAdminDashboard
 import { SaaSConfigPanel } from './components/superadmin/SaaSConfigPanel';
 import { ExpenseManager } from './components/expenses/ExpenseManager';
 import { GuestInstitutionalPage } from './components/common/GuestInstitutionalPage';
+import { PermissionsRequestModal } from './components/common/PermissionsRequestModal';
 import { FormDefinition } from './types';
 import { api } from './services/api';
 
@@ -67,6 +68,7 @@ const AppContent: React.FC = () => {
   if (!user) {
     return (
       <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
+        <PermissionsRequestModal />
         <DemoSwitcher />
         <GuestInstitutionalPage onLoginSuccess={() => setActiveTab('freights')} />
       </div>
@@ -75,6 +77,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
+      <PermissionsRequestModal />
       
       {/* Demo Account Switcher Bar */}
       <DemoSwitcher />

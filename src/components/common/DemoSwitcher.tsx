@@ -1,13 +1,24 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { ShieldCheck, Truck, Building2, UserPlus, Users, Sparkles } from 'lucide-react';
+import { useSaaS } from '../../context/SaaSContext';
+import { ShieldCheck, Truck, Building2, UserPlus, Users, Sparkles, X } from 'lucide-react';
 
 interface DemoSwitcherProps {
   onOpenRegisterDriver?: () => void;
 }
 
 export const DemoSwitcher: React.FC<DemoSwitcherProps> = ({ onOpenRegisterDriver }) => {
-  const { user, switchUser, availableDemoAccounts, loading } = useAuth();
+  const { user, switchUser, loading } = useAuth();
+  const { config } = useSaaS();
+
+  const [dismissed, setDismissed] = useState<boolean>(() => {
+    return localStorage.getItem('hide_demo_switcher') === 'true';
+  });
+
+  // Hide if explicitly dismissed locally OR if SaaS config disables demo switcher in production
+  if (dismissed || (config && config.showDemoSwitcher === false)) {
+    return null;
+  }
 
   const presets = [
     {
@@ -46,6 +57,11 @@ export const DemoSwitcher: React.FC<DemoSwitcherProps> = ({ onOpenRegisterDriver
       color: 'bg-amber-600 hover:bg-amber-700 text-white'
     }
   ];
+
+  const handleDismiss = () => {
+    localStorage.setItem('hide_demo_switcher', 'true');
+    setDismissed(true);
+  };
 
   return (
     <div id="demo-account-switcher" className="w-full max-w-full bg-slate-900 text-slate-200 px-3 py-2 text-xs border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm">
@@ -87,6 +103,15 @@ export const DemoSwitcher: React.FC<DemoSwitcherProps> = ({ onOpenRegisterDriver
             <span className="whitespace-nowrap">+ Novo Motorista</span>
           </button>
         )}
+
+        <button
+          onClick={handleDismiss}
+          title="Ocultar barra de teste para este navegador"
+          className="flex items-center gap-1 px-2 py-1 rounded-md font-medium text-slate-400 hover:text-white hover:bg-slate-800 border border-slate-800 transition-colors cursor-pointer shrink-0 ml-2"
+        >
+          <X className="w-3.5 h-3.5 text-rose-400" />
+          <span className="whitespace-nowrap text-[11px]">Ocultar</span>
+        </button>
       </div>
     </div>
   );

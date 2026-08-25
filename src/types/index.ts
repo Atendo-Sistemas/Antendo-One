@@ -513,6 +513,7 @@ export interface SaaSGlobalConfig {
   minDriverAge: number;
   otpExpirationMinutes: number;
   allowSelfRegistration: boolean;
+  showDemoSwitcher?: boolean;
   plans: PlanConfig[];
   layout?: SaaSLayoutConfig;
   formFields?: SaaSFormFieldsConfig;

@@ -1,12 +1,15 @@
 # Multi-stage build para otimização de imagem (NodeJS + Express + Vite)
 # --- Estágio 1: Build ---
-FROM node:18-alpine AS builder
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
+# Instala dependências básicas para compilação se necessário
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+
 # Copia manifestos e instala dependências
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 # Copia código fonte
 COPY . .
@@ -15,16 +18,16 @@ COPY . .
 RUN npm run build
 
 # --- Estágio 2: Execução ---
-FROM node:18-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
 # Define ambiente como produção
 ENV NODE_ENV=production
 
-# Copia os manifestos e instala apenas dependências de produção para manter a imagem leve
+# Copia os manifestos e instala apenas dependências de produção
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copia os arquivos compilados do estágio de build
 COPY --from=builder /app/dist ./dist
@@ -34,3 +37,4 @@ EXPOSE 3000
 
 # Comando para iniciar o servidor
 CMD ["npm", "run", "start"]
+

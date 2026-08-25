@@ -655,6 +655,19 @@ export const SaaSConfigPanel: React.FC = () => {
                     />
                     <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Permitir auto-cadastro de empresas</span>
                   </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={!!config.showDemoSwitcher}
+                      onChange={e => setConfig({ ...config, showDemoSwitcher: e.target.checked })}
+                      className="rounded text-purple-600 focus:ring-purple-500"
+                    />
+                    <div>
+                      <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 block">Exibir Barra de Perfis Demo (Ambiente de Teste)</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Exibe a barra superior para troca rápida entre perfis. Desative em produção para clientes finais.</span>
+                    </div>
+                  </label>
                 </div>
               </div>
 
