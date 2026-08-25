@@ -552,8 +552,8 @@ export const SaaSConfigPanel: React.FC = () => {
                         <input
                           type="number"
                           required
-                          value={p.maxFreightsPerMonth}
-                          onChange={e => updatePlanField(idx, 'maxFreightsPerMonth', parseInt(e.target.value) || 0)}
+                          value={p.maxFreightsMonthly}
+                          onChange={e => updatePlanField(idx, 'maxFreightsMonthly', parseInt(e.target.value) || 0)}
                           className="w-full px-2.5 py-1.5 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-semibold"
                         />
                       </div>

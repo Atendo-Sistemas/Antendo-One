@@ -318,7 +318,7 @@ INSERT INTO saas_global_config (
     'Elo Log',
     '(17) 99745-1176',
     'contato@elolog.com.br',
-    '[{"id":"BASICO","name":"Plano Básico","price":299,"maxFreightsPerMonth":15,"maxUsers":2,"maxDrivers":5,"isActive":true},{"id":"PROFISSIONAL","name":"Plano Profissional","price":599,"maxFreightsPerMonth":150,"maxUsers":10,"maxDrivers":30,"isActive":true},{"id":"EMPRESARIAL","name":"Plano Empresarial","price":1499,"maxFreightsPerMonth":9999,"maxUsers":50,"maxDrivers":200,"isActive":true}]'::jsonb,
+    '[{"id":"BASICO","name":"Plano Básico","price":299,"maxFreightsMonthly":50,"maxUsers":3,"maxDrivers":5,"isActive":true},{"id":"PROFISSIONAL","name":"Plano Profissional","price":599,"maxFreightsMonthly":150,"maxUsers":10,"maxDrivers":30,"isActive":true},{"id":"EMPRESARIAL","name":"Plano Empresarial","price":1499,"maxFreightsMonthly":9999,"maxUsers":50,"maxDrivers":200,"isActive":true}]'::jsonb,
     '{"primaryColor":"#059669","borderRadius":"xl","fontFamily":"sans","navbarStyle":"dark","logoText":"ELO LOG","systemBackground":"minimal","homeBadgeText":"Solução Completa Multi-Tenant de Carga","homeTitle":"Gestão e Publicação de Fretes em","homeTitleAccent":"Tempo Real","homeSubtitle":"O Elo Log conecta transportadoras e motoristas com total isolamento e segurança."}'::jsonb,
     '{}'::jsonb,
     '{"enabled":true,"maxWidth":1600,"maxHeight":1600,"quality":0.8,"format":"image/jpeg","autoCompressDocuments":true,"maxFileSizeKB":400}'::jsonb,

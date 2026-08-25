@@ -427,7 +427,7 @@ export interface PlanConfig {
   id: 'BASICO' | 'PROFISSIONAL' | 'EMPRESARIAL';
   name: string;
   price: number;
-  maxFreightsPerMonth: number;
+  maxFreightsMonthly: number;
   maxUsers: number;
   maxDrivers: number;
   isActive: boolean;

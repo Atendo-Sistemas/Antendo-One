@@ -59,9 +59,9 @@ class DatabaseStore {
     allowSelfRegistration: true,
     showDemoSwitcher: false,
     plans: [
-      { id: 'BASICO', name: 'Plano Básico', price: 299, maxFreightsPerMonth: 15, maxUsers: 2, maxDrivers: 5, isActive: true },
-      { id: 'PROFISSIONAL', name: 'Plano Profissional', price: 599, maxFreightsPerMonth: 150, maxUsers: 10, maxDrivers: 30, isActive: true },
-      { id: 'EMPRESARIAL', name: 'Plano Empresarial', price: 1499, maxFreightsPerMonth: 9999, maxUsers: 50, maxDrivers: 200, isActive: true }
+      { id: 'BASICO', name: 'Plano Básico', price: 299, maxFreightsMonthly: 50, maxUsers: 3, maxDrivers: 5, isActive: true },
+      { id: 'PROFISSIONAL', name: 'Plano Profissional', price: 599, maxFreightsMonthly: 150, maxUsers: 10, maxDrivers: 30, isActive: true },
+      { id: 'EMPRESARIAL', name: 'Plano Empresarial', price: 1499, maxFreightsMonthly: 9999, maxUsers: 50, maxDrivers: 200, isActive: true }
     ],
     layout: {
       primaryColor: '#059669',

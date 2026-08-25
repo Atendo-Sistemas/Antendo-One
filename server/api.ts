@@ -23,7 +23,14 @@ import {
   BlogPost
 } from '../src/types';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_key_change_me_in_production';
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (process.env.NODE_ENV === 'production' && (!JWT_SECRET || JWT_SECRET === 'super_secret_key_change_me_in_production')) {
+  console.error('FATAL ERROR: SAFE_JWT_SECRET environment variable is missing or insecure in production.');
+  process.exit(1);
+}
+const SAFE_JWT_SECRET = JWT_SECRET || 'super_secret_key_change_me_in_production';
+
 export const apiRouter = Router();
 
 const publicVapidKey = process.env.VAPID_PUBLIC_KEY || 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYPE5NjhF0';
@@ -100,7 +107,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     if (token) {
       // 1. Attempt JWT verification
       try {
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+        const decoded = jwt.verify(token, SAFE_JWT_SECRET) as { userId: string };
         const foundUser = db.users.find(u => u.id === decoded.userId);
         
         if (foundUser) {
@@ -144,6 +151,32 @@ export function sanitizeUser(user?: User | null): any {
 
 // Apply auth middleware to all /api routes
 apiRouter.use(authMiddleware);
+
+// Read-only / Test account Middleware
+apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const excludePaths = [
+      '/auth/login',
+      '/auth/request-otp',
+      '/auth/verify-otp',
+      '/auth/register-company',
+      '/auth/verify-registration',
+      '/auth/register-driver'
+    ];
+    if (excludePaths.includes(req.path)) {
+      return next();
+    }
+
+    if (isTestOrDemoUser(req.user)) {
+      return res.status(403).json({ 
+        code: 'READ_ONLY_TEST_ACCOUNT',
+        error: 'Esta conta de teste é somente leitura. Perfis criados para teste ou demonstração não possuem permissão para realizar operações de gravação ou alteração no sistema.'
+      });
+    }
+  }
+  next();
+});
+
 
 // Get Pages for current Tenant
 apiRouter.get('/pages', (req: AuthenticatedRequest, res: Response) => {
@@ -274,7 +307,7 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
   targetUser.lastLoginAt = new Date().toISOString();
 
   // Generate JWT
-  const token = jwt.sign({ userId: targetUser.id }, JWT_SECRET, { expiresIn: '24h' });
+  const token = jwt.sign({ userId: targetUser.id }, SAFE_JWT_SECRET, { expiresIn: '24h' });
 
   // Save token to DB
   db.saveAuthToken(token, targetUser.id, new Date(Date.now() + 24 * 60 * 60 * 1000));
@@ -310,7 +343,7 @@ apiRouter.post('/auth/switch-demo', (req: AuthenticatedRequest, res: Response) =
   }
 
   targetUser.lastLoginAt = new Date().toISOString();
-  const token = jwt.sign({ userId: targetUser.id }, JWT_SECRET, { expiresIn: '24h' });
+  const token = jwt.sign({ userId: targetUser.id }, SAFE_JWT_SECRET, { expiresIn: '24h' });
 
   // Save token to DB
   db.saveAuthToken(token, targetUser.id, new Date(Date.now() + 24 * 60 * 60 * 1000));
@@ -470,7 +503,7 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
   targetUser.lastLoginAt = new Date().toISOString();
 
   // Generate JWT token
-  const token = jwt.sign({ userId: targetUser.id }, JWT_SECRET, { expiresIn: '24h' });
+  const token = jwt.sign({ userId: targetUser.id }, SAFE_JWT_SECRET, { expiresIn: '24h' });
 
   // Save token to DB
   db.saveAuthToken(token, targetUser.id, new Date(Date.now() + 24 * 60 * 60 * 1000));
@@ -611,7 +644,9 @@ apiRouter.post('/auth/verify-registration', async (req: AuthenticatedRequest, re
     email: pending.email,
     phone: pending.phone,
     role: 'EMPRESA_SUPER_ADMIN', // Owner of the tenant
-    status: 'PENDENTE', // Crucial: Starts as PENDENTE
+    status: 'PENDENTE',
+    accountType: 'REAL',
+    readOnly: false,
     password: hashedPassword,
     termsAcceptedAt: now,
     privacyAcceptedAt: now,
@@ -681,7 +716,7 @@ apiRouter.post('/auth/register-driver', async (req: AuthenticatedRequest, res: R
     return res.status(400).json({ error: 'Preencha todos os campos obrigatórios' });
   }
 
-  const assignedTenantId = tenantId || db.tenants[0].id;
+  const assignedTenantId = tenantId || null;
   const now = new Date().toISOString();
 
   // Create User
@@ -699,6 +734,8 @@ apiRouter.post('/auth/register-driver', async (req: AuthenticatedRequest, res: R
     phone,
     role: 'MOTORISTA',
     status: 'ATIVO',
+    accountType: 'REAL',
+    readOnly: false,
     password: hashedPassword,
     driverId: newDriverId,
     lastLoginAt: now,
@@ -712,16 +749,16 @@ apiRouter.post('/auth/register-driver', async (req: AuthenticatedRequest, res: R
     name,
     cpf,
     rg: rg || '',
-    birthDate: birthDate || '1990-01-01',
+    birthDate: birthDate || '',
     phone,
     email,
-    zipCode: zipCode || '15000-000',
+    zipCode: zipCode || '',
     address: address || '',
-    city: city || 'São José do Rio Preto',
-    state: state || 'SP',
+    city: city || '',
+    state: state || '',
     cnh,
-    cnhCategory: cnhCategory || 'C',
-    cnhExpiresAt: cnhExpiresAt || '2028-12-31',
+    cnhCategory: cnhCategory || '',
+    cnhExpiresAt: cnhExpiresAt || '',
     status: 'DISPONIVEL',
     rating: 5.0,
     completedTrips: 0,
@@ -732,14 +769,14 @@ apiRouter.post('/auth/register-driver', async (req: AuthenticatedRequest, res: R
     id: newVehicleId,
     driverId: newDriverId,
     tenantId: assignedTenantId,
-    type: vehicleType || 'TRUCK',
-    brand: vehicleBrand || 'Mercedes-Benz',
-    model: vehicleModel || 'Atego',
-    year: Number(vehicleYear) || 2022,
-    plate: vehiclePlate || 'ABC1D23',
-    renavam: vehicleRenavam || '00123456789',
-    capacityKg: Number(capacityKg) || 12000,
-    bodyType: bodyType || 'BAU',
+    type: vehicleType || '',
+    brand: vehicleBrand || '',
+    model: vehicleModel || '',
+    year: vehicleYear ? Number(vehicleYear) : new Date().getFullYear(),
+    plate: vehiclePlate || '',
+    renavam: vehicleRenavam || '',
+    capacityKg: capacityKg ? Number(capacityKg) : 0,
+    bodyType: bodyType || '',
     status: 'ATIVO',
     createdAt: now
   };
@@ -759,7 +796,7 @@ apiRouter.post('/auth/register-driver', async (req: AuthenticatedRequest, res: R
     details: `Novo motorista auto-cadastrado com veículo ${vehicleType} (${vehiclePlate})`
   });
 
-  const token = jwt.sign({ userId: newUserId }, JWT_SECRET, { expiresIn: '24h' });
+  const token = jwt.sign({ userId: newUserId }, SAFE_JWT_SECRET, { expiresIn: '24h' });
 
   // Save token to DB
   db.saveAuthToken(token, newUserId, new Date(Date.now() + 24 * 60 * 60 * 1000));
@@ -805,7 +842,7 @@ apiRouter.post('/tenants', (req: AuthenticatedRequest, res: Response) => {
     number: req.body.number || '100',
     neighborhood: req.body.neighborhood || 'Centro',
     city: city || 'São Paulo',
-    state: state || 'SP',
+    state: state || '',
     status: 'ATIVA',
     plan: plan || 'PROFISSIONAL',
     allowedOperations: allowedOperations || ['CARGA_GERAL'],
@@ -997,7 +1034,7 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     bodyType
   } = req.body;
 
-  const targetTenantId = req.user?.role === 'SUPER_ADMIN' ? (tenantId || db.tenants[0].id) : req.user?.tenantId;
+  const targetTenantId = req.user?.role === 'SUPER_ADMIN' ? tenantId : req.user?.tenantId;
 
   if (!name || !email) {
     return res.status(400).json({ error: 'Nome e e-mail são obrigatórios' });
@@ -1024,6 +1061,8 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     phone: phone || '',
     role: isDriver ? 'MOTORISTA' : (role || 'USUARIO'),
     status: 'ATIVO',
+    accountType: 'REAL',
+    readOnly: false,
     password: hashedPassword,
     driverId: isDriver ? newDriverId : undefined,
     createdAt: now
@@ -1035,20 +1074,20 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     const newDriver: Driver = {
       id: newDriverId,
       userId: newUserId,
-      tenantId: targetTenantId || db.tenants[0].id,
+      tenantId: targetTenantId || null,
       name,
       cpf: cpf || '',
       rg: rg || '',
-      birthDate: birthDate || '1990-01-01',
+      birthDate: birthDate || '',
       phone: phone || '',
       email,
-      zipCode: zipCode || '15000-000',
+      zipCode: zipCode || '',
       address: address || '',
-      city: city || 'São José do Rio Preto',
-      state: state || 'SP',
+      city: city || '',
+      state: state || '',
       cnh: cnh || '',
-      cnhCategory: cnhCategory || 'C',
-      cnhExpiresAt: cnhExpiresAt || '2028-12-31',
+      cnhCategory: cnhCategory || '',
+      cnhExpiresAt: cnhExpiresAt || '',
       status: 'DISPONIVEL',
       rating: 5.0,
       completedTrips: 0,
@@ -1391,8 +1430,22 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     return res.status(403).json({ error: 'Motoristas não possuem permissão para cadastrar fretes' });
   }
 
-  const tenantId = req.user?.role === 'SUPER_ADMIN' ? (req.body.tenantId || db.tenants[0].id) : req.user?.tenantId;
+  const tenantId = req.user?.role === 'SUPER_ADMIN' ? (req.body.tenantId || null) : req.user?.tenantId;
   const tenant = db.tenants.find(t => t.id === tenantId);
+
+  if (tenant) {
+    const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+    const tenantFreightsThisMonth = db.freights.filter(f => 
+      f.tenantId === tenant.id && f.createdAt.startsWith(currentMonth)
+    ).length;
+
+    const maxLimit = tenant.planLimits?.maxFreightsMonthly || 0;
+    if (tenantFreightsThisMonth >= maxLimit) {
+      return res.status(403).json({ 
+        error: 'Limite de fretes mensais atingido para o plano atual (' + maxLimit + '). Faça o upgrade para continuar cadastrando.'
+      });
+    }
+  }
 
   const {
     origin,

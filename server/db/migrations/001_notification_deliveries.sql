@@ -1,0 +1,18 @@
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+  id VARCHAR(64) PRIMARY KEY,
+  event_type VARCHAR(64) NOT NULL,
+  tenant_id VARCHAR(64) REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+  channel VARCHAR(16) NOT NULL,
+  recipient VARCHAR(255),
+  subject VARCHAR(255),
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDENTE',
+  provider_message_id VARCHAR(255),
+  error_message TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  idempotency_key VARCHAR(255) UNIQUE,
+  next_attempt_at TIMESTAMPTZ,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
