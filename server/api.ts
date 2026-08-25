@@ -1255,6 +1255,17 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
   }
 
   user.updatedAt = new Date().toISOString();
+  
+  db.addAuditLog({
+    tenantId: user.tenantId || undefined,
+    userId: user.id,
+    userName: user.name,
+    userRole: user.role,
+    action: 'UPDATE_PROFILE',
+    entity: 'User',
+    entityId: user.id,
+    details: `Usuário atualizou o próprio perfil ${password && password.trim() ? '(incluindo alteração de senha)' : ''}`
+  });
 
   // If driver, sync driver info
   let updatedDriver: Driver | undefined;

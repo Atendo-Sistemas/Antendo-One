@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(32) NOT NULL DEFAULT 'USUARIO', -- 'SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'OPERACIONAL', 'FINANCEIRO', 'MOTORISTA', 'CLIENTE'
     status VARCHAR(32) NOT NULL DEFAULT 'ATIVO', -- 'ATIVO', 'INATIVO', 'BLOQUEADO'
     password_hash VARCHAR(255),
+    account_type VARCHAR(16) NOT NULL DEFAULT 'REAL',
+    read_only BOOLEAN NOT NULL DEFAULT false,
     driver_id VARCHAR(64),
     last_login_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -303,6 +305,15 @@ INSERT INTO tenants (id, name, legal_name, cnpj, email, phone, city, state, stat
 VALUES 
 ('tenant-translog-01', 'TransLog Brasil Transportes', 'TransLog Brasil Logística e Cargas Ltda', '12.345.678/0001-90', 'operacional@translogbrasil.com.br', '(17) 3214-5500', 'São José do Rio Preto', 'SP', 'ATIVA', 'EMPRESARIAL')
 ON CONFLICT (id) DO NOTHING;
+
+
+-- Seed Admin Real (admin@atendo.log.br) sem senha fixa. (Senha criada posteriormente via reset/OTP)
+INSERT INTO users (id, tenant_id, name, email, phone, role, status, password_hash, account_type, read_only)
+VALUES ('user-admin-atendo', NULL, 'Administrador Atendo Log', 'admin@atendo.log.br', '1731981705', 'SUPER_ADMIN', 'ATIVO', NULL, 'REAL', false)
+ON CONFLICT (id) DO UPDATE SET 
+  role = 'SUPER_ADMIN',
+  account_type = 'REAL',
+  read_only = false;
 
 -- Senha padrão com hash bcrypt: 'Admin@123'
 INSERT INTO users (id, tenant_id, name, email, phone, role, status, password_hash)

@@ -179,6 +179,15 @@ export class SqlAdapter {
           message: `Arquivo de schema não encontrado em: ${schemaPath}`
         };
       }
+      
+      const migrationsDir = path.join(process.cwd(), 'server', 'db', 'migrations');
+      if (fs.existsSync(migrationsDir)) {
+        const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+        for (const file of files) {
+          sql += '\n\n' + fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+        }
+      }
+
 
       const client = await this.pool.connect();
       try {
