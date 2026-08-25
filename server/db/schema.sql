@@ -315,11 +315,13 @@ ON CONFLICT (id) DO UPDATE SET
   account_type = 'REAL',
   read_only = false;
 
--- Senha padrão com hash bcrypt: 'Admin@123'
-INSERT INTO users (id, tenant_id, name, email, phone, role, status, password_hash)
-VALUES 
-('user-superadmin', NULL, 'Administrador Geral da Plataforma', 'superadmin@portaldefretes.com.br', '(11) 99999-0001', 'SUPER_ADMIN', 'ATIVO', '$2a$10$iI8G6U7VqC3Jg74y7F7p.O1qP2c2Wp3Xw4Y5Z6A7B8C9D0E1F2G3H')
-ON CONFLICT (id) DO NOTHING;
+-- Seed superadmin sem senha fixa. (Senha criada via reset/OTP ou primeiro acesso)
+INSERT INTO users (id, tenant_id, name, email, phone, role, status, password_hash, account_type, read_only)
+VALUES ('user-superadmin', NULL, 'Administrador Geral da Plataforma', 'superadmin@portaldefretes.com.br', '(11) 99999-0001', 'SUPER_ADMIN', 'ATIVO', NULL, 'REAL', false)
+ON CONFLICT (id) DO UPDATE SET 
+  role = 'SUPER_ADMIN',
+  account_type = 'REAL',
+  read_only = false;
 
 -- Configuração padrão inicial do SaaS
 INSERT INTO saas_global_config (
