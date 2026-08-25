@@ -2088,10 +2088,28 @@ apiRouter.get('/integrations/whatsapp/config', (req: AuthenticatedRequest, res: 
   res.json(safeConfig);
 });
 
+function isTestOrDemoUser(user: any): boolean {
+  if (!user) return false;
+  const id = user.id || '';
+  const email = (user.email || '').toLowerCase();
+  const name = (user.name || '').toLowerCase();
+  if (id.startsWith('user-') && (id.includes('superadmin') || id.includes('admin') || id.includes('driver') || id.includes('supervisor') || id.includes('op') || id.includes('test'))) {
+    return true;
+  }
+  if (email.includes('test') || email.includes('demo') || name.includes('teste') || name.includes('demo')) {
+    return true;
+  }
+  return false;
+}
+
 // 2. Save / Update WhatsApp Gateway Configuration
 apiRouter.post('/integrations/whatsapp/config', (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role !== 'SUPER_ADMIN') {
     return res.status(403).json({ error: 'Permissão exclusiva do Super Admin do Elo Log.' });
+  }
+
+  if (isTestOrDemoUser(req.user)) {
+    return res.status(403).json({ error: 'Perfis criados para teste não possuem permissão para editar ou alterar informações e configurações do sistema.' });
   }
 
   const { baseUrl, token, defaultChannelNumber, isActive, autoNotifyChecklist, autoNotifyFreightStatus } = req.body;
@@ -2599,6 +2617,10 @@ apiRouter.get('/saas/config', (req: AuthenticatedRequest, res: Response) => {
 apiRouter.post('/saas/config', (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role !== 'SUPER_ADMIN') {
     return res.status(403).json({ error: 'Permissão insuficiente para alterar configurações globais do SaaS.' });
+  }
+
+  if (isTestOrDemoUser(req.user)) {
+    return res.status(403).json({ error: 'Perfis criados para teste não possuem permissão para editar ou salvar informações e configurações do sistema.' });
   }
 
   const newConfig = req.body;

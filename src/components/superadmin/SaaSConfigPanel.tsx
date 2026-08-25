@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { SaaSGlobalConfig, WhatsAppConfig, EmailConfig } from '../../types';
 import { APP_VERSION, APP_BUILD_DATE, APP_RELEASE_NAME } from '../../version';
 import { 
@@ -30,6 +31,9 @@ import { SqlAndInstallationConfig } from './SqlAndInstallationConfig';
 import { MapboxConfigPanel } from './MapboxConfigPanel';
 
 export const SaaSConfigPanel: React.FC = () => {
+  const { user } = useAuth();
+  const isTestUser = user?.id?.startsWith('user-') || user?.email?.includes('test') || user?.email?.includes('demo') || user?.name?.toLowerCase().includes('teste');
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -165,6 +169,11 @@ export const SaaSConfigPanel: React.FC = () => {
     e.preventDefault();
     if (!config) return;
 
+    if (isTestUser) {
+      setMessage({ text: '⚠️ Contas e perfis criados para teste não possuem permissão para editar ou salvar informações do sistema.', type: 'error' });
+      return;
+    }
+
     setSaving(true);
     setMessage(null);
     try {
@@ -184,6 +193,11 @@ export const SaaSConfigPanel: React.FC = () => {
   const handleSaveWhatsAppConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!waConfig) return;
+
+    if (isTestUser) {
+      setMessage({ text: '⚠️ Contas e perfis criados para teste não possuem permissão para editar ou salvar informações do sistema.', type: 'error' });
+      return;
+    }
 
     setSaving(true);
     setMessage(null);
