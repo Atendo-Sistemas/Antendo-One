@@ -302,6 +302,21 @@ class DatabaseStore {
         phone: '(11) 99999-0001',
         role: 'SUPER_ADMIN',
         status: 'ATIVO',
+        accountType: 'REAL',
+        readOnly: false,
+        lastLoginAt: isoNow,
+        createdAt: '2026-01-01T08:00:00.000Z'
+      },
+      {
+        id: 'user-admin-atendo',
+        tenantId: null,
+        name: 'Administrador Atendo Log',
+        email: 'admin@atendo.log.br',
+        phone: '(17) 3198-1705',
+        role: 'SUPER_ADMIN',
+        status: 'ATIVO',
+        accountType: 'REAL',
+        readOnly: false,
         lastLoginAt: isoNow,
         createdAt: '2026-01-01T08:00:00.000Z'
       },

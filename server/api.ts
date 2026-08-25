@@ -2090,13 +2090,14 @@ apiRouter.get('/integrations/whatsapp/config', (req: AuthenticatedRequest, res: 
 
 function isTestOrDemoUser(user: any): boolean {
   if (!user) return false;
-  const id = user.id || '';
   const email = (user.email || '').toLowerCase();
-  const name = (user.name || '').toLowerCase();
-  if (id.startsWith('user-') && (id.includes('superadmin') || id.includes('admin') || id.includes('driver') || id.includes('supervisor') || id.includes('op') || id.includes('test'))) {
+  if (email === 'admin@atendo.log.br' || email === 'superadmin@portaldefretes.com.br') {
+    return false;
+  }
+  if (user.accountType === 'TEST' || user.readOnly === true) {
     return true;
   }
-  if (email.includes('test') || email.includes('demo') || name.includes('teste') || name.includes('demo')) {
+  if (user.id === 'user-driver-test-17' || (user.id || '').includes('test') || (user.id || '').includes('demo')) {
     return true;
   }
   return false;

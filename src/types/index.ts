@@ -125,6 +125,8 @@ export interface User {
   phone: string;
   role: UserRole;
   status: UserStatus;
+  accountType?: 'REAL' | 'TEST';
+  readOnly?: boolean;
   driverId?: string; // If role is MOTORISTA
   password?: string; // For company logins
   lastLoginAt?: string;
