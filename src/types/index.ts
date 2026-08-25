@@ -437,6 +437,8 @@ export interface SaaSLayoutConfig {
   fontFamily: 'sans' | 'serif' | 'mono' | 'display';
   navbarStyle: 'dark' | 'light' | 'colored';
   logoText?: string;
+  browserTabTitle?: string;
+  footerText?: string;
   systemBackground: 'minimal' | 'warm' | 'slate';
   homeBadgeText?: string;
   homeTitle?: string;

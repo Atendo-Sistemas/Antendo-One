@@ -53,7 +53,7 @@ export const SaaSConfigPanel: React.FC = () => {
   const [waConfig, setWaConfig] = useState<WhatsAppConfig | null>(null);
 
   // Test states
-  const [testPhone, setTestPhone] = useState('5517997451176');
+  const [testPhone, setTestPhone] = useState('');
   const [testMessage, setTestMessage] = useState('🚚 [ELO LOG] Teste de integração do gateway WhatsApp. Configurações globais salvas com sucesso!');
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -1093,6 +1093,38 @@ export const SaaSConfigPanel: React.FC = () => {
                     placeholder="Ex: ELO LOG"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Nome de exibição em destaque no cabeçalho e na tela de login.</p>
+                </div>
+
+                {/* Nome da Aba do Navegador */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Nome da Aba do Navegador (Browser Tab Title)</label>
+                  <input
+                    type="text"
+                    value={config.layout.browserTabTitle || ''}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, browserTabTitle: e.target.value }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
+                    placeholder="Ex: Elo Log - Gestão e Publicação de Fretes"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Título exibido na aba superior do navegador (document.title).</p>
+                </div>
+
+                {/* Texto do Rodapé */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Texto do Rodapé da Aplicação (Footer Text)</label>
+                  <input
+                    type="text"
+                    value={config.layout.footerText || ''}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, footerText: e.target.value }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
+                    placeholder="Ex: Elo Log • Gestão Logística Integrada © 2026"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Texto exibido no rodapé das páginas públicas e autenticadas.</p>
                 </div>
 
                 {/* Arredondamento de Cantos */}

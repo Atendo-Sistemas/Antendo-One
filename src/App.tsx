@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { SaaSProvider } from './context/SaaSContext';
+import { SaaSProvider, useSaaS } from './context/SaaSContext';
 import { Navbar } from './components/layout/Navbar';
 import { DemoSwitcher } from './components/common/DemoSwitcher';
 import { DriverDashboard } from './components/driver/DriverDashboard';
@@ -23,6 +23,7 @@ import { api } from './services/api';
 
 const AppContent: React.FC = () => {
   const { user } = useAuth();
+  const { config } = useSaaS();
   const [activeTab, setActiveTab] = useState<string>('freights');
   
   // State for filling form dynamically
@@ -147,7 +148,7 @@ const AppContent: React.FC = () => {
       {/* Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 py-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Portal de Fretes & Motoristas SaaS MVP • Todo o Brasil 🇧🇷</span>
+          <span>{config?.layout?.footerText || 'Elo Log • Gestão Logística Integrada © 2026'}</span>
           <span className="font-mono text-[11px] text-slate-400">Arquitetura Multi-tenant • Controle de Concorrência Atômico</span>
         </div>
       </footer>

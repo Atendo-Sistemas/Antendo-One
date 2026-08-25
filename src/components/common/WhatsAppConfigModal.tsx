@@ -37,7 +37,7 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({ isOpen
   const [autoNotifyFreightStatus, setAutoNotifyFreightStatus] = useState(true);
 
   // Test state
-  const [testPhone, setTestPhone] = useState('5517997451176');
+  const [testPhone, setTestPhone] = useState('');
   const [testMessage, setTestMessage] = useState('🚚 [ELO LOG] Teste de integração com a API de Atendimento WhatsApp. Gateway conectado com sucesso!');
   const [testResult, setTestResult] = useState<{
     success: boolean;

@@ -43,7 +43,7 @@ class DatabaseStore {
   globalWhatsAppConfig: WhatsAppConfig = {
     baseUrl: process.env.WHATSAPP_API_URL || '',
     token: process.env.WHATSAPP_API_TOKEN || '',
-    defaultChannelNumber: '5517997451176',
+    defaultChannelNumber: '',
     isActive: true,
     autoNotifyChecklist: true,
     autoNotifyFreightStatus: true

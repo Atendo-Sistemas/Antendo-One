@@ -61,6 +61,9 @@ export const SaaSProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const applyLayoutStyles = (cfg: SaaSGlobalConfig) => {
     if (!cfg.layout) return;
+    if (cfg.layout.browserTabTitle && cfg.layout.browserTabTitle.trim()) {
+      document.title = cfg.layout.browserTabTitle.trim();
+    }
     const { primaryColor, borderRadius, fontFamily, navbarStyle, systemBackground } = cfg.layout;
 
     let styleEl = document.getElementById('saas-custom-branding') as HTMLStyleElement;
