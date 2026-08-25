@@ -3,6 +3,7 @@ import { Truck, ShieldCheck, Mail, Phone, Lock, User as UserIcon, Building2, Fil
 import { api, setAuthToken } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useSaaS } from '../../context/SaaSContext';
+import { APP_VERSION, APP_BUILD_DATE } from '../../version';
 import { ThemeToggle } from './ThemeToggle';
 
 import { TermsOfUse } from './TermsOfUse';
@@ -1002,7 +1003,9 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
       <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>Elo Log • Gestão Logística Integrada © 2026</span>
-          <span className="font-mono text-[10px] text-slate-400">Plataforma SaaS Segura • Conectividade Offline Garantida</span>
+          <span className="font-mono text-[10px] text-slate-400">
+            Plataforma SaaS Segura • Versão <strong className="text-emerald-600 dark:text-emerald-400 font-bold">{APP_VERSION}</strong> ({APP_BUILD_DATE})
+          </span>
         </div>
       </footer>
     </div>

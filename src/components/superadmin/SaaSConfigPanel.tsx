@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { SaaSGlobalConfig, WhatsAppConfig, EmailConfig } from '../../types';
+import { APP_VERSION, APP_BUILD_DATE, APP_RELEASE_NAME } from '../../version';
 import { 
   Settings, 
   Globe, 
@@ -256,15 +257,23 @@ export const SaaSConfigPanel: React.FC = () => {
       {/* Header Banner */}
       <div className="p-6 bg-slate-900 text-white rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-md border border-slate-800">
         <div className="space-y-1.5">
-          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
-            Painel do Proprietário
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 uppercase tracking-wider">
+              Painel do Proprietário
+            </span>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
+              Versão {APP_VERSION} ({APP_BUILD_DATE})
+            </span>
+          </div>
           <h1 className="text-xl md:text-2xl font-black flex items-center gap-2">
             <Settings className="w-6 h-6 text-emerald-400 animate-pulse" /> Parametrização & Configurações SaaS
           </h1>
           <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
             Ambiente de alta segurança para gerenciamento de branding, limitação e preços dos planos corporativos, regras operacionais e integração com os canais de envio de códigos em tempo real.
           </p>
+          <div className="text-[11px] font-mono text-emerald-400/90 pt-1">
+            Build Ativo: {APP_RELEASE_NAME}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button 

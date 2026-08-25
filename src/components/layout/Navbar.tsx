@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { APP_VERSION } from '../../version';
 import { useSaaS } from '../../context/SaaSContext';
 import { RoleBadge } from '../common/Badge';
 import { ThemeToggle } from '../common/ThemeToggle';
@@ -88,6 +89,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                   <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[9px] bg-emerald-50 dark:bg-emerald-950/40 px-1 py-0.5 rounded border border-emerald-200/50 dark:border-emerald-800/50 shrink-0">
                     SaaS
+                  </span>
+                  <span className="text-slate-500 dark:text-slate-400 font-mono text-[9px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 shrink-0" title="Versão da Aplicação em Produção">
+                    {APP_VERSION}
                   </span>
                 </div>
                 <span className="text-[10px] sm:text-[11px] font-medium text-slate-500 dark:text-slate-400 block truncate max-w-[100px] sm:max-w-[200px]">
