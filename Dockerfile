@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt
 
 # Copia manifestos e instala dependências
 COPY package*.json ./
-RUN npm install
+RUN npm ci --include=dev
 
 # Copia código fonte
 COPY . .
@@ -27,10 +27,12 @@ ENV NODE_ENV=production
 
 # Copia os manifestos e instala apenas dependências de produção
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # Copia os arquivos compilados do estágio de build
 COPY --from=builder /app/dist ./dist
+# Runtime migration assets required by SqlAdapter.
+COPY --from=builder /app/server/db ./server/db
 
 # Expõe a porta interna da aplicação
 EXPOSE 3000

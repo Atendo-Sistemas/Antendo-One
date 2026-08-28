@@ -12,7 +12,7 @@ export class SqlAdapter {
     port: parseInt(process.env.DB_PORT || '5432', 10),
     database: process.env.DB_NAME || 'elolog',
     username: process.env.DB_USER || 'elolog_user',
-    password: process.env.DB_PASSWORD || 'elolog_secret_pass',
+    password: process.env.DB_PASSWORD || '',
     ssl: process.env.DB_SSL === 'true',
     autoMigrate: true,
     connectionStatus: 'UNCONFIGURED'
@@ -24,6 +24,21 @@ export class SqlAdapter {
 
   public getConfig(): SqlDatabaseConfig {
     return { ...this.currentConfig };
+  }
+
+  /** Executes a parametrized query for application persistence. */
+  public async query<T = any>(text: string, values: any[] = []): Promise<{ rows: T[] }> {
+    if (!this.pool) {
+      this.initializePool();
+    }
+    if (!this.pool) {
+      throw new Error('PostgreSQL pool is not initialized');
+    }
+    return this.pool.query(text, values) as Promise<{ rows: T[] }>;
+  }
+
+  public isEnabled(): boolean {
+    return this.currentConfig.enabled;
   }
 
   public updateConfig(newConfig: Partial<SqlDatabaseConfig>) {
@@ -191,12 +206,17 @@ export class SqlAdapter {
 
       const client = await this.pool.connect();
       try {
+        await client.query('BEGIN');
         await client.query(sql);
+        await client.query('COMMIT');
         this.currentConfig.connectionStatus = 'CONNECTED';
         return {
           success: true,
-          message: 'Migração executada com sucesso! Todas as tabelas, índices e sementes do Elo Log foram criadas ou atualizadas.'
+          message: 'Migração executada com sucesso! Todas as tabelas, índices e sementes do Elo Log foram criadas ou atualizadas de forma transacional.'
         };
+      } catch (migrationError) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw migrationError;
       } finally {
         client.release();
       }

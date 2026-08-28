@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TripExpenseReport, TripExpenseItem, ExpenseCategory, Freight } from '../../types';
+import { TripExpenseReport, TripExpenseItem, ExpenseCategory, Freight, Tenant, TenantReportTemplate } from '../../types';
 import { api } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { generateExpenseReportPdf, CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from '../../utils/expensePdfGenerator';
@@ -52,7 +52,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
   existingReport,
   onSuccess
 }) => {
-  const { getField } = useSaaS();
+  const { getField, config } = useSaaS();
   
   const fDriverName = getField('expenseForm', 'driverName') || { label: 'Nome do Motorista', enabled: true, required: true };
   const fDriverPhone = getField('expenseForm', 'driverPhone') || { label: 'Celular / WhatsApp (Opcional)', enabled: true, required: false };
@@ -68,6 +68,8 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
   const fLabor = getField('expenseForm', 'driverLaborAmount') || { label: 'Mão de Obra Motorista (R$)', enabled: true, required: true };
 
   const [freightsList, setFreightsList] = useState<Freight[]>([]);
+  const [reportCompany, setReportCompany] = useState<Tenant | undefined>(undefined);
+  const [expenseTemplate, setExpenseTemplate] = useState<TenantReportTemplate | undefined>(undefined);
   const [selectedFreightId, setSelectedFreightId] = useState<string>(freight?.id || existingReport?.freightId || '');
   
   // Trip General State
@@ -119,12 +121,15 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load freights for dropdown
+  // Load freights and the current tenant report branding for this modal.
   useEffect(() => {
-    if (isOpen) {
-      api.getFreights().then(list => setFreightsList(list)).catch(console.error);
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+    api.getFreights().then(list => setFreightsList(list)).catch(console.error);
+    const tenantId = existingReport?.tenantId || freight?.tenantId;
+    if (!tenantId) return;
+    api.getTenants().then(tenants => setReportCompany(tenants.find(tenant => tenant.id === tenantId))).catch(err => console.warn('Não foi possível carregar a empresa para o relatório:', err));
+    api.getTenantReportTemplates().then(templates => setExpenseTemplate(templates.find(template => template.type === 'EXPENSE'))).catch(err => console.warn('Não foi possível carregar o modelo de relatório:', err));
+  }, [isOpen, existingReport?.tenantId, freight?.tenantId]);
 
   // Sync when freight is selected
   useEffect(() => {
@@ -252,7 +257,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
       newCategory === 'ESTACIONAMENTO' ? 'Estacionamento / Pernoite' : 'Outra Despesa';
 
     const newItem: TripExpenseItem = {
-      id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: `item-${Date.now()}-${crypto.randomUUID()}`,
       category: newCategory,
       date: newDate,
       description: newDescription || defaultDesc,
@@ -307,7 +312,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
       freightId: selectedFreightId || undefined,
       freightCode: selectedFreight?.code || existingReport?.freightCode || undefined,
       driverId: existingReport?.driverId || 'driver-current',
-      driverName: driverName || 'Motorista ELO',
+      driverName: driverName || 'Motorista não informado',
       driverPhone: driverPhone || undefined,
       vehiclePlate: vehiclePlate || undefined,
       chassis: chassis || undefined,
@@ -360,11 +365,30 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
   };
 
   // PDF Export
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     setIsExportingPdf(true);
     try {
       const report = buildReportObject();
-      generateExpenseReportPdf(report, { download: true });
+      let company: Tenant | undefined;
+      const tenantId = report.tenantId || freight?.tenantId;
+      if (tenantId) {
+        try {
+          company = (await api.getTenants()).find(t => t.id === tenantId);
+        } catch (tenantErr) {
+          console.warn('Não foi possível carregar os dados da empresa para o PDF:', tenantErr);
+        }
+      }
+      generateExpenseReportPdf(report, {
+        download: true,
+        company,
+        template: expenseTemplate,
+        system: {
+          systemName: config?.systemName || config?.layout?.logoText,
+          footerText: config?.layout?.footerText,
+          supportPhone: config?.supportPhone,
+          supportEmail: config?.supportEmail
+        }
+      });
     } catch (err) {
       console.error('Erro ao gerar PDF de despesas:', err);
       alert('Erro ao gerar laudo em PDF.');
@@ -380,9 +404,10 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
       ? `🟢 *Saldo a Devolver à Empresa:* R$ ${Math.abs(balance).toFixed(2)}`
       : `🟡 *Reembolso a Receber pelo Motorista:* R$ ${Math.abs(balance).toFixed(2)}`;
 
-    const appDomain = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://portaldefretes.com.br';
+    const appDomain = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://gestor.atendo.log.br';
+    const reportBrand = reportCompany?.name || config?.systemName || 'Sistema de gestão';
 
-    const text = `📋 *PRESTAÇÃO DE CONTAS & DESPESAS • ELO LOG*\n` +
+    const text = `📋 *PRESTAÇÃO DE CONTAS & DESPESAS • ${reportBrand}*\n` +
       `-----------------------------------------\n` +
       `👤 *Motorista:* ${report.driverName}\n` +
       `🚚 *Placa:* ${report.vehiclePlate || 'N/D'} | *Frete:* ${report.freightCode || 'Avulso'}\n` +
@@ -395,7 +420,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
       `${balanceText}\n` +
       `-----------------------------------------\n` +
       `🌐 *Acesse o Documento / Portal:* ${appDomain}\n` +
-      `_Enviado pelo Sistema ELO LOG em ${new Date().toLocaleString('pt-BR')}_`;
+      `_Enviado por ${config?.systemName || 'Atendo One'} em ${new Date().toLocaleString('pt-BR')}_`;
 
     const encoded = encodeURIComponent(text);
     const phone = driverPhone ? driverPhone.replace(/\D/g, '') : '';
@@ -418,7 +443,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
                   Prestação de Contas & Despesas
                 </h2>
                 <span className="text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/40">
-                  ELO LOG
+                  {reportCompany?.name || config?.systemName || 'Relatórios'}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
@@ -1355,7 +1380,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
                   }`}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                        {isDevolver ? '🟢 Elo Log Recebe / Motorista Devolve:' : '🟡 Elo Log Deve / Motorista Recebe:'}
+                        {isDevolver ? '🟢 Empresa Recebe / Motorista Devolve:' : '🟡 Empresa Deve / Motorista Recebe:'}
                       </span>
                       {isDevolver ? <TrendingDown className="w-4 h-4 text-emerald-600" /> : <TrendingUp className="w-4 h-4 text-amber-600" />}
                     </div>

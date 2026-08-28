@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { TripExpenseReport, User } from '../../types';
+import { TripExpenseReport, User, Tenant, TenantReportTemplate } from '../../types';
 import { api } from '../../services/api';
+import { useSaaS } from '../../context/SaaSContext';
 import { TripExpenseModal } from './TripExpenseModal';
 import { generateExpenseReportPdf, CATEGORY_LABELS } from '../../utils/expensePdfGenerator';
 import { 
@@ -33,6 +34,7 @@ interface ExpenseManagerProps {
 }
 
 export const ExpenseManager: React.FC<ExpenseManagerProps> = ({ currentUser }) => {
+  const { config } = useSaaS();
   const [reports, setReports] = useState<TripExpenseReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -41,8 +43,26 @@ export const ExpenseManager: React.FC<ExpenseManagerProps> = ({ currentUser }) =
   const [selectedReport, setSelectedReport] = useState<TripExpenseReport | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReport, setEditingReport] = useState<TripExpenseReport | null>(null);
+  const [company, setCompany] = useState<Tenant | undefined>(undefined);
+  const [expenseTemplate, setExpenseTemplate] = useState<TenantReportTemplate | undefined>(undefined);
 
   const isDriver = currentUser?.role === 'MOTORISTA';
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentUser?.tenantId) {
+      setCompany(undefined);
+      setExpenseTemplate(undefined);
+      return;
+    }
+    api.getTenants().then(tenants => {
+      if (!cancelled) setCompany(tenants.find(t => t.id === currentUser.tenantId));
+    }).catch(err => console.warn('Não foi possível carregar a empresa para os PDFs:', err));
+    api.getTenantReportTemplates().then(templates => {
+      if (!cancelled) setExpenseTemplate(templates.find(template => template.type === 'EXPENSE'));
+    }).catch(err => console.warn('Não foi possível carregar o modelo de prestação de contas:', err));
+    return () => { cancelled = true; };
+  }, [currentUser?.tenantId]);
 
   const loadReports = async () => {
     setLoading(true);
@@ -116,7 +136,7 @@ export const ExpenseManager: React.FC<ExpenseManagerProps> = ({ currentUser }) =
                   Prestação de Contas & Despesas de Viagem
                 </h1>
                 <span className="text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-300 dark:border-emerald-800">
-                  ELO LOG
+                  {company?.name || config?.systemName || 'Relatórios'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -377,7 +397,17 @@ export const ExpenseManager: React.FC<ExpenseManagerProps> = ({ currentUser }) =
                     
                     <button
                       type="button"
-                      onClick={() => generateExpenseReportPdf(rep, { download: true })}
+                      onClick={() => generateExpenseReportPdf(rep, {
+                        download: true,
+                        company,
+                        template: expenseTemplate,
+                        system: {
+                          systemName: config?.systemName || config?.layout?.logoText,
+                          footerText: config?.layout?.footerText,
+                          supportPhone: config?.supportPhone,
+                          supportEmail: config?.supportEmail
+                        }
+                      })}
                       className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                       title="Baixar Laudo PDF"
                     >

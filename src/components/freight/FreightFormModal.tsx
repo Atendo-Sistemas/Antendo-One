@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { useAuth } from '../../context/AuthContext';
-import { VehicleType, CargoType, PaymentMethod, BodyType, Freight, OperationType } from '../../types';
+import { VehicleType, CargoType, PaymentMethod, BodyType, Freight, OperationType, CompanyVehicle } from '../../types';
 import { Truck, MapPin, DollarSign, Calendar, Package, X, Sparkles, AlertCircle, Split } from 'lucide-react';
 
 interface FreightFormModalProps {
@@ -10,9 +10,10 @@ interface FreightFormModalProps {
   onClose: () => void;
   onSuccess: (freight: Freight) => void;
   freightToEdit?: Freight | null;
+  simulateOnly?: boolean;
 }
 
-export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onClose, onSuccess, freightToEdit }) => {
+export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onClose, onSuccess, freightToEdit, simulateOnly = false }) => {
   const { getField } = useSaaS();
   const { tenant } = useAuth();
   const allowedOps = tenant?.allowedOperations || ['CARGA_GERAL'];
@@ -89,7 +90,17 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const [paymentNotes, setPaymentNotes] = useState('70% adiantamento no carregamento e 30% na entrega.');
 
   const [publishImmediately, setPublishImmediately] = useState(true);
+  const [companyVehicles, setCompanyVehicles] = useState<CompanyVehicle[]>([]);
+  const [companyVehicleId, setCompanyVehicleId] = useState('');
+  const [publicListingEnabled, setPublicListingEnabled] = useState(false);
+  const [publicPriceVisibleToRegistered, setPublicPriceVisibleToRegistered] = useState(true);
+  const [publicInterestEnabled, setPublicInterestEnabled] = useState(true);
 
+  useEffect(() => {
+    if (isOpen && tenant?.id) {
+      api.getCompanyVehicles().then(setCompanyVehicles).catch(() => setCompanyVehicles([]));
+    }
+  }, [isOpen, tenant?.id]);
   useEffect(() => {
     if (freightToEdit) {
       setOriginCity(freightToEdit.origin.city);
@@ -142,12 +153,20 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setPaymentMethod(freightToEdit.payment.paymentMethod);
       setTollIncluded(freightToEdit.payment.tollIncluded);
       setPaymentNotes(freightToEdit.payment.notes || '');
+      setCompanyVehicleId(freightToEdit.companyVehicleId || '');
+      setPublicListingEnabled(freightToEdit.publicListingEnabled === true);
+      setPublicPriceVisibleToRegistered(freightToEdit.publicPriceVisibleToRegistered !== false);
+      setPublicInterestEnabled(freightToEdit.publicInterestEnabled !== false);
     } else if (isOpen) {
       // Reset form if opening for a new freight
       setOperationType(allowedOps.includes('CARGA_GERAL') ? 'CARGA_GERAL' : 'LOGISTICA_VEICULOS');
       setCargoType(allowedOps.includes('CARGA_GERAL') ? 'GERAL' : 'VEICULO');
       setClientRevenue('');
       setDriverCost('');
+      setCompanyVehicleId('');
+      setPublicListingEnabled(false);
+      setPublicPriceVisibleToRegistered(true);
+      setPublicInterestEnabled(true);
     }
   }, [isOpen, freightToEdit]);
 
@@ -247,11 +266,30 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
           notes: paymentNotes
         },
         distanceKm: 440,
-        publishImmediately
+        publishImmediately,
+        companyVehicleId: companyVehicleId || undefined,
+        publicListingEnabled,
+        publicPriceVisibleToRegistered,
+        publicInterestEnabled
       };
 
-      let resFreight;
-      if (freightToEdit) {
+      let resFreight: Freight;
+      if (simulateOnly) {
+        const now = new Date().toISOString();
+        resFreight = {
+          ...payload,
+          id: freightToEdit?.id || `demo-simulation-${Date.now()}`,
+          code: freightToEdit?.code || `SIM-${Date.now().toString().slice(-6)}`,
+          tenantId: tenant?.id || 'tenant-demo-public',
+          tenantName: tenant?.name || 'Empresa de demonstração',
+          status: publishImmediately ? 'PUBLICADO' : 'RASCUNHO',
+          statusHistory: [],
+          createdByUserId: 'demo-simulation',
+          createdByName: 'Usuário da demonstração',
+          createdAt: freightToEdit?.createdAt || now,
+          updatedAt: now
+        } as Freight;
+      } else if (freightToEdit) {
         resFreight = await api.updateFreight(freightToEdit.id, payload);
       } else {
         resFreight = await api.createFreight(payload);
@@ -277,9 +315,9 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                {freightToEdit ? `Editar Frete #${freightToEdit.code}` : 'Cadastrar Novo Frete'}
+                {simulateOnly ? 'Simular cadastro de frete' : freightToEdit ? `Editar Frete #${freightToEdit.code}` : 'Cadastrar Novo Frete'}
               </h2>
-              <p className="text-xs text-slate-500">Preencha os detalhes da carga, origem, destino e veículo exigido conforme normas Elo Log.</p>
+                <p className="text-xs text-slate-500">{simulateOnly ? 'Preencha os dados para visualizar uma simulação. Nada será salvo no sistema.' : 'Preencha os detalhes da carga, origem, destino e veículo exigido conforme as regras da operação.'}</p>
             </div>
           </div>
           <button
@@ -347,6 +385,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                     onClick={() => {
                       setOperationType('LOGISTICA_VEICULOS');
                       setCargoType('VEICULO'); // Force cargo type
+                      setPublicListingEnabled(false);
                     }}
                     className={`py-3 px-4 rounded-lg border-2 text-sm font-bold flex items-center justify-center gap-2 transition-all ${
                       operationType === 'LOGISTICA_VEICULOS' 
@@ -897,6 +936,17 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
             </label>
           </div>
 
+          {operationType === 'CARGA_GERAL' && (
+            <div className="p-3.5 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 rounded-xl space-y-3">
+              <div className="flex items-start justify-between gap-3"><div><span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">Vitrine pública de fretes</span><span className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80">Opcional para Carga Geral. Endereços e contatos não são publicados.</span></div><label className="relative inline-flex items-center cursor-pointer"><input type="checkbox" checked={publicListingEnabled} onChange={e => setPublicListingEnabled(e.target.checked)} className="sr-only peer" /><div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div></label></div>
+              {publicListingEnabled && <div className="space-y-2 border-t border-emerald-200/70 dark:border-emerald-900/40 pt-3"><label className="flex items-center gap-2 text-xs text-emerald-900 dark:text-emerald-200"><input type="checkbox" checked={publicPriceVisibleToRegistered} onChange={e => setPublicPriceVisibleToRegistered(e.target.checked)} />Liberar o valor após cadastro validado</label><label className="flex items-center gap-2 text-xs text-emerald-900 dark:text-emerald-200"><input type="checkbox" checked={publicInterestEnabled} onChange={e => setPublicInterestEnabled(e.target.checked)} />Aceitar interesse de novos motoristas</label></div>}
+            </div>
+          )}
+          <div className="p-3.5 bg-blue-50/70 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 rounded-xl">
+            <label className="text-xs font-bold text-blue-900 dark:text-blue-200 block">Veículo próprio para operação/documentos fiscais</label>
+            <select value={companyVehicleId} onChange={e => setCompanyVehicleId(e.target.value)} className="mt-2 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-lg text-xs"><option value="">Não selecionar neste momento</option>{companyVehicles.filter(vehicle => vehicle.status === 'ATIVO').map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} • {vehicle.brand} {vehicle.model}</option>)}</select>
+            <span className="text-[11px] text-blue-700/80 dark:text-blue-300/80 block mt-1">Cadastre veículos próprios no menu “Veículos próprios”.</span>
+          </div>
           {/* Footer Actions */}
           <div className="flex items-center justify-end gap-3 pt-2">
             <button
@@ -911,7 +961,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
               disabled={loading}
               className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
             >
-              {loading ? 'Cadastrando...' : publishImmediately ? 'Publicar Frete Agora 🚀' : 'Salvar como Rascunho'}
+              {loading ? 'Preparando simulação...' : simulateOnly ? 'Visualizar simulação' : publishImmediately ? 'Publicar Frete Agora 🚀' : 'Salvar como Rascunho'}
             </button>
           </div>
 

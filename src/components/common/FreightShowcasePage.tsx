@@ -1,0 +1,37 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowRight, CalendarDays, Filter, MapPin, PackageSearch, RefreshCw, ShieldCheck, Truck } from 'lucide-react';
+import { api } from '../../services/api';
+import { PublicFreightSummary } from '../../types';
+import { FreightInterestModal } from './FreightInterestModal';
+
+export const FreightShowcasePage: React.FC = () => {
+  const [freights, setFreights] = useState<PublicFreightSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [vehicleType, setVehicleType] = useState('TODOS');
+  const [selected, setSelected] = useState<PublicFreightSummary | null>(null);
+  const load = async () => {
+    try { setLoading(true); setError(null); setFreights(await api.getPublicFreights()); }
+    catch (err: any) { setError(err.message || 'Não foi possível carregar os fretes públicos.'); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []);
+  useEffect(() => { document.title = 'Fretes de mercadorias disponíveis | Elo Log'; }, []);
+  const filtered = useMemo(() => freights.filter(f => {
+    const term = search.trim().toLowerCase();
+    const matchesText = !term || [f.code, f.originCity, f.originState, f.destinationCity, f.destinationState, f.cargoType].some(value => String(value || '').toLowerCase().includes(term));
+    return matchesText && (vehicleType === 'TODOS' || f.vehicleType === vehicleType);
+  }), [freights, search, vehicleType]);
+  const vehicleOptions = Array.from(new Set(freights.map(f => f.vehicleType).filter(Boolean)));
+  return <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"><div className="max-w-6xl mx-auto px-4 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"><div><a href="/" className="text-xs font-bold text-emerald-600 hover:underline">← Voltar ao Elo Log</a><h1 className="text-2xl sm:text-3xl font-black mt-2">Fretes de mercadorias disponíveis</h1><p className="text-sm text-slate-500 mt-1">Encontre oportunidades publicadas por empresas e candidate-se com segurança.</p></div><div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-300 font-semibold">Vitrine pública • valores protegidos</div></div></header>
+    <main className="max-w-6xl mx-auto px-4 py-7 space-y-6"><div className="rounded-2xl border border-blue-200 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-950/20 p-4 flex gap-3"><ShieldCheck className="w-5 h-5 text-blue-600 shrink-0" /><div className="text-xs text-blue-900 dark:text-blue-200"><strong>Como funciona:</strong> a empresa escolhe publicar o frete. Os dados exibidos são resumidos; o valor e a manifestação de interesse exigem cadastro e validação por WhatsApp. A aprovação é feita pela empresa responsável pelo frete.</div></div>
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_220px_auto] gap-3"><label className="relative"><span className="sr-only">Buscar frete</span><PackageSearch className="w-4 h-4 text-slate-400 absolute left-3 top-3" /><input value={search} onChange={e => setSearch(e.target.value)} className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2.5 pl-9 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30" placeholder="Buscar por cidade, estado, carga ou código" /></label><label className="relative"><span className="sr-only">Filtrar veículo</span><Filter className="w-4 h-4 text-slate-400 absolute left-3 top-3" /><select value={vehicleType} onChange={e => setVehicleType(e.target.value)} className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2.5 pl-9 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30"><option value="TODOS">Todos os veículos</option>{vehicleOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label><button onClick={() => void load()} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-2.5 text-xs font-bold hover:border-emerald-400 cursor-pointer"><RefreshCw className="w-3.5 h-3.5" /> Atualizar</button></div>
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">{error}</div>}
+      {loading ? <div className="rounded-2xl bg-white dark:bg-slate-900 p-10 text-center text-sm text-slate-500">Carregando oportunidades...</div> : filtered.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-12 text-center"><PackageSearch className="w-9 h-9 mx-auto text-slate-300" /><p className="text-sm font-bold mt-3">Nenhum frete público encontrado</p><p className="text-xs text-slate-500 mt-1">Ajuste os filtros ou volte mais tarde.</p></div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{filtered.map(freight => <article key={freight.id} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm p-5 flex flex-col gap-4"><div className="flex items-start justify-between gap-3"><div><span className="text-[10px] uppercase tracking-wider font-black text-emerald-600">{freight.code}</span><h2 className="text-base font-black mt-1">{freight.cargoType || 'Carga geral'}</h2></div><span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-600 dark:text-slate-300">{freight.vehicleType}</span></div><div className="space-y-2 text-xs"><div className="flex items-start gap-2"><MapPin className="w-4 h-4 text-emerald-600 shrink-0" /><span><strong>{freight.originCity}/{freight.originState}</strong><ArrowRight className="inline w-3 h-3 mx-1" /><strong>{freight.destinationCity}/{freight.destinationState}</strong></span></div><div className="flex items-center gap-2 text-slate-500"><CalendarDays className="w-4 h-4" /> {freight.date ? new Date(freight.date).toLocaleDateString('pt-BR') : 'Data a combinar'} • {freight.weightKg ? `${freight.weightKg.toLocaleString('pt-BR')} kg` : 'Peso sob consulta'}</div><div className="flex items-center gap-2 text-slate-500"><Truck className="w-4 h-4" /> {freight.bodyType || 'Carroceria a definir'} • {freight.minCapacityKg ? `mín. ${freight.minCapacityKg.toLocaleString('pt-BR')} kg` : 'capacidade a confirmar'}</div></div><div className="mt-auto border-t border-slate-100 dark:border-slate-800 pt-3"><p className="text-xs text-slate-500 mb-3">Valor disponível após cadastro validado.</p><button disabled={!freight.interestEnabled} onClick={() => setSelected(freight)} className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed cursor-pointer">{freight.interestEnabled ? 'Tenho interesse neste frete' : 'Interesse encerrado'}</button></div></article>)}</div>}
+      <p className="text-center text-xs text-slate-500">A publicação é feita voluntariamente pela empresa. Endereços exatos, contatos e dados internos não aparecem nesta vitrine.</p>
+    </main>
+    {selected && <FreightInterestModal freight={selected} onClose={() => setSelected(null)} onCompleted={() => setSelected(null)} />}
+  </div>;
+};

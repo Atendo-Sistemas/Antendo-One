@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FormDefinition, Freight } from '../../types';
+import { FormDefinition, Freight, Tenant, TenantReportTemplate } from '../../types';
 import { api, isOfflineMode } from '../../services/api';
+import { useSaaS } from '../../context/SaaSContext';
 import { WhatsAppConfigModal } from '../common/WhatsAppConfigModal';
 import { generateChecklistPdf } from '../../utils/checklistPdfGenerator';
 import { scanQrAndBarcodeFromCanvas, parseBrazilianPlateFromText } from '../../utils/barcodeAndPlateScanner';
@@ -85,7 +86,12 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
   onClose,
   onSuccess
 }) => {
+  const { config } = useSaaS();
   const [freight, setFreight] = useState<Freight | null>(null);
+  const [reportCompany, setReportCompany] = useState<Tenant | undefined>(undefined);
+  const [checklistTemplate, setChecklistTemplate] = useState<TenantReportTemplate | undefined>(undefined);
+  const reportCompanyName = reportCompany?.legalName || reportCompany?.name || freight?.tenantName || config?.systemName || 'Empresa responsável';
+  const reportSystemName = config?.systemName || config?.layout?.logoText || 'Atendo One';
   const [loadingFreight, setLoadingFreight] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -249,7 +255,9 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
       api.getFreight(freightId)
         .then(f => {
           setFreight(f);
-          setCliente(f.tenantName || 'TransLog Brasil Transportes');
+          api.getTenants().then(tenants => setReportCompany(tenants.find(tenant => tenant.id === f.tenantId))).catch(err => console.warn('Não foi possível carregar a empresa do checklist:', err));
+          api.getTenantReportTemplates().then(templates => setChecklistTemplate(templates.find(template => template.type === 'CHECKLIST'))).catch(err => console.warn('Não foi possível carregar o modelo do checklist:', err));
+          setCliente(f.tenantName || 'Empresa responsável');
           setLocalRetirada(`${f.origin.city}/${f.origin.state}`);
           setLocalEntrega(`${f.destination.city}/${f.destination.state}`);
           if (f.origin.contactPhone) setOrigemTelefone(f.origin.contactPhone);
@@ -352,16 +360,16 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
 
   // Setup WhatsApp default template
   useEffect(() => {
-    const targetPhone = destinoTelefone || origemTelefone || clienteTelefone || '17997451176';
+    const targetPhone = destinoTelefone || origemTelefone || clienteTelefone || '';
     setWhatsAppRecipient(targetPhone);
     const codeStr = freight?.code ? `Frete #${freight.code}` : `Talão Nº ${talaoNumber}`;
     setWhatsAppMessage(
-      `Olá! Segue a atualização do Checklist/Vistoria ELO LOG (${codeStr}).\n` +
+      `Olá! Segue a atualização do Checklist/Vistoria ${reportCompanyName} (${codeStr}).\n` +
       `• Veículo: ${marcaVeiculo} ${modeloVeiculo} (Placa: ${placaVeiculo || 'N/A'})\n` +
       `• Origem: ${localRetirada || 'Retirada'} (KM: ${kmRetirada || 'Registrado'})\n` +
       `• Destino: ${localEntrega || 'Destino'} (KM: ${kmEntrega || 'Pendente'})\n` +
       `• Status: ${origemAssinado && destinoAssinado ? '✅ Viagem e Vistoria Concluídas' : origemAssinado ? '📍 Retirada Realizada e Assinada (Em Trânsito)' : '📝 Vistoria em Andamento'}\n` +
-      `ELO LOG TRANSPORTES • Tel: (17) 99745.1176`
+      `${reportCompanyName}`
     );
   }, [
     talaoNumber,
@@ -375,6 +383,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
     kmEntrega,
     origemAssinado,
     destinoAssinado,
+    reportCompanyName,
     destinoTelefone,
     origemTelefone,
     clienteTelefone
@@ -473,7 +482,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
     const chassiM = maskChassi(chassiVeiculo);
     const codeStr = freight?.code ? `Frete #${freight.code}` : `Talão Nº ${talaoNumber}`;
     const timestampStr = new Date().toLocaleString('pt-BR');
-    const appDomain = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://portaldefretes.com.br';
+    const appDomain = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://gestor.atendo.log.br';
 
     if (stage === 'RETIRADA') {
       const respNome = origemNome || 'Responsável Coleta';
@@ -481,7 +490,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
       return (
         `📋 *COMPROVANTE DIGITAL DE VISTORIA E RETIRADA (SAÍDA)*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `🏢 *ELO LOG TRANSPORTES LTDA*\n` +
+        `🏢 *${reportCompanyName}*\n` +
         `🔖 *Talão Oficial:* Nº ${talaoNumber} (${codeStr})\n` +
         `📅 *Data/Hora:* ${timestampStr}\n\n` +
         `🚛 *DADOS DO VEÍCULO & CARGA:*\n` +
@@ -489,7 +498,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
         `• Placa: ${pl} | Chassi: ${chassiM}\n` +
         `• KM Retirada: ${kmRetirada || 'Conferido'}\n` +
         `• Local Coleta: ${localRetirada || 'Origem'}\n` +
-        `• Condutor ELO: ${condutorNome || 'Motorista Designado'}\n\n` +
+        `• Condutor: ${condutorNome || 'Motorista Designado'}\n\n` +
         `✍️ *VALIDAÇÃO DA ORIGEM (SAÍDA):*\n` +
         `• Conferente: ${respNome}\n` +
         `• Documento: ${respCpfM}\n` +
@@ -497,7 +506,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
         `• Fotos Anexadas: ${photos.length} fotos de vistoria\n\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `🌐 *Acesso ao Portal:* ${appDomain}\n` +
-        `🔒 *Comprovante autenticado no sistema ELO LOG.* Guarde este registro para conferência.`
+        `🔒 *Comprovante autenticado pelo sistema ${reportSystemName}.* Guarde este registro para conferência.`
       );
     } else {
       const respNome = destinoNome || 'Recebedor';
@@ -505,21 +514,21 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
       return (
         `🏁 *COMPROVANTE DIGITAL DE ENTREGA E VISTORIA FINAL*\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-        `🏢 *ELO LOG TRANSPORTES LTDA*\n` +
+        `🏢 *${reportCompanyName}*\n` +
         `🔖 *Talão Oficial:* Nº ${talaoNumber} (${codeStr})\n` +
         `📅 *Data/Hora:* ${timestampStr}\n\n` +
         `🚛 *RESUMO DA VIAGEM:*\n` +
         `• Veículo: ${marcaVeiculo} ${mod} (Placa: ${pl})\n` +
         `• KM Entrega: ${kmEntrega || 'Registrado'} (KM Coleta: ${kmRetirada || '0'})\n` +
         `• Local Descarga: ${localEntrega || 'Destino'}\n` +
-        `• Condutor: ${condutorNome || 'Motorista ELO'}\n\n` +
+        `• Condutor: ${condutorNome || 'Motorista Designado'}\n\n` +
         `✍️ *VALIDAÇÃO DE DESTINO (ENTREGA):*\n` +
         `• Recebedor: ${respNome}\n` +
         `• Documento: ${respCpfM}\n` +
         `• Status: ✅ Vistoria Final Aprovada e Assinada\n\n` +
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
         `🌐 *Acesso ao Portal:* ${appDomain}\n` +
-        `🔒 *Operação finalizada com sucesso no portal ELO LOG.*`
+        `🔒 *Operação finalizada com sucesso no portal ${reportSystemName}.*`
       );
     }
   };
@@ -728,7 +737,27 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      const result = await generateChecklistPdf(responsePayload as any, freight || undefined);
+      let company: Tenant | undefined;
+      if (freight?.tenantId) {
+        try {
+          company = (await api.getTenants()).find(t => t.id === freight.tenantId);
+        } catch (tenantErr) {
+          console.warn('Não foi possível carregar os dados da empresa para o PDF:', tenantErr);
+        }
+      }
+      if (company) setReportCompany(company);
+      const templates = await api.getTenantReportTemplates().catch(() => []);
+      const template = templates.find(item => item.type === 'CHECKLIST') || checklistTemplate;
+      const result = await generateChecklistPdf(responsePayload as any, freight || undefined, {
+        company,
+        template,
+        system: {
+          systemName: config?.systemName || config?.layout?.logoText,
+          footerText: config?.layout?.footerText,
+          supportPhone: config?.supportPhone,
+          supportEmail: config?.supportEmail
+        }
+      });
 
       if (action === 'DOWNLOAD') {
         const link = document.createElement('a');
@@ -750,7 +779,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
         const cleanPhone = phone.replace(/\D/g, '');
         const phoneWithDDI = cleanPhone ? (cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`) : '';
         
-        const fullMessage = `${summary}\n\n📄 *Laudo Oficial em PDF:* Checklist_ELOLOG_${talaoNumber}.pdf\n⬇️ *Documento salvo e validado digitalmente.*`;
+        const fullMessage = `${summary}\n\n📄 *Laudo Oficial em PDF:* ${result.filename}\n⬇️ *Documento salvo e validado digitalmente pelo sistema ${reportSystemName}.*`;
         
         const whatsappUrl = phoneWithDDI 
           ? `https://api.whatsapp.com/send?phone=${phoneWithDDI}&text=${encodeURIComponent(fullMessage)}`
@@ -958,7 +987,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
               DIGITAL & IMPRESSÃO
             </span>
             <span className="text-xs sm:text-sm font-bold truncate">
-              Checklist Oficial de Vistoria • ELO LOG
+              Checklist Oficial de Vistoria • {reportSystemName}
             </span>
             {lastSavedAt && (
               <span className="hidden lg:inline text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded shrink-0">
@@ -1079,7 +1108,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
                     type="text"
                     value={whatsAppRecipient}
                     onChange={e => setWhatsAppRecipient(e.target.value)}
-                    placeholder="Ex: (17) 99745-1176"
+                    placeholder="Ex: telefone com DDD"
                     className="bg-transparent text-white w-full focus:outline-hidden text-xs"
                   />
                 </div>
@@ -1167,20 +1196,19 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
               <div className="flex items-center gap-4">
                 <div className="bg-slate-950 text-white p-3 rounded-xl flex items-center justify-center font-black text-2xl tracking-tighter shadow-sm">
                   <div className="text-center leading-none">
-                    <span className="block text-xl tracking-widest text-emerald-400">ELO</span>
-                    <span className="block text-[9px] tracking-wider text-slate-400 font-bold">LOG</span>
+                    <span className="block text-xl tracking-widest text-emerald-400">{reportSystemName.slice(0, 10).toUpperCase()}</span>
                   </div>
                 </div>
 
                 <div>
                   <h2 className="text-base sm:text-lg font-black tracking-tight text-slate-900 leading-tight uppercase">
-                    ELO LOG TRANSPORTES LTDA
+                    {reportCompanyName}
                   </h2>
                   <p className="text-[11px] text-slate-600 font-semibold">
-                    CNPJ: 48.510.412/0001-06 • Insc. Est.: 718.258.628.113
+                    CNPJ: {reportCompany?.cnpj || 'Não informado'}
                   </p>
                   <p className="text-[11px] text-slate-600">
-                    Rua Sete de Setembro, 3421 - CEP 15502-160 - Votuporanga/SP
+                    {reportCompany ? `${reportCompany.address}, ${reportCompany.number} - CEP ${reportCompany.zipCode} - ${reportCompany.city}/${reportCompany.state}` : 'Endereço cadastrado da empresa responsável'}
                   </p>
                 </div>
               </div>
@@ -1188,7 +1216,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
               {/* Contacts & Talão Number */}
               <div className="flex flex-col sm:items-end text-left sm:text-right text-[11px] text-slate-700">
                 <p className="font-bold text-slate-900">
-                  JOSÉ CARLOS: (17) 99745.1176 | ADRIANO: (17) 99737.2190
+                  Contatos operacionais configurados pela empresa
                 </p>
                 <p className="text-slate-500">
                   @elotransportesltda • www.elologtransportes.com.br
@@ -2080,7 +2108,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
 
             {/* 10. RODAPÉ DE VIAS OFICIAIS */}
             <div className="pt-2 text-center text-[11px] font-bold text-slate-500 border-t border-slate-300 flex flex-wrap items-center justify-center gap-4">
-              <span className="text-slate-800">1ª Via Branca - ELO LOG (Administrativo)</span>
+              <span className="text-slate-800">1ª Via Branca - {reportCompanyName} (Administrativo)</span>
               <span>•</span>
               <span className="text-emerald-700">2ª Via Verde - Entrega (Destinatário)</span>
               <span>•</span>
@@ -2150,7 +2178,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
               <span className="font-bold text-sm flex items-center gap-2">
                 <Camera className="w-4 h-4 text-emerald-400" />
                 <span>
-                  {cameraMode === 'PHOTO' && 'Câmera ao Vivo • Vistoria ELO LOG'}
+                  {cameraMode === 'PHOTO' && `Câmera ao Vivo • Vistoria ${reportSystemName}`}
                   {cameraMode === 'BARCODE_QR' && 'Leitor de QR Code / Código de Barras'}
                   {cameraMode === 'OCR_PLATE' && 'Scanner OCR de Placa Mercosul'}
                 </span>
@@ -2683,7 +2711,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
                       Por favor, <strong>avise a pessoa que realizou a assinatura de retirada/origem ({origemNome || 'Responsável'})</strong> que o seu aplicativo está temporariamente sem sinal de internet (offline).
                     </p>
                     <p className="leading-relaxed text-slate-700">
-                      • Assim que a conexão for restabelecida, o sistema <strong>enviará a cópia do checklist por e-mail automaticamente</strong> e validará os dados na nuvem da ELO LOG.
+                      • Assim que a conexão for restabelecida, o sistema <strong>enviará a cópia do checklist por e-mail automaticamente</strong> e validará os dados na nuvem do sistema <strong>{reportSystemName}</strong>.
                     </p>
                     <p className="leading-relaxed text-slate-700">
                       • Caso ela precise da comprovação imediata na portaria ou não receba no prazo, <strong>compartilhe o arquivo PDF do laudo no WhatsApp dela agora mesmo</strong>.

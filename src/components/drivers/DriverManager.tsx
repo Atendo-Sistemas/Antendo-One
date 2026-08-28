@@ -3,6 +3,7 @@ import { Driver, Vehicle } from '../../types';
 import { api } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { VehicleBadge } from '../common/Badge';
+import { DriverCompanyLinkPanel } from './DriverCompanyLinkPanel';
 import { 
   Users, 
   Truck, 
@@ -201,6 +202,7 @@ export const DriverManager: React.FC = () => {
         </div>
       </div>
 
+      <DriverCompanyLinkPanel />
       {/* Search Toolbar */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-3">
         <Search className="w-4 h-4 text-slate-400" />

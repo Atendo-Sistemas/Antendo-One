@@ -3,6 +3,8 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { Truck, MapPin, Compass, AlertCircle, Navigation } from 'lucide-react';
 
+const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] || char));
+
 interface InteractiveMapboxViewProps {
   apiKey: string;
   defaultStyle?: string;
@@ -65,7 +67,7 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
         originEl.innerHTML = 'A';
         new mapboxgl.Marker(originEl)
           .setLngLat([originCoords.lng, originCoords.lat])
-          .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`<div style="color:#0f172a; font-weight:bold; font-size:12px;">Origem: ${originCoords.name}</div>`))
+          .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`<div style="color:#0f172a; font-weight:bold; font-size:12px;">Origem: ${escapeHtml(originCoords.name)}</div>`))
           .addTo(map);
 
         // Add Destination Marker
@@ -74,7 +76,7 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
         destEl.innerHTML = 'B';
         new mapboxgl.Marker(destEl)
           .setLngLat([destCoords.lng, destCoords.lat])
-          .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`<div style="color:#0f172a; font-weight:bold; font-size:12px;">Destino: ${destCoords.name}</div>`))
+          .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`<div style="color:#0f172a; font-weight:bold; font-size:12px;">Destino: ${escapeHtml(destCoords.name)}</div>`))
           .addTo(map);
 
         // Add Live Truck / Vehicle Marker
@@ -85,7 +87,7 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
           </div>
           <div style="background: #090d16; color: #34d399; font-size: 10px; font-weight: 900; padding: 2px 8px; border-radius: 9999px; border: 1px solid rgba(52,211,153,0.4); margin-top: 4px; white-space: nowrap; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-            ${vehiclePlate} • ${currentCoords.speed} km/h
+            ${escapeHtml(vehiclePlate)} • ${escapeHtml(currentCoords.speed)} km/h
           </div>
         `;
 
@@ -93,9 +95,9 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
           .setLngLat([currentCoords.lng, currentCoords.lat])
           .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML(`
             <div style="color:#0f172a; padding: 4px;">
-              <strong style="font-size: 13px; display: block; margin-bottom: 2px;">Veículo: ${vehiclePlate}</strong>
-              <span style="font-size: 11px; color: #475569;">Motorista: ${driverName}</span><br/>
-              <span style="font-size: 11px; color: #059669; font-weight: bold;">Velocidade: ${currentCoords.speed} km/h</span>
+              <strong style="font-size: 13px; display: block; margin-bottom: 2px;">Veículo: ${escapeHtml(vehiclePlate)}</strong>
+              <span style="font-size: 11px; color: #475569;">Motorista: ${escapeHtml(driverName)}</span><br/>
+              <span style="font-size: 11px; color: #059669; font-weight: bold;">Velocidade: ${escapeHtml(currentCoords.speed)} km/h</span>
             </div>
           `))
           .addTo(map);

@@ -1,3 +1,5 @@
+import { getAuthToken } from './api';
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding)
@@ -18,6 +20,9 @@ export async function registerPushNotifications(): Promise<{ success: boolean; m
     return { success: false, message: 'Web Push não é suportado por este navegador.' };
   }
 
+  const authToken = getAuthToken();
+  if (!authToken) return { success: false, message: 'É necessário estar autenticado para ativar notificações.' };
+
   try {
     const registration = await navigator.serviceWorker.register('/sw.js');
     await navigator.serviceWorker.ready;
@@ -27,11 +32,7 @@ export async function registerPushNotifications(): Promise<{ success: boolean; m
       return { success: false, message: 'Permissão de notificação negada pelo usuário.' };
     }
 
-    const res = await fetch('/api/push/vapid-key', {
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('portal_user_id') || 'user-admin-1'}`
-      }
-    });
+    const res = await fetch('/api/push/vapid-key');
     const data = await res.json();
     if (!data.publicKey) {
       throw new Error('Chave VAPID não encontrada');
@@ -47,7 +48,7 @@ export async function registerPushNotifications(): Promise<{ success: boolean; m
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('portal_user_id') || 'user-admin-1'}`
+        'Authorization': `Bearer ${authToken}`
       },
       body: JSON.stringify(subscription)
     });
@@ -65,11 +66,13 @@ export async function registerPushNotifications(): Promise<{ success: boolean; m
 }
 
 export async function testPushNotification(): Promise<{ success: boolean; message: string }> {
+  const authToken = getAuthToken();
+  if (!authToken) return { success: false, message: 'É necessário estar autenticado para testar notificações.' };
   try {
     const res = await fetch('/api/push/test', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${localStorage.getItem('portal_user_id') || 'user-admin-1'}`
+        'Authorization': `Bearer ${authToken}`
       }
     });
     const data = await res.json();

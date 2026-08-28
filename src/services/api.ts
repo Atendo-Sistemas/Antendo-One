@@ -14,21 +14,48 @@ import {
   WhatsAppNotificationPayload,
   SaaSGlobalConfig,
   TripExpenseReport,
-  EmailConfig
+  EmailConfig,
+  WebPage,
+  BlogPost,
+  NotificationTemplate,
+  VisitAnalyticsResponse,
+  CompanyVehicle,
+  PublicFreightSummary,
+  DriverCompanyLink,
+  NotificationDelivery,
+  SupportSessionInfo,
+  WhatsAppPairingResult,
+  NotificationModuleStatus,
+  BackupStatusResponse,
+  TenantReportTemplate,
+  ReportTemplateType
 } from '../types';
 
-let currentToken: string = 'user-admin-1';
+let currentToken: string | null = null;
+const AUTH_TOKEN_STORAGE_KEY = 'frete_auth_token';
 
 export const setAuthToken = (token: string) => {
-  currentToken = token;
-  localStorage.setItem('frete_auth_token', token);
+  currentToken = token || null;
+  if (typeof window === 'undefined') return;
+  try {
+    if (currentToken) window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, currentToken);
+    else window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    // Storage may be unavailable in private/restricted browser contexts; memory session still works.
+  }
 };
 
+export const clearAuthToken = () => setAuthToken('');
+
 export const getAuthToken = (): string => {
-  if (!currentToken) {
-    currentToken = localStorage.getItem('frete_auth_token') || 'user-admin-1';
+  if (currentToken) return currentToken;
+  if (typeof window === 'undefined') return '';
+  try {
+    currentToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || null;
+  } catch {
+    currentToken = null;
   }
-  return currentToken;
+  return currentToken || '';
 };
 
 export interface OfflineResponse {
@@ -94,7 +121,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!res.ok) {
-    throw new Error(data.message || data.error || `Erro ${res.status}: Ocorreu um erro na requisição`);
+    if (res.status === 401 && token) clearAuthToken();
+    const error = new Error(data.message || data.error || `Erro ${res.status}: Ocorreu um erro na requisição`) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
   }
 
   return data as T;
@@ -102,6 +132,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 export const api = {
   // Auth
+  async logout() { return request<{ success: boolean }>('/auth/logout', { method: 'POST' }); },
   async getMe() {
     return request<{
       user: User;
@@ -109,6 +140,7 @@ export const api = {
       driver?: Driver;
       vehicles: Vehicle[];
       availableDemoAccounts: Array<{ id: string; name: string; email: string; role: string; tenantId: string | null; driverId?: string }>;
+      supportSession?: SupportSessionInfo | null;
     }>('/auth/me');
   },
 
@@ -132,6 +164,44 @@ export const api = {
     });
   },
 
+  async startDemoSession(userId?: string) {
+    return request<{
+      user: User;
+      tenant: Tenant | null;
+      driver?: Driver;
+      vehicles: Vehicle[];
+      token: string;
+      demo: true;
+    }>('/auth/demo-session', {
+      method: 'POST',
+      body: JSON.stringify(userId ? { userId } : {})
+    });
+  },
+
+  async startSupportSession(targetUserId: string) {
+    return request<{
+      user: User;
+      tenant: Tenant | null;
+      driver?: Driver;
+      vehicles: Vehicle[];
+      token: string;
+      supportSession: SupportSessionInfo;
+    }>('/support/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ targetUserId })
+    });
+  },
+
+  async endSupportSession() {
+    return request<{
+      user: User;
+      tenant: Tenant | null;
+      driver?: Driver;
+      vehicles: Vehicle[];
+      token: string;
+    }>('/support/sessions/end', { method: 'POST' });
+  },
+
   async requestOtp(phone: string) {
     return request<{ success: boolean; message: string }>('/auth/request-otp', {
       method: 'POST',
@@ -153,6 +223,8 @@ export const api = {
     email: string;
     phone: string;
     password?: string;
+    termsAccepted?: boolean;
+    privacyAccepted?: boolean;
   }) {
     return request<{ success: boolean; message: string }>('/auth/register-company', {
       method: 'POST',
@@ -168,21 +240,87 @@ export const api = {
   },
 
   async registerDriver(data: any) {
-    return request<{ user: User; driver: Driver; vehicle: Vehicle; token: string }>('/auth/register-driver', {
+    return request<{ user: User; driver: Driver; vehicle: Vehicle; token?: string }>('/drivers/register', {
       method: 'POST',
       body: JSON.stringify(data)
     });
   },
 
+  // Content management
+  async getPages() { return request<WebPage[]>('/pages'); },
+  async createPage(data: Partial<WebPage>) { return request<WebPage>('/pages', { method: 'POST', body: JSON.stringify(data) }); },
+  async updatePage(id: string, data: Partial<WebPage> & { contentVersion?: string; changeNote?: string }) { return request<WebPage>(`/pages/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async getPageVersions(id: string) { return request<{ currentVersion: string | null; versions: import('../types').LegalDocumentVersion[] }>(`/pages/${id}/versions`); },
+  async deletePage(id: string) { return request<{ success: boolean }>(`/pages/${id}`, { method: 'DELETE' }); },
+  async getPosts() { return request<BlogPost[]>('/posts'); },
+  async createPost(data: Partial<BlogPost>) { return request<BlogPost>('/posts', { method: 'POST', body: JSON.stringify(data) }); },
+  async updatePost(id: string, data: Partial<BlogPost>) { return request<BlogPost>(`/posts/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deletePost(id: string) { return request<{ success: boolean }>(`/posts/${id}`, { method: 'DELETE' }); },
+  async getPublicSeo() { return request<{ seo: any; content: any[] }>('/public/seo'); },
+  async getVisitAnalytics(days = 30) { return request<VisitAnalyticsResponse>(`/analytics/visits?days=${days}`); },
+  async getPublicContent(slug: string, section?: 'conteudo' | 'elo-log') { return request<any>(`/public/content/${encodeURIComponent(slug)}${section ? `?section=${section}` : ''}`); },
+  async getRegistrationLegalContent(slug: string) { return request<any>(`/public/registration-content/${encodeURIComponent(slug)}`); },
+  async getNotificationDeliveries(limit = 100) { return request<NotificationDelivery[]>(`/notification-deliveries?limit=${limit}`); },
+  async getNotificationConsent() { return request<{ email: boolean; whatsapp: boolean; updatedAt?: string | null }>('/notification-consent'); },
+  async updateNotificationConsent(payload: { email?: boolean; whatsapp?: boolean }) { return request<{ email: boolean; whatsapp: boolean; updatedAt: string }>('/notification-consent', { method: 'PUT', body: JSON.stringify(payload) }); },
+
+  async getNotificationTemplates() { return request<NotificationTemplate[]>('/saas/notification-templates'); },
+  async updateNotificationTemplate(id: string, data: Partial<NotificationTemplate>) { return request<NotificationTemplate>(`/saas/notification-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async getTenantNotificationTemplates() { return request<NotificationTemplate[]>('/tenant/notification-templates'); },
+  async updateTenantNotificationTemplate(id: string, data: Partial<NotificationTemplate>) { return request<NotificationTemplate>(`/tenant/notification-templates/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async getTenantReportTemplates() { return request<TenantReportTemplate[]>('/tenant/report-templates'); },
+  async updateTenantReportTemplate(type: ReportTemplateType, data: Partial<TenantReportTemplate>) { return request<TenantReportTemplate>(`/tenant/report-templates/${encodeURIComponent(type)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async getErrorLogs(params?: { limit?: number; event?: string; status?: number }) { const query = new URLSearchParams(); if (params?.limit) query.set('limit', String(params.limit)); if (params?.event) query.set('event', params.event); if (params?.status) query.set('status', String(params.status)); return request<{ items: import('../types').ErrorLogEntry[]; total: number }>(`/error-logs?${query.toString()}`); },
+  async getBackupStatus() { return request<BackupStatusResponse>('/admin/backups/status'); },
+  async requestManualBackup() { return request<{ success: boolean; requestId: string; status: 'QUEUED'; message: string }>('/admin/backups/run', { method: 'POST', body: JSON.stringify({}) }); },
+  async updateBackupNotifications(data: { enabled: boolean; whatsappEnabled: boolean; whatsappPhone: string; notifyOnFailure: boolean; notifyOnSuccess: boolean }) { return request<{ success: boolean; notifications: { enabled: boolean; whatsappEnabled: boolean; whatsappPhone: string; whatsappPhoneMasked: string; notifyOnFailure: boolean; notifyOnSuccess: boolean; updatedAt?: string } }>('/admin/backups/notifications', { method: 'PUT', body: JSON.stringify(data) }); },
+  async testBackupWhatsApp() { return request<{ success: boolean; message: string }>('/admin/backups/whatsapp-test', { method: 'POST', body: JSON.stringify({}) }); },
+  async cleanupErrorLogs(olderThanDays = 90) { return request<{ success: boolean; removed: number }>('/error-logs', { method: 'DELETE', body: JSON.stringify({ olderThanDays }) }); },
+  async testAsaasConnection() { return request<{ success: boolean; accountName: string; environment: string }>('/billing/asaas/test', { method: 'POST', body: JSON.stringify({}) }); },
+  async createAsaasSubscription(payload: { tenantId: string; planId: string; cycle: string; billingType: string; nextDueDate?: string }) { return request<{ id: string; status: string; cycle: string; nextDueDate: string; value: number }>('/billing/asaas/subscribe', { method: 'POST', body: JSON.stringify(payload) }); },
+  async getAsaasSubscription(tenantId?: string) { const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''; return request<any>(`/billing/asaas/subscription${query}`); },
+  async getAsaasFinancialSummary(tenantId?: string) { const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''; return request<any>(`/billing/asaas/financial-summary${query}`); },
+  async cancelAsaasSubscription(tenantId?: string) { return request<any>('/billing/asaas/subscription/cancel', { method: 'POST', body: JSON.stringify(tenantId ? { tenantId } : {}) }); },
+  async changeAsaasPlan(payload: { tenantId?: string; planId: string; cycle?: string; billingType?: string; nextDueDate?: string; updatePendingPayments?: boolean }) { return request<any>('/billing/asaas/subscription/change-plan', { method: 'POST', body: JSON.stringify(payload) }); },
+  async getNotificationModuleStatus(tenantId?: string) {
+    const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    return request<NotificationModuleStatus>(`/billing/asaas/notification-module${query}`);
+  },
+  async selectFreeNotificationModule(tenantId?: string) {
+    return request<NotificationModuleStatus>('/billing/asaas/notification-module/free', {
+      method: 'POST',
+      body: JSON.stringify(tenantId ? { tenantId } : {})
+    });
+  },
+  async createNotificationModuleSubscription(payload: { tenantId?: string; billingType?: string; nextDueDate?: string }) {
+    return request<{ id: string; status: string; value: number; nextDueDate: string; module: string }>('/billing/asaas/notification-module/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+  async cancelNotificationModule(tenantId?: string) { return request<any>('/billing/asaas/notification-module/cancel', { method: 'POST', body: JSON.stringify(tenantId ? { tenantId } : {}) }); },
   // Tenants
   async getTenants() {
     return request<Tenant[]>('/tenants');
   },
 
-  async createTenant(data: Partial<Tenant>) {
+  async createTenant(data: Partial<Tenant> & {
+    responsibleName: string;
+    password: string;
+    confirmPassword: string;
+    termsAccepted: boolean;
+    privacyAccepted: boolean;
+  }) {
     return request<Tenant>('/tenants', {
       method: 'POST',
       body: JSON.stringify(data)
+    });
+  },
+
+  async provisionTenantAtendo(id: string) {
+    return request<{ success: boolean; status: string; tenant: Tenant }>(`/tenants/${id}/provision-atendo`, {
+      method: 'POST',
+      body: JSON.stringify({})
     });
   },
 
@@ -250,6 +388,24 @@ export const api = {
   async getVehicles() {
     return request<Vehicle[]>('/vehicles');
   },
+  async getCompanyVehicles() {
+    return request<CompanyVehicle[]>('/company-vehicles');
+  },
+  async createCompanyVehicle(data: Partial<CompanyVehicle>) {
+    return request<CompanyVehicle>('/company-vehicles', { method: 'POST', body: JSON.stringify(data) });
+  },
+  async updateCompanyVehicle(id: string, data: Partial<CompanyVehicle>) {
+    return request<CompanyVehicle>(`/company-vehicles/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+  async deleteCompanyVehicle(id: string) {
+    return request<{ success: boolean; message: string }>(`/company-vehicles/${id}`, { method: 'DELETE' });
+  },
+  async getDriverCompanyLinks() {
+    return request<Array<DriverCompanyLink & { driver?: Driver; freightCode?: string; originCity?: string; destinationCity?: string }>>('/driver-company-links');
+  },
+  async updateDriverCompanyLinkStatus(id: string, status: 'APROVADO' | 'RECUSADO' | 'BLOQUEADO', reason?: string, scope?: 'FRETE' | 'EMPRESA') {
+    return request<{ success: boolean; link: DriverCompanyLink }>(`/driver-company-links/${id}/status`, { method: 'PUT', body: JSON.stringify({ status, reason, scope }) });
+  },
 
   // Freights
   async getFreights(params?: { status?: string; originCity?: string; destinationCity?: string; vehicleType?: string; onlyMine?: boolean }) {
@@ -265,6 +421,18 @@ export const api = {
 
   async getFreight(id: string) {
     return request<Freight & { formResponses: FormResponse[] }>(`/freights/${id}`);
+  },
+  async getPublicFreights() {
+    return request<PublicFreightSummary[]>('/public/freights');
+  },
+  async getPublicFreightDetails(id: string) {
+    return request<PublicFreightSummary & { price: number | null; priceAvailable: boolean; message?: string }>(`/public/freights/${id}`);
+  },
+  async startFreightInterest(data: { freightId: string; name: string; phone: string; termsAccepted: boolean; privacyAccepted: boolean }) {
+    return request<{ success: boolean; userId: string; message: string }>(`/public/freights/${data.freightId}/interest`, { method: 'POST', body: JSON.stringify(data) });
+  },
+  async completeQuickDriver(userId: string, data: Record<string, any>) {
+    return request<{ success: boolean; status: string; message: string }>(`/public/freights/${data.freightId}/interest/complete`, { method: 'POST', body: JSON.stringify({ ...data, userId }) });
   },
 
   async createFreight(data: any) {
@@ -410,18 +578,34 @@ export const api = {
     });
   },
 
-  async getWhatsAppConfig() {
-    return request<WhatsAppConfig & { tokenMasked?: string }>('/integrations/whatsapp/config');
+  async getWhatsAppConfig(tenantId?: string) {
+    const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    return request<WhatsAppConfig & { tokenMasked?: string; tenantId?: string | null; scope?: 'GLOBAL' | 'TENANT'; tenantHasDedicatedConfig?: boolean }>(`/integrations/whatsapp/config${query}`);
   },
 
-  async updateWhatsAppConfig(data: Partial<WhatsAppConfig>) {
-    return request<{ success: boolean; config: WhatsAppConfig }>('/integrations/whatsapp/config', {
+  async updateWhatsAppConfig(data: Partial<WhatsAppConfig> & { tenantId?: string }) {
+    return request<{ success: boolean; config: WhatsAppConfig & { tokenMasked?: string; tenantId?: string | null } }>('/integrations/whatsapp/config', {
       method: 'POST',
       body: JSON.stringify(data)
     });
   },
 
-  async testWhatsAppConnection(data: { phone?: string; message?: string; baseUrl?: string; token?: string }) {
+  async getWhatsAppStatus(tenantId?: string) {
+    const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    return request<{ success: boolean; status: string; message: string; pairingCode?: string; qrCode?: string; config: WhatsAppConfig & { tokenMasked?: string } }>(`/integrations/whatsapp/status${query}`);
+  },
+
+  async requestWhatsAppQr(tenantId?: string, phone?: string) {
+    return request<WhatsAppPairingResult & { config?: WhatsAppConfig & { tokenMasked?: string } }>('/integrations/whatsapp/qr', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(tenantId ? { tenantId } : {}),
+        ...(phone?.trim() ? { phone: phone.trim() } : {})
+      })
+    });
+  },
+
+  async testWhatsAppConnection(data: { phone?: string; message?: string; baseUrl?: string; token?: string; tenantId?: string }) {
     return request<{ success: boolean; message: string; recipient: string; details?: any }>('/integrations/whatsapp/test', {
       method: 'POST',
       body: JSON.stringify(data)

@@ -4,7 +4,16 @@ export interface WebPage {
   slug: string;
   title: string;
   content: string; // HTML or Markdown
+  excerpt?: string;
+  metaTitle?: string;
+  metaDescription?: string;
+  canonicalUrl?: string;
+  publicPath?: 'conteudo' | 'elo-log';
+  coverImageUrl?: string;
   isPublished: boolean;
+  isIndexable?: boolean;
+  isSystemLocked?: boolean;
+  contentVersion?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -17,10 +26,15 @@ export interface BlogPost {
   excerpt?: string;
   content: string;
   author: string;
+  metaTitle?: string;
+  metaDescription?: string;
+  canonicalUrl?: string;
+  coverImageUrl?: string;
   isPublished: boolean;
-  publishedAt?: string;
+  isIndexable?: boolean;
   createdAt: string;
   updatedAt: string;
+  publishedAt?: string;
 }
 
 export type UserRole = 
@@ -113,8 +127,29 @@ export interface Tenant {
   plan: 'BASICO' | 'PROFISSIONAL' | 'EMPRESARIAL';
   planLimits: TenantPlanLimits;
   allowedOperations?: OperationType[];
+  asaasCustomerId?: string;
+  asaasSubscriptionId?: string;
+  billingStatus?: 'PENDING' | 'ACTIVE' | 'OVERDUE' | 'INACTIVE' | 'CANCELED';
+  billingCycle?: string;
+  billingNextDueDate?: string;
+  notificationPlan?: NotificationModulePlan;
+  notificationBillingStatus?: NotificationBillingStatus;
+  notificationSubscriptionId?: string;
+  notificationBillingNextDueDate?: string;
+  isDemo?: boolean;
+  atendoCrmTenantId?: string;
+  atendoCrmProvisioningStatus?: 'NOT_REQUESTED' | 'PENDING' | 'PROVISIONED' | 'ERROR' | 'NOT_CONFIGURED';
+  atendoCrmProvisioningError?: string;
+  atendoCrmProvisionedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface NotificationConsent {
+  email: boolean;
+  whatsapp: boolean;
+  updatedAt?: string;
+  source?: 'USER' | 'ADMIN' | 'REGISTRATION';
 }
 
 export interface User {
@@ -127,19 +162,47 @@ export interface User {
   status: UserStatus;
   accountType?: 'REAL' | 'TEST';
   readOnly?: boolean;
+  notificationConsents?: NotificationConsent;
   driverId?: string; // If role is MOTORISTA
   password?: string; // For company logins
   lastLoginAt?: string;
   termsAcceptedAt?: string;
   privacyAcceptedAt?: string;
+  termsVersion?: string;
+  privacyVersion?: string;
   createdAt: string;
   updatedAt?: string;
+  activeSessionId?: string;
+  activeSessionExpiresAt?: string;
+}
+
+export interface LegalDocumentVersion {
+  id: string;
+  documentType: 'TERMS' | 'PRIVACY';
+  version: string;
+  title: string;
+  content: string;
+  excerpt?: string;
+  metaTitle?: string;
+  metaDescription?: string;
+  publishedAt: string;
+  createdAt: string;
+  createdByUserId?: string;
+  createdByName?: string;
+  changeNote?: string;
+}
+
+export interface SupportSessionInfo {
+  id: string;
+  targetUser: Pick<User, 'id' | 'name' | 'email' | 'role' | 'tenantId'>;
+  actorUser: Pick<User, 'id' | 'name' | 'email' | 'role' | 'tenantId'>;
+  expiresAt: string;
 }
 
 export interface Driver {
   id: string;
   userId: string;
-  tenantId: string;
+  tenantId: string | null;
   name: string;
   cpf: string;
   rg: string;
@@ -168,6 +231,75 @@ export interface Driver {
   updatedAt?: string;
 }
 
+export type DriverCompanyLinkStatus = 'PENDENTE' | 'APROVADO' | 'RECUSADO' | 'BLOQUEADO';
+export type DriverCompanyLinkScope = 'FRETE' | 'EMPRESA';
+export interface DriverCompanyLink {
+  id: string;
+  driverId: string;
+  tenantId: string;
+  status: DriverCompanyLinkStatus;
+  scope: DriverCompanyLinkScope;
+  source: 'FREIGHT_INTEREST' | 'IMPORTACAO' | 'CONVITE' | 'COMPANY_ADMIN_REGISTRATION';
+  freightId?: string;
+  approvedAt?: string;
+  approvedByUserId?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export type FreightInterestStatus = 'PENDENTE' | 'APROVADO' | 'RECUSADO' | 'CANCELADO';
+export interface FreightInterest {
+  id: string;
+  freightId: string;
+  driverId: string;
+  userId: string;
+  tenantId: string;
+  status: FreightInterestStatus;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt?: string;
+  reviewedByUserId?: string;
+  notes?: string;
+  profileCompleted?: boolean;
+}
+export interface CompanyVehicle {
+  id: string;
+  tenantId: string | null;
+  type: VehicleType;
+  brand: string;
+  model: string;
+  year: number;
+  plate: string;
+  renavam: string;
+  capacityKg: number;
+  bodyType: BodyType;
+  ownerName?: string;
+  ownerCnpj?: string;
+  registrationState?: string;
+  crlvNumber?: string;
+  status: VehicleStatus;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+export interface PublicFreightSummary {
+  id: string;
+  code: string;
+  operationType: OperationType;
+  originCity: string;
+  originState: string;
+  destinationCity: string;
+  destinationState: string;
+  date: string;
+  cargoType: string;
+  weightKg: number;
+  vehicleType: VehicleType;
+  bodyType?: BodyType;
+  minCapacityKg: number;
+  interestEnabled: boolean;
+  publishedAt?: string;
+}
 export interface Vehicle {
   id: string;
   driverId: string;
@@ -281,13 +413,27 @@ export interface Freight {
   createdAt: string;
   updatedAt: string;
   customData?: Record<string, any>;
+  companyVehicleId?: string;
+  companyVehicle?: CompanyVehicle;
+  publicListingEnabled?: boolean;
+  publicPriceVisibleToRegistered?: boolean;
+  publicInterestEnabled?: boolean;
+  publicPublishedAt?: string;
 }
 
 export type NotificationType = 
   | 'FRETE_DISPONIVEL' 
+  | 'FRETE_PUBLICADO'
   | 'FRETE_ACEITO' 
   | 'STATUS_ATUALIZADO' 
   | 'FRETE_CANCELADO' 
+  | 'EMPRESA_CADASTRADA'
+  | 'EMPRESA_APROVADA'
+  | 'USUARIO_CADASTRADO'
+  | 'USUARIO_STATUS_ATUALIZADO'
+  | 'MOTORISTA_CADASTRADO'
+  | 'INTERESSE_FRETE'
+  | 'PAGAMENTO_CRIADO'
   | 'SISTEMA';
 
 export interface AppNotification {
@@ -300,6 +446,61 @@ export interface AppNotification {
   message: string;
   read: boolean;
   createdAt: string;
+}
+
+export type NotificationChannel = 'email' | 'whatsapp' | 'inApp';
+export type NotificationDeliveryStatus = 'PENDENTE' | 'ENVIADO' | 'FALHOU' | 'IGNORADO';
+export interface NotificationDelivery {
+  id: string;
+  eventKey: string;
+  tenantId: string | null;
+  userId: string;
+  channel: NotificationChannel;
+  status: NotificationDeliveryStatus;
+  subject?: string;
+  providerMessageId?: string;
+  errorMessage?: string;
+  attempts: number;
+  createdAt: string;
+  updatedAt: string;
+  sentAt?: string;
+}
+export type NotificationCategory = 'USUARIO' | 'EMPRESA' | 'FRETE' | 'PAGAMENTO' | 'SISTEMA';
+
+export interface NotificationTemplate {
+  id: string;
+  eventKey: string;
+  label: string;
+  description: string;
+  category: NotificationCategory;
+  enabled: boolean;
+  editable: boolean;
+  systemLocked?: boolean;
+  channels: {
+    email: boolean;
+    whatsapp: boolean;
+    inApp: boolean;
+  };
+  emailSubject: string;
+  emailBody: string;
+  whatsappBody: string;
+  variables: string[];
+  updatedAt?: string;
+  source?: 'GLOBAL' | 'TENANT';
+}
+
+export type ReportTemplateType = 'EXPENSE' | 'CHECKLIST';
+
+export interface TenantReportTemplate {
+  tenantId?: string;
+  type: ReportTemplateType;
+  title: string;
+  subtitle: string;
+  approvalLabel: string;
+  signatureLabel: string;
+  notes: string;
+  updatedAt?: string;
+  source?: 'DEFAULT' | 'TENANT';
 }
 
 export type FormFieldType = 
@@ -368,6 +569,46 @@ export interface FormResponse {
   updatedAt?: string;
 }
 
+export interface ErrorLogEntry {
+  id: string;
+  correlationId: string;
+  createdAt: string;
+  service: string;
+  route?: string;
+  method?: string;
+  statusCode?: number;
+  event?: string;
+  message: string;
+  tenantId?: string;
+  userId?: string;
+}
+export interface VisitAnalyticsBucket {
+  date: string;
+  path: string;
+  source: string;
+  medium: string;
+  campaign: string;
+  referrer: string;
+  device: string;
+  country: string;
+  visits: number;
+}
+export interface VisitAnalyticsRow {
+  label: string;
+  visits: number;
+}
+export interface VisitAnalyticsResponse {
+  days: number;
+  generatedAt: string;
+  totalVisits: number;
+  bySource: VisitAnalyticsRow[];
+  byPath: VisitAnalyticsRow[];
+  byCampaign: VisitAnalyticsRow[];
+  byReferrer: VisitAnalyticsRow[];
+  byDevice: VisitAnalyticsRow[];
+  byCountry: VisitAnalyticsRow[];
+  daily: VisitAnalyticsRow[];
+}
 export interface AuditLog {
   id: string;
   tenantId?: string;
@@ -399,18 +640,32 @@ export interface DashboardStats {
   recentActivities: AuditLog[];
 }
 
+export type WhatsAppConnectionStatus = 'UNKNOWN' | 'DISCONNECTED' | 'QR_AVAILABLE' | 'PAIRING_CODE_AVAILABLE' | 'CONNECTED' | 'ERROR' | 'PENDING';
+
 export interface WhatsAppConfig {
   baseUrl: string;
   token: string;
+  provider?: 'WHAZING';
   defaultChannelNumber?: string;
   isActive: boolean;
   autoNotifyChecklist: boolean;
   autoNotifyFreightStatus: boolean;
+  connectionStatus?: WhatsAppConnectionStatus;
+  lastStatusCheckedAt?: string;
+  lastConnectionError?: string;
   lastTestedAt?: string;
   lastTestStatus?: 'SUCCESS' | 'ERROR';
   lastTestMessage?: string;
 }
 
+export interface WhatsAppPairingResult {
+  success: boolean;
+  status: WhatsAppConnectionStatus;
+  message: string;
+  pairingCode?: string;
+  qrCode?: string;
+  expiresInSeconds?: number;
+}
 export interface WhatsAppNotificationPayload {
   phone: string;
   message: string;
@@ -431,6 +686,30 @@ export interface PlanConfig {
   maxUsers: number;
   maxDrivers: number;
   isActive: boolean;
+}
+
+export type NotificationModulePlan = 'SAAS_FREE' | 'OWN_NUMBER';
+export type NotificationBillingStatus = 'NOT_REQUIRED' | 'PENDING' | 'ACTIVE' | 'OVERDUE' | 'INACTIVE' | 'CANCELED';
+
+export interface NotificationModuleConfig {
+  enabled: boolean;
+  freePlanName: string;
+  freePlanDescription: string;
+  ownNumberPlanName: string;
+  ownNumberPlanDescription: string;
+  ownNumberMonthlyPrice: number;
+  assistedActivationPrice: number;
+  extraNumberMonthlyPrice: number;
+}
+
+export interface NotificationModuleStatus {
+  tenantId: string;
+  plan: NotificationModulePlan;
+  billingStatus: NotificationBillingStatus;
+  subscriptionId?: string;
+  nextDueDate?: string;
+  canUseOwnNumber: boolean;
+  config: NotificationModuleConfig;
 }
 
 export interface SaaSLayoutConfig {
@@ -508,6 +787,60 @@ export interface MapboxConfig {
   updateIntervalSeconds: number;
 }
 
+export interface AsaasConfig {
+  enabled: boolean;
+  environment: 'sandbox' | 'production';
+  apiKey: string;
+  webhookToken: string;
+  webhookUrl?: string;
+}
+export interface SeoConfig {
+  siteName: string;
+  title: string;
+  description: string;
+  keywords?: string;
+  canonicalUrl: string;
+  ogImageUrl?: string;
+  locale: string;
+  allowIndexing: boolean;
+}
+
+export interface BackupNotificationConfig {
+  enabled: boolean;
+  whatsappEnabled: boolean;
+  whatsappPhone: string;
+  notifyOnFailure: boolean;
+  notifyOnSuccess: boolean;
+  updatedAt?: string;
+}
+
+export interface BackupHistoryItem {
+  name: string;
+  generatedAt: string | null;
+  sizeBytes: number;
+  verified: boolean;
+  status: 'SUCCESS' | 'ERROR' | 'RUNNING' | 'UNKNOWN';
+}
+
+export interface BackupStatusResponse {
+  configured: boolean;
+  state: 'SUCCESS' | 'ERROR' | 'RUNNING' | 'UNAVAILABLE' | 'UNKNOWN';
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorMessage: string | null;
+  backups: BackupHistoryItem[];
+  manualRequestPending: boolean;
+  retention: number;
+  schedule: string;
+  notifications: {
+    enabled: boolean;
+    whatsappEnabled: boolean;
+    whatsappPhoneMasked: string;
+    notifyOnFailure: boolean;
+    notifyOnSuccess: boolean;
+  };
+}
+
 export interface SaaSGlobalConfig {
   systemName: string;
   supportPhone: string;
@@ -525,6 +858,11 @@ export interface SaaSGlobalConfig {
   databaseConfig?: SqlDatabaseConfig;
   imageCompression?: ImageCompressionConfig;
   mapboxConfig?: MapboxConfig;
+  asaasConfig?: AsaasConfig;
+  notificationModule?: NotificationModuleConfig;
+  backupNotifications?: BackupNotificationConfig;
+  seo?: SeoConfig;
+  notificationTemplates?: NotificationTemplate[];
 }
 
 export type ExpenseCategory = 
@@ -618,5 +956,6 @@ export interface TripExpenseReport {
   
   createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
 }
 

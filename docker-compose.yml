@@ -9,9 +9,9 @@ services:
     container_name: elo-log-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-elolog}
-      POSTGRES_USER: ${DB_USER:-elolog_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-elolog_secret_password_2026}
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+      POSTGRES_USER: ${DB_USER:?DB_USER is required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -21,7 +21,7 @@ services:
     networks:
       - elo-log-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-elolog_user} -d ${DB_NAME:-elolog}"]
+      test: ["CMD-SHELL", "pg_isready -U $${DB_USER} -d $${DB_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -44,21 +44,24 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - JWT_SECRET=${JWT_SECRET:-elolog_jwt_secret_token_change_in_prod}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       # Conexão com o banco SQL PostgreSQL
       - DB_TYPE=postgres
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-elolog}
-      - DB_USER=${DB_USER:-elolog_user}
-      - DB_PASSWORD=${DB_PASSWORD:-elolog_secret_password_2026}
-      - DATABASE_URL=postgresql://${DB_USER:-elolog_user}:${DB_PASSWORD:-elolog_secret_password_2026}@postgres:5432/${DB_NAME:-elolog}
+      - DB_NAME=${DB_NAME:?DB_NAME is required}
+      - DB_USER=${DB_USER:?DB_USER is required}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
+      - DATABASE_URL=postgresql://${DB_USER:?DB_USER is required}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:?DB_NAME is required}
       # Compressão Automática de Imagens
       - IMAGE_COMPRESSION_ENABLED=true
       - IMAGE_QUALITY=0.8
       - IMAGE_MAX_WIDTH=1600
       - IMAGE_MAX_HEIGHT=1600
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - CONFIG_ENCRYPTION_KEY_FILE=/run/secrets/elolog_config_encryption_key
+    secrets:
+      - elolog_config_encryption_key
     networks:
       - elo-log-network
       # Caso use um proxy reverso global rodando em outra rede, descomente a rede abaixo:
@@ -75,3 +78,6 @@ networks:
 volumes:
   postgres_data:
     name: elo_log_postgres_data
+secrets:
+  elolog_config_encryption_key:
+    external: true

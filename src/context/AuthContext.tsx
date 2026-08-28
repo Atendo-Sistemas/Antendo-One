@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { User, Tenant, Driver, Vehicle, AppNotification } from '../types';
-import { api, setAuthToken, getAuthToken } from '../services/api';
+import { User, Tenant, Driver, Vehicle, AppNotification, SupportSessionInfo } from '../types';
+import { api, setAuthToken, getAuthToken, clearAuthToken } from '../services/api';
 
 interface DemoAccount {
   id: string;
@@ -20,7 +20,11 @@ interface AuthContextType {
   notifications: AppNotification[];
   unreadCount: number;
   loading: boolean;
+  supportSession: SupportSessionInfo | null;
+  startSupportSession: (targetUserId: string) => Promise<void>;
   switchUser: (userId: string) => Promise<void>;
+  startDemoSession: (userId?: string) => Promise<void>;
+  endSupportSession: () => Promise<void>;
   logout: () => void;
   refreshProfile: () => Promise<void>;
   updateUserProfile: (data: Partial<User> & { address?: string; city?: string; state?: string; zipCode?: string; password?: string }) => Promise<{ success: boolean; user: User }>;
@@ -39,6 +43,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [availableDemoAccounts, setAvailableDemoAccounts] = useState<DemoAccount[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [supportSession, setSupportSession] = useState<SupportSessionInfo | null>(null);
 
   const refreshProfile = useCallback(async () => {
     try {
@@ -48,8 +53,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setDriver(data.driver || null);
       setVehicles(data.vehicles || []);
       setAvailableDemoAccounts(data.availableDemoAccounts || []);
-    } catch (err) {
-      console.error('Error fetching user profile:', err);
+      setSupportSession(data.supportSession || null);
+    } catch (err: any) {
+      if (err?.status === 401) {
+        clearAuthToken();
+        setUser(null); setTenant(null); setDriver(null); setVehicles([]); setAvailableDemoAccounts([]); setSupportSession(null);
+      } else {
+        console.error('Error fetching user profile:', err);
+      }
     }
   }, []);
 
@@ -66,24 +77,77 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setLoading(true);
     try {
       const res = await api.switchDemoUser(userId);
-      if (res && res.token) {
-        setAuthToken(res.token);
-        setUser(res.user);
-        setTenant(res.tenant || null);
-        setDriver(res.driver || null);
-        setVehicles(res.vehicles || []);
-        await refreshNotifications();
-      } else {
-        setAuthToken(userId);
-        await refreshProfile();
-        await refreshNotifications();
-      }
+      if (!res?.token) throw new Error('A sessão de demonstração não retornou um token válido.');
+      setAuthToken(res.token);
+      setUser(res.user);
+      setTenant(res.tenant || null);
+      setDriver(res.driver || null);
+      setVehicles(res.vehicles || []);
+      setSupportSession(null);
+      await refreshNotifications();
     } catch (err) {
       console.error('Error switching demo user:', err);
-      // Fallback
-      setAuthToken(userId);
-      await refreshProfile();
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startDemoSession = async (userId?: string) => {
+    setLoading(true);
+    try {
+      const res = await api.startDemoSession(userId);
+      setAuthToken(res.token);
+      setUser(res.user);
+      setTenant(res.tenant || null);
+      setDriver(res.driver || null);
+      setVehicles(res.vehicles || []);
+      setAvailableDemoAccounts([]);
+      setSupportSession(null);
       await refreshNotifications();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startSupportSession = async (targetUserId: string) => {
+    setLoading(true);
+    try {
+      const res = await api.startSupportSession(targetUserId);
+      setAuthToken(res.token);
+      setUser(res.user);
+      setTenant(res.tenant || null);
+      setDriver(res.driver || null);
+      setVehicles(res.vehicles || []);
+      setSupportSession(res.supportSession);
+      await refreshNotifications();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const endSupportSession = async () => {
+    setLoading(true);
+    try {
+      const res = await api.endSupportSession();
+      setAuthToken(res.token);
+      setUser(res.user);
+      setTenant(res.tenant || null);
+      setDriver(res.driver || null);
+      setVehicles(res.vehicles || []);
+      setSupportSession(null);
+      await refreshNotifications();
+    } catch (err: any) {
+      console.error('Erro ao encerrar sessão de suporte:', err);
+      if (err?.status === 401 || err?.status === 400) {
+        clearAuthToken();
+        setUser(null);
+        setTenant(null);
+        setDriver(null);
+        setVehicles([]);
+        setSupportSession(null);
+      }
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -108,11 +172,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = useCallback(() => {
+    void api.logout().catch(() => undefined);
     setUser(null);
     setTenant(null);
     setDriver(null);
     setVehicles([]);
-    setAuthToken('');
+    setSupportSession(null);
+    clearAuthToken();
   }, []);
 
   const updateUserProfile = async (data: Partial<User> & { address?: string; city?: string; state?: string; zipCode?: string; password?: string }) => {
@@ -128,7 +194,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const init = async () => {
-      const token = localStorage.getItem('frete_auth_token');
+      const token = getAuthToken();
       if (token && token !== '') {
         await refreshProfile();
         await refreshNotifications();
@@ -139,7 +205,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Notification polling interval
     const interval = setInterval(() => {
-      const token = localStorage.getItem('frete_auth_token');
+      const token = getAuthToken();
       if (token && token !== '') {
         refreshNotifications();
       }
@@ -161,7 +227,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         notifications,
         unreadCount,
         loading,
+        supportSession,
+        startSupportSession,
         switchUser,
+        startDemoSession,
+        endSupportSession,
         logout,
         refreshProfile,
         updateUserProfile,

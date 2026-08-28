@@ -22,7 +22,7 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-elolog}
       POSTGRES_USER: ${DB_USER:-elolog_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-elolog_secret_password_2026}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -60,8 +60,8 @@ services:
       - DB_PORT=5432
       - DB_NAME=${DB_NAME:-elolog}
       - DB_USER=${DB_USER:-elolog_user}
-      - DB_PASSWORD=${DB_PASSWORD:-elolog_secret_password_2026}
-      - DATABASE_URL=postgresql://${DB_USER:-elolog_user}:${DB_PASSWORD:-elolog_secret_password_2026}@postgres:5432/${DB_NAME:-elolog}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
+      - DATABASE_URL=postgresql://${DB_USER:-elolog_user}:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/${DB_NAME:-elolog}
       # Otimização e Compressão de Fotos / Imagens
       - IMAGE_COMPRESSION_ENABLED=true
       - IMAGE_QUALITY=0.8

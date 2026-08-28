@@ -27,6 +27,7 @@ import {
 
 export const CompanyDashboard: React.FC = () => {
   const { user, tenant } = useAuth();
+  const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
   const [freights, setFreights] = useState<Freight[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -133,7 +134,7 @@ export const CompanyDashboard: React.FC = () => {
             className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            <span>Cadastrar Novo Frete</span>
+            <span>{isDemo ? 'Simular cadastro' : 'Cadastrar Novo Frete'}</span>
           </button>
         </div>
       </div>
@@ -312,7 +313,7 @@ export const CompanyDashboard: React.FC = () => {
                           <Eye className="w-3.5 h-3.5" />
                           <span>Ver</span>
                         </button>
-                        {['RASCUNHO', 'PUBLICADO', 'DISPONIVEL'].includes(freight.status) && (
+                        {!isDemo && ['RASCUNHO', 'PUBLICADO', 'DISPONIVEL'].includes(freight.status) && (
                           <button
                             onClick={() => setEditingFreight(freight)}
                             className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 transition-colors cursor-pointer"
@@ -321,13 +322,13 @@ export const CompanyDashboard: React.FC = () => {
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        <button
+                        {!isDemo && <button
                           onClick={() => handleDeleteFreight(freight.id, freight.code)}
                           className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors cursor-pointer"
                           title="Excluir frete"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        </button>}
                       </div>
                     </td>
                   </tr>
@@ -341,6 +342,7 @@ export const CompanyDashboard: React.FC = () => {
       {/* Create / Edit Freight Modal */}
       <FreightFormModal
         isOpen={isCreateModalOpen || editingFreight !== null}
+        simulateOnly={isDemo}
         onClose={() => {
           setIsCreateModalOpen(false);
           setEditingFreight(null);
@@ -362,9 +364,9 @@ export const CompanyDashboard: React.FC = () => {
       {selectedFreight && (
         <FreightDetailModal
           freight={selectedFreight}
-          isAdmin={true}
+          isAdmin={!isDemo}
           onClose={() => setSelectedFreight(null)}
-          onEdit={(f) => setEditingFreight(f)}
+          onEdit={!isDemo ? (f) => setEditingFreight(f) : undefined}
           onUpdateSuccess={(updated) => {
             setFreights(prev => prev.map(f => f.id === updated.id ? updated : f));
             setSelectedFreight(updated);
@@ -378,7 +380,8 @@ export const CompanyDashboard: React.FC = () => {
 
       {/* WhatsApp Gateway Config & Test Modal */}
       <WhatsAppConfigModal
-        isOpen={isWhatsAppModalOpen}
+        isOpen={!isDemo && isWhatsAppModalOpen}
+        tenantId={tenant?.id}
         onClose={() => setIsWhatsAppModalOpen(false)}
       />
 

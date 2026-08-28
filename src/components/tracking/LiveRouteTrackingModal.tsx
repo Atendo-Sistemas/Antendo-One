@@ -95,7 +95,8 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   };
 
   const handleShareWhatsApp = () => {
-    const msg = `🚚 *RASTREAMENTO EM TEMPO REAL • ELO LOG*\n\n` +
+    const trackingBrand = freight.tenantName || config?.systemName || 'Sistema de gestão';
+    const msg = `🚚 *RASTREAMENTO EM TEMPO REAL • ${trackingBrand}*\n\n` +
       `📦 *Frete:* #${freight.code}\n` +
       `📍 *Origem:* ${originName}\n` +
       `🏁 *Destino:* ${destName}\n` +

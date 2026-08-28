@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FormDefinition, FormField, FormFieldType, FormEventTrigger } from '../../types';
 import { api } from '../../services/api';
+import { useSaaS } from '../../context/SaaSContext';
 import { FormFillModal } from './FormFillModal';
 import { 
   FileText, 
@@ -19,6 +20,8 @@ import {
 } from 'lucide-react';
 
 export const FormBuilder: React.FC = () => {
+  const { config } = useSaaS();
+  const systemName = config?.systemName || config?.layout?.logoText || 'Atendo One';
   const [forms, setForms] = useState<FormDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -144,7 +147,7 @@ export const FormBuilder: React.FC = () => {
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-950 p-5 rounded-2xl text-white shadow-lg border border-slate-700 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center font-black text-emerald-400 text-lg shrink-0">
-            ELO
+            {systemName.slice(0, 10).toUpperCase()}
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -154,7 +157,7 @@ export const FormBuilder: React.FC = () => {
               <span className="text-xs text-slate-300 font-mono">Talão / Vistoria 3 Vias</span>
             </div>
             <h2 className="text-base font-black text-white mt-1">
-              Checklist / Vistoria de Entrega e Retirada (Modelo ELO LOG)
+              Checklist / Vistoria de Entrega e Retirada (Modelo {systemName})
             </h2>
             <p className="text-xs text-slate-300/90 mt-0.5">
               Conferência completa de 17 equipamentos, avarias (lataria, pintura, pneus), odômetro, documentos (CRLV/Danfe) e assinaturas digitais de Origem e Destino.
@@ -167,7 +170,7 @@ export const FormBuilder: React.FC = () => {
             const eloForm = forms.find(f => f.id === 'form-checklist-elolog') || {
               id: 'form-checklist-elolog',
               tenantId: 'tenant-translog-01',
-              title: 'Checklist / Vistoria de Entrega e Retirada de Veículo e Carga (Modelo Elo Log)',
+              title: `Checklist / Vistoria de Entrega e Retirada de Veículo e Carga (Modelo ${systemName})`,
               description: 'Modelo oficial de vistoria e checklist de entrega/retirada com conferência de documentos, avarias, 17 itens de equipamentos, odômetro (KM) e assinaturas de origem/destino.',
               category: 'CHECKLIST_ENTREGA' as any,
               triggerEvent: 'NA_ENTREGA' as any,
@@ -180,7 +183,7 @@ export const FormBuilder: React.FC = () => {
           className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-2 shrink-0"
         >
           <Eye className="w-4 h-4" />
-          <span>Abrir & Testar Vistoria Elo Log</span>
+              <span>Abrir & Testar Vistoria {systemName}</span>
         </button>
       </div>
 

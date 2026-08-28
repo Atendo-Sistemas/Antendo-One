@@ -213,7 +213,7 @@ export const SaaSProvider: React.FC<{ children: React.ReactNode }> = ({ children
       `;
     }
 
-    styleEl.innerHTML = cssRules;
+    styleEl.textContent = cssRules;
   };
 
   const getField = (formName: 'userForm' | 'freightForm' | 'driverForm' | 'expenseForm', fieldId: string): FormFieldSetting | null => {

@@ -218,6 +218,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
               <span className="text-slate-600 dark:text-slate-300">{freight.requirements.bodyTypeRequired}</span>
             </div>
             <p className="text-slate-500 mt-1">Capacidade mín: {freight.requirements.minCapacityKg} kg</p>
+            {freight.companyVehicle && <p className="text-blue-700 dark:text-blue-300 mt-2 font-semibold">Veículo próprio: {freight.companyVehicle.plate} • {freight.companyVehicle.brand} {freight.companyVehicle.model}</p>}
           </div>
 
           <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/30">

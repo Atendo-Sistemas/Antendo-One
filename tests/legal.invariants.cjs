@@ -1,0 +1,13 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const db = fs.readFileSync('server/db.ts', 'utf8');
+const types = fs.readFileSync('src/types/index.ts', 'utf8');
+assert.match(db, /const legalVersion = '2026-08-27\.1'/);
+assert.match(db, /const privacyContent =/);
+assert.match(db, /const termsContent =/);
+for (const phrase of ['Asaas', 'WhatsApp', 'consentimento', 'Analytics e visitas', 'vitrine pública', 'revisão jurídica']) assert.match(db, new RegExp(phrase, 'i'));
+assert.match(db, /Nunca sobrescrever o conteúdo persistido automaticamente/);
+assert.match(db, /legalDocumentVersions/);
+assert.match(db, /contentVersion: legalVersion/);
+assert.match(types, /contentVersion\?: string/);
+console.log('LEGAL_DOCUMENT_INVARIANTS=PASS');

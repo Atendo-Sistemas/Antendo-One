@@ -1,8 +1,12 @@
 import { jsPDF } from 'jspdf';
-import { TripExpenseReport, TripExpenseItem } from '../types';
+import { TripExpenseReport, TripExpenseItem, TenantReportTemplate } from '../types';
+import { addReportFooters, resolveReportBranding, slugForFilename, type ReportCompanyInfo, type ReportSystemInfo } from './reportBranding';
 
 export interface GenerateExpensePdfOptions {
   download?: boolean;
+  company?: ReportCompanyInfo;
+  system?: ReportSystemInfo;
+  template?: TenantReportTemplate;
   print?: boolean;
   returnBlob?: boolean;
   filename?: string;
@@ -40,7 +44,10 @@ export const generateExpenseReportPdf = (
   });
 
   const now = new Date().toLocaleString('pt-BR');
-  const filename = options.filename || `Prestacao_Contas_ELO_${report.freightCode || report.id.slice(0, 6)}_${report.driverName.replace(/\s+/g, '_')}.pdf`;
+  const branding = resolveReportBranding(options.company, options.system);
+  const reportTitle = options.template?.title || 'Prestação de Contas & Despesas de Viagem';
+  const reportSubtitle = options.template?.subtitle || 'Relatório operacional e financeiro da viagem';
+  const filename = options.filename || `Prestacao_Contas_${slugForFilename(branding.companyName)}_${report.freightCode || report.id.slice(0, 6)}_${slugForFilename(report.driverName)}.pdf`;
 
   // Colors
   const darkSlate = [15, 23, 42]; // Slate 900
@@ -48,18 +55,26 @@ export const generateExpenseReportPdf = (
   const lightBg = [248, 250, 252]; // Slate 50
   const borderGray = [203, 213, 225]; // Slate 300
 
-  // 1. Header Banner
+  // 1. Header Banner with the active company's legal identity
   doc.setFillColor(darkSlate[0], darkSlate[1], darkSlate[2]);
-  doc.rect(0, 0, 210, 24, 'F');
+  doc.rect(0, 0, 210, 34, 'F');
+  const companyName = branding.companyName;
+  const companyMeta = branding.companyMeta;
 
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text('ELO LOG • PRESTAÇÃO DE CONTAS & DESPESAS DE VIAGEM', 14, 11);
+  doc.text(`${branding.systemName.slice(0, 28)} • ${reportTitle.slice(0, 48)}`, 14, 11);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.text(`Sistema Integrado de Gestão de Fretes e Viagens • Emissão: ${now}`, 14, 18);
+  doc.text(`${reportSubtitle.slice(0, 58)} • ${branding.systemName} • Emissão: ${now}`, 14, 18);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text(companyName.slice(0, 82), 14, 24);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  if (companyMeta) doc.text(companyMeta.slice(0, 112), 14, 29);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
@@ -67,7 +82,7 @@ export const generateExpenseReportPdf = (
   doc.setFontSize(8);
   doc.text(`STATUS: ${report.status}`, 196, 18, { align: 'right' });
 
-  let y = 29;
+  let y = 39;
 
   // 2. Resumo da Viagem & Motorista
   doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
@@ -147,7 +162,7 @@ export const generateExpenseReportPdf = (
   const balance = report.advanceAmount - totalB;
   const isDevolver = balance >= 0;
   
-  doc.text(isDevolver ? 'Motorista Devolve (Saldo):' : 'Elo Log Deve Motorista (Saldo):', 135, y + 14);
+  doc.text(isDevolver ? 'Motorista Devolve (Saldo):' : 'Empresa Deve Motorista (Saldo):', 135, y + 14);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   if (isDevolver) {
@@ -177,7 +192,7 @@ export const generateExpenseReportPdf = (
   doc.text('DATA', 15, y + 5);
   doc.text('DESCRIÇÃO DAS DESPESAS', 32, y + 5);
   doc.text('PG MOTORISTA', 115, y + 5);
-  doc.text('ELO LOG PG', 145, y + 5);
+  doc.text('EMPRESA PG', 145, y + 5);
   doc.text('OBSERVAÇÕES', 172, y + 5);
 
   y += 7;
@@ -297,6 +312,20 @@ export const generateExpenseReportPdf = (
     y += 14;
   }
 
+  if (options.template?.notes) {
+    if (y > 230) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(darkSlate[0], darkSlate[1], darkSlate[2]);
+    doc.text('Observação da empresa:', 14, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(doc.splitTextToSize(options.template.notes, 182), 14, y + 5);
+    y += 14;
+  }
+
   // Assinaturas
   y = Math.max(y, 245);
   doc.setDrawColor(148, 163, 184);
@@ -309,8 +338,8 @@ export const generateExpenseReportPdf = (
   doc.text(report.driverName, 55, y + 19, { align: 'center' });
   doc.text('Assinatura do Motorista / Prestador', 55, y + 23, { align: 'center' });
 
-  doc.text('ELO LOG • Financeiro / Controladoria', 155, y + 19, { align: 'center' });
-  doc.text('Aprovação e Quitação de Saldo', 155, y + 23, { align: 'center' });
+  doc.text(branding.signatureName.slice(0, 34), 155, y + 19, { align: 'center' });
+  doc.text((options.template?.signatureLabel || branding.signatureRole).slice(0, 34), 155, y + 23, { align: 'center' });
 
   // 7. Galeria de Comprovantes Fiscais Anexados (Se houver comprovantes em imagem)
   const allPhotos: { item: TripExpenseItem, url: string }[] = [];
@@ -358,6 +387,9 @@ export const generateExpenseReportPdf = (
       }
     });
   }
+
+  // Footer is applied to every page after all optional annexes are created.
+  addReportFooters(doc, branding);
 
   // Finalize
   const blob = doc.output('blob');

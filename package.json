@@ -1,21 +1,25 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "1.2.5",
+  "version": "1.7.10",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:browser": "node tests/browser-smoke.cjs",
+    "test": "node tests/auth-session.invariants.cjs && node tests/performance.invariants.cjs && node tests/security.invariants.cjs && node tests/whatsapp-tenant.invariants.cjs && node tests/atendo-crm-provisioning.invariants.cjs && node tests/support-whatsapp.invariants.cjs && node tests/company-registration.invariants.cjs && node tests/notification-module.invariants.cjs && node tests/notification-otp.invariants.cjs && node tests/tenant-notification.invariants.cjs && node tests/demo-isolation.invariants.cjs && node tests/report-branding.invariants.cjs && npx tsx tests/pdf-output.smoke.ts && node tests/asaas-security.invariants.cjs && node tests/http-security.invariants.cjs && node tests/analytics.invariants.cjs && node tests/legal.invariants.cjs && node tests/backup.invariants.cjs && node tests/seo.invariants.cjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@types/sanitize-html": "^2.16.1",
     "@vitejs/plugin-react": "^5.0.4",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
+    "dompurify": "^3.4.14",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "html2canvas": "^1.4.1",
@@ -30,7 +34,8 @@
     "pg": "^8.23.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "react-quill-new": "^3.8.3",
+    "react-quill-new": "3.7.0",
+    "sanitize-html": "2.17.5",
     "vite": "^6.2.3",
     "web-push": "^3.6.7"
   },

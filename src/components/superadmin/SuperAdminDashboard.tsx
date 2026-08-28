@@ -1,7 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Tenant, OperationType } from '../../types';
 import { api } from '../../services/api';
-import { Building2, Shield, Plus, CheckCircle, TrendingUp, Users, Truck, DollarSign, Pencil, Trash2, X, Split } from 'lucide-react';
+import { Building2, Shield, Plus, CheckCircle, TrendingUp, Users, Truck, DollarSign, Pencil, Trash2, X, Split, Lock, User as UserIcon, Mail, Phone, RefreshCw } from 'lucide-react';
+
+const formatCnpj = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 14);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+  if (digits.length <= 8) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`;
+  if (digits.length <= 12) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`;
+  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+};
+
+const formatPhone = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
 
 export const SuperAdminDashboard: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -21,6 +37,12 @@ export const SuperAdminDashboard: React.FC = () => {
   const [plan, setPlan] = useState<'BASICO' | 'PROFISSIONAL' | 'EMPRESARIAL'>('PROFISSIONAL');
   const [status, setStatus] = useState<'PENDENTE' | 'ATIVA' | 'BLOQUEADA'>('ATIVA');
   const [allowedOperations, setAllowedOperations] = useState<OperationType[]>(['CARGA_GERAL']);
+  const [responsibleName, setResponsibleName] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     loadTenants();
@@ -50,6 +72,11 @@ export const SuperAdminDashboard: React.FC = () => {
     setPlan('PROFISSIONAL');
     setStatus('ATIVA');
     setAllowedOperations(['CARGA_GERAL']);
+    setResponsibleName('');
+    setPassword('');
+    setConfirmPassword('');
+    setTermsAccepted(false);
+    setPrivacyAccepted(false);
     setIsModalOpen(true);
   };
 
@@ -65,11 +92,35 @@ export const SuperAdminDashboard: React.FC = () => {
     setPlan(t.plan);
     setStatus(t.status || 'ATIVA');
     setAllowedOperations(t.allowedOperations || ['CARGA_GERAL']);
+    setResponsibleName('');
+    setPassword('');
+    setConfirmPassword('');
+    setTermsAccepted(false);
+    setPrivacyAccepted(false);
     setIsModalOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!editingTenant) {
+      if (!responsibleName.trim() || !email.trim() || !phone.trim() || !password) {
+        alert('Preencha os dados do responsável, e-mail, telefone e senha.');
+        return;
+      }
+      if (password.length < 6) {
+        alert('A senha deve ter pelo menos 6 caracteres.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        alert('As senhas não coincidem.');
+        return;
+      }
+      if (!termsAccepted || !privacyAccepted) {
+        alert('O cadastro exige aceite dos Termos de Uso e da Política de Privacidade.');
+        return;
+      }
+    }
+    setIsSubmitting(true);
     try {
       if (editingTenant) {
         await api.updateTenant(editingTenant.id, {
@@ -87,16 +138,21 @@ export const SuperAdminDashboard: React.FC = () => {
         alert('Empresa atualizada com sucesso!');
       } else {
         await api.createTenant({
-          name,
-          legalName: legalName || name,
-          cnpj,
-          email,
-          phone,
-          city,
-          state,
+          name: name.trim(),
+          legalName: legalName.trim() || name.trim(),
+          cnpj: cnpj.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          city: city.trim(),
+          state: state.trim().toUpperCase(),
           plan,
           status,
-          allowedOperations
+          allowedOperations,
+          responsibleName: responsibleName.trim(),
+          password,
+          confirmPassword,
+          termsAccepted,
+          privacyAccepted
         });
         alert('Empresa cadastrada com sucesso!');
       }
@@ -104,6 +160,8 @@ export const SuperAdminDashboard: React.FC = () => {
       loadTenants();
     } catch (err: any) {
       alert(err.message || 'Erro ao salvar empresa');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -121,6 +179,19 @@ export const SuperAdminDashboard: React.FC = () => {
       alert(err.message || 'Erro ao excluir empresa');
     } finally {
       setConfirmDelete(null);
+    }
+  };
+
+  const handleRetryAtendoProvisioning = async (t: Tenant) => {
+    try {
+      setIsSubmitting(true);
+      const result = await api.provisionTenantAtendo(t.id);
+      alert(result.success ? `Empresa ${t.name} provisionada no Atendo CRM.` : `Provisionamento pendente: ${result.status}.`);
+      await loadTenants();
+    } catch (err: any) {
+      alert(err.message || 'Não foi possível reprocessar o Atendo CRM.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -206,6 +277,11 @@ export const SuperAdminDashboard: React.FC = () => {
                         ATIVA
                       </span>
                     )}
+                    {t.atendoCrmProvisioningStatus && (
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${t.atendoCrmProvisioningStatus === 'PROVISIONED' ? 'bg-emerald-100 text-emerald-800' : t.atendoCrmProvisioningStatus === 'ERROR' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                        CRM: {t.atendoCrmProvisioningStatus === 'PROVISIONED' ? 'ATENDO OK' : t.atendoCrmProvisioningStatus}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -247,6 +323,16 @@ export const SuperAdminDashboard: React.FC = () => {
                   >
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
+                  {t.atendoCrmProvisioningStatus !== 'PROVISIONED' && (
+                    <button
+                      onClick={() => handleRetryAtendoProvisioning(t)}
+                      disabled={isSubmitting}
+                      className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 transition-colors cursor-pointer disabled:opacity-50"
+                      title="Reprocessar provisionamento no Atendo CRM"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSubmitting ? 'animate-spin' : ''}`} />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDeleteTenant(t.id, t.name)}
                     className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors cursor-pointer"
@@ -301,7 +387,7 @@ export const SuperAdminDashboard: React.FC = () => {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Nome Fantasia</label>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Nome Fantasia da Empresa *</label>
                 <input
                   type="text"
                   required
@@ -323,14 +409,31 @@ export const SuperAdminDashboard: React.FC = () => {
                 />
               </div>
 
+              {!editingTenant && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Nome do Responsável *</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={responsibleName}
+                      onChange={e => setResponsibleName(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder="Ex: Carlos Alberto Ferreira"
+                    />
+                    <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">CNPJ</label>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">CNPJ da Empresa *</label>
                   <input
                     type="text"
                     required
                     value={cnpj}
-                    onChange={e => setCnpj(e.target.value)}
+                    onChange={e => setCnpj(formatCnpj(e.target.value))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                     placeholder="00.000.000/0001-00"
                   />
@@ -354,6 +457,7 @@ export const SuperAdminDashboard: React.FC = () => {
                   <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">E-mail</label>
                   <input
                     type="email"
+                    required
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
@@ -361,16 +465,36 @@ export const SuperAdminDashboard: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Telefone</label>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Celular (WhatsApp) *</label>
                   <input
                     type="text"
+                    required
                     value={phone}
-                    onChange={e => setPhone(e.target.value)}
+                    onChange={e => setPhone(formatPhone(e.target.value))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
-                    placeholder="(11) 3333-4444"
+                    placeholder="(17) 99999-9999"
                   />
                 </div>
               </div>
+
+              {!editingTenant && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Senha de Acesso *</label>
+                    <div className="relative">
+                      <input type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="Mínimo 6 caracteres" autoComplete="new-password" />
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Confirmação de Senha *</label>
+                    <div className="relative">
+                      <input type="password" required minLength={6} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="Repita sua senha" autoComplete="new-password" />
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -395,6 +519,13 @@ export const SuperAdminDashboard: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {!editingTenant && (
+                <div className="space-y-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3">
+                  <label className="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300"><input type="checkbox" required checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} className="mt-0.5 rounded text-purple-600" /><span>Responsável ciente e de acordo com os Termos de Uso.</span></label>
+                  <label className="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300"><input type="checkbox" required checked={privacyAccepted} onChange={e => setPrivacyAccepted(e.target.checked)} className="mt-0.5 rounded text-purple-600" /><span>Responsável ciente e de acordo com a Política de Privacidade.</span></label>
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Status da Empresa</label>
@@ -455,9 +586,10 @@ export const SuperAdminDashboard: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-md cursor-pointer"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold text-xs shadow-md cursor-pointer"
                 >
-                  {editingTenant ? 'Salvar Alterações' : 'Cadastrar Empresa'}
+                  {isSubmitting ? 'Salvando...' : editingTenant ? 'Salvar Alterações' : 'Cadastrar Empresa'}
                 </button>
               </div>
             </form>

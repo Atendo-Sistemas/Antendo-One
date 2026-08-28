@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
-import { FormResponse, Freight } from '../types';
+import { FormResponse, Freight, TenantReportTemplate } from '../types';
+import { addReportFooters, resolveReportBranding, slugForFilename, type ReportCompanyInfo, type ReportSystemInfo } from './reportBranding';
 
 export const maskCpfForPdf = (cpf: string): string => {
   if (!cpf) return '***.***.***-**';
@@ -31,6 +32,9 @@ export const maskPhoneForPdf = (phone: string): string => {
 
 export interface GeneratePdfOptions {
   download?: boolean;
+  company?: ReportCompanyInfo;
+  system?: ReportSystemInfo;
+  template?: TenantReportTemplate;
   print?: boolean;
   shareWhatsapp?: boolean;
   returnBlob?: boolean;
@@ -52,6 +56,9 @@ export const generateChecklistPdf = (
   const talao = answers.talaoNumber || '000000';
   const freightCode = freight?.code || answers.freightCode || 'S/N';
   const now = new Date().toLocaleString('pt-BR');
+  const branding = resolveReportBranding(options.company, options.system);
+  const reportTitle = options.template?.title || 'Laudo de Vistoria e Checklist Digital';
+  const reportSubtitle = options.template?.subtitle || 'Registro de retirada e entrega do veículo e da carga';
 
   // Colors
   const primaryColor = [15, 23, 42]; // Slate 900
@@ -60,18 +67,32 @@ export const generateChecklistPdf = (
   const borderGray = [203, 213, 225]; // Slate 300
   const darkGray = [71, 85, 105]; // Slate 600
 
-  // 1. Header Banner
+  // 1. Header Banner with the active company's legal identity
   doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-  doc.rect(10, 10, 190, 24, 'F');
+  doc.rect(10, 10, 190, 34, 'F');
+  const companyName = branding.companyName;
+  const companyMeta = branding.companyMeta;
 
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text('ELO LOG • LAUDO DE VISTORIA E CHECKLIST DIGITAL', 15, 18);
+  doc.text(`${branding.systemName.slice(0, 30)} • ${reportTitle.slice(0, 48)}`, 15, 18);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
-  doc.text(`TRANSPORTE & LOGÍSTICA DE VEÍCULOS • FRETE #${freightCode}`, 15, 24);
+  doc.text(`${branding.companyName.slice(0, 36)} • ${reportSubtitle.slice(0, 42)}`, 15, 24);
+  doc.setFontSize(7);
+  doc.text(`FRETE #${freightCode}`, 15, 28);
+  if (freight?.companyVehicle) {
+    doc.setFontSize(7);
+    doc.text(`VEÍCULO PRÓPRIO: ${freight.companyVehicle.plate} • ${freight.companyVehicle.brand} ${freight.companyVehicle.model} • RENAVAM ${freight.companyVehicle.renavam}`, 15, 39);
+  }
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.text(companyName.slice(0, 78), 15, 29);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  if (companyMeta) doc.text(companyMeta.slice(0, 105), 15, 33);
 
   // Talao badge
   doc.setFillColor(emeraldColor[0], emeraldColor[1], emeraldColor[2]);
@@ -84,7 +105,7 @@ export const generateChecklistPdf = (
   doc.text(talao, 170, 26, { align: 'center' });
 
   // 2. Info Bar (Data / Estágio)
-  let y = 38;
+  let y = 48;
   doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
   doc.rect(10, y, 190, 8, 'F');
   doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
@@ -94,7 +115,7 @@ export const generateChecklistPdf = (
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
   const stageName = answers.entrega?.assinado ? 'FINALIZADO (ENTREGA CONCLUÍDA)' : (answers.origem?.assinado ? 'EM TRÂNSITO (RETIRADA ASSINADA)' : 'EM PREENCHIMENTO');
-  doc.text(`EMISSÃO: ${now}  |  ESTÁGIO: ${stageName}  |  SISTEMA DE AUDITORIA ELO LOG`, 14, y + 5.5);
+  doc.text(`EMISSÃO: ${now}  |  ESTÁGIO: ${stageName}  |  SISTEMA DE AUDITORIA ${branding.systemName}`, 14, y + 5.5);
 
   // 3. Section: Dados do Veículo & Retirada
   y += 12;
@@ -243,7 +264,7 @@ export const generateChecklistPdf = (
   doc.setTextColor(15, 23, 42);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
-  doc.text('4. CARIMBOS DE AUDITORIA E ASSINATURAS DIGITAIS', 13, y + 4.5);
+  doc.text(`4. ${(options.template?.approvalLabel || 'CARIMBOS DE AUDITORIA E ASSINATURAS DIGITAIS').toUpperCase()}`, 13, y + 4.5);
 
   y += 7;
   // Box 1: Origem / Retirada
@@ -304,12 +325,8 @@ export const generateChecklistPdf = (
   doc.setFontSize(6.5);
   doc.setFont('helvetica', 'italic');
   doc.setTextColor(148, 163, 184);
-  doc.text(
-    'Documento com validade jurídica e garantia de integridade eletrônica em conformidade com a LGPD. Todos os dados sensíveis foram ofuscados.',
-    105,
-    y,
-    { align: 'center' }
-  );
+  const legalNotice = `Documento emitido para ${branding.companyName}. ${options.template?.notes ? `${options.template.notes} ` : ''}Documento com validade jurídica e garantia de integridade eletrônica em conformidade com a LGPD. Todos os dados sensíveis foram ofuscados.`;
+  doc.text(doc.splitTextToSize(legalNotice, 180), 105, y, { align: 'center' });
 
   // If there are photos, add Page 2 for Photo Inspection Gallery
   const photosList: Array<{ title: string; url: string }> = [];
@@ -360,7 +377,9 @@ export const generateChecklistPdf = (
     });
   }
 
-  const filename = options.filename || `Checklist_ELOLOG_Talao_${talao}.pdf`;
+  addReportFooters(doc, branding);
+
+  const filename = options.filename || `Checklist_${slugForFilename(branding.companyName)}_Talao_${talao}.pdf`;
 
   if (options.download) {
     doc.save(filename);

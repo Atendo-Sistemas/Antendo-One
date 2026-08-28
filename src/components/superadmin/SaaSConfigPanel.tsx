@@ -3,6 +3,7 @@ import { api } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { SaaSGlobalConfig, WhatsAppConfig, EmailConfig } from '../../types';
 import { APP_VERSION, APP_BUILD_DATE, APP_RELEASE_NAME } from '../../version';
+import { AsaasConfigPanel } from './AsaasConfigPanel';
 import { 
   Settings, 
   Globe, 
@@ -23,21 +24,44 @@ import {
   FileText,
   Database,
   Compass,
-  BookOpen
+  BookOpen,
+  Search,
+  BarChart3
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { SqlAndInstallationConfig } from './SqlAndInstallationConfig';
 import { MapboxConfigPanel } from './MapboxConfigPanel';
+import { SeoConfigPanel } from './SeoConfigPanel';
+import { NotificationTemplatesPanel } from './NotificationTemplatesPanel';
+import { NotificationDeliveryLedger } from './NotificationDeliveryLedger';
+import { ErrorLogPanel } from './ErrorLogPanel';
+import { WhatsAppConfigModal } from '../common/WhatsAppConfigModal';
+import { AdminSeoOverviewPanel } from './AdminSeoOverviewPanel';
+import { VisitAnalyticsPanel } from './VisitAnalyticsPanel';
+import { BackupMonitorPanel } from './BackupMonitorPanel';
 
-export const SaaSConfigPanel: React.FC = () => {
+type SaaSConfigPanelProps = { onOpenContentManagement?: () => void };
+
+const DEFAULT_NOTIFICATION_MODULE: NonNullable<SaaSGlobalConfig['notificationModule']> = {
+  enabled: true,
+  freePlanName: 'WhatsApp SaaS — Gratuito',
+  freePlanDescription: 'Notificações usando o telefone oficial da plataforma.',
+  ownNumberPlanName: 'WhatsApp Próprio da Empresa',
+  ownNumberPlanDescription: 'Notificações usando o número e canal WhatsApp da empresa.',
+  ownNumberMonthlyPrice: 89.90,
+  assistedActivationPrice: 149.90,
+  extraNumberMonthlyPrice: 29.90
+};
+
+export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentManagement }) => {
   const { user } = useAuth();
-  const isTestUser = user?.id?.startsWith('user-') || user?.email?.includes('test') || user?.email?.includes('demo') || user?.name?.toLowerCase().includes('teste');
+  const isTestUser = user?.accountType === 'TEST' || user?.readOnly === true || (user?.accountType !== 'REAL' && Boolean(user?.id && /(?:test|demo)/i.test(user.id)));
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'branding' | 'plans' | 'rules' | 'gateway' | 'layout' | 'fields' | 'email' | 'sql-installation' | 'mapbox' | 'help'>('sql-installation');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'analytics' | 'branding' | 'plans' | 'rules' | 'gateway' | 'layout' | 'fields' | 'email' | 'sql-installation' | 'mapbox' | 'help' | 'asaas' | 'seo' | 'notifications' | 'error-logs' | 'backups'>('overview');
   const [selectedForm, setSelectedForm] = useState<'userForm' | 'freightForm' | 'driverForm' | 'expenseForm'>('freightForm');
   const [showToken, setShowToken] = useState(false);
 
@@ -58,10 +82,11 @@ export const SaaSConfigPanel: React.FC = () => {
 
   // Test states
   const [testPhone, setTestPhone] = useState('');
-  const [testMessage, setTestMessage] = useState('🚚 [ELO LOG] Teste de integração do gateway WhatsApp. Configurações globais salvas com sucesso!');
+  const [testMessage, setTestMessage] = useState('Teste de integração do Atendo CRM. Configurações globais salvas com sucesso.');
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [showWhatsAppTenantModal, setShowWhatsAppTenantModal] = useState(false);
 
   useEffect(() => {
     loadAllConfigs();
@@ -102,6 +127,11 @@ export const SaaSConfigPanel: React.FC = () => {
         if (!saasData.layout.homeTitleAccent) saasData.layout.homeTitleAccent = 'Tempo Real';
         if (!saasData.layout.homeSubtitle) saasData.layout.homeSubtitle = 'O Elo Log conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.';
       }
+
+      saasData.notificationModule = {
+        ...DEFAULT_NOTIFICATION_MODULE,
+        ...(saasData.notificationModule || {})
+      };
 
       // Ensure form field settings are present and initialized
       if (!saasData.formFields) {
@@ -256,6 +286,18 @@ export const SaaSConfigPanel: React.FC = () => {
     });
   };
 
+  const updateNotificationModuleField = (field: keyof NonNullable<SaaSGlobalConfig['notificationModule']>, value: any) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      notificationModule: {
+        ...DEFAULT_NOTIFICATION_MODULE,
+        ...(config.notificationModule || {}),
+        [field]: value
+      }
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
@@ -322,6 +364,18 @@ export const SaaSConfigPanel: React.FC = () => {
         <div className="space-y-2 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 h-fit shadow-xs">
           <p className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-3 px-3">Ambientes de Ajuste</p>
           <button
+            onClick={() => setActiveSubTab('overview')}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+              activeSubTab === 'overview' ? 'bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-900' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+            }`}
+          ><Search className="w-4 h-4 shrink-0" /> Visão geral SEO</button>
+          <button
+            onClick={() => setActiveSubTab('analytics')}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+              activeSubTab === 'analytics' ? 'bg-teal-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+            }`}
+          ><BarChart3 className="w-4 h-4 shrink-0" /> Visitas e origem</button>
+          <button
             onClick={() => setActiveSubTab('branding')}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
               activeSubTab === 'branding'
@@ -343,6 +397,16 @@ export const SaaSConfigPanel: React.FC = () => {
             <Sliders className="w-4 h-4 shrink-0" /> Planos & Limites Corporativos
           </button>
 
+          <button
+            onClick={() => setActiveSubTab('asaas')}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+              activeSubTab === 'asaas'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+            }`}
+          >
+            <DollarSign className="w-4 h-4 shrink-0" /> Pagamentos Asaas
+          </button>
           <button
             onClick={() => setActiveSubTab('rules')}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
@@ -399,6 +463,33 @@ export const SaaSConfigPanel: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveSubTab('seo')}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+              activeSubTab === 'seo' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+            }`}
+          ><Globe className="w-4 h-4 shrink-0" /> SEO Global</button>
+          <button
+            onClick={() => setActiveSubTab('notifications')}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+              activeSubTab === 'notifications' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+            }`}
+          ><MessageSquare className="w-4 h-4 shrink-0" /> Mensagens e Notificações</button>
+
+          <button
+            onClick={() => setActiveSubTab('backups')}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+              activeSubTab === 'backups' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+            }`}
+          ><Database className="w-4 h-4 shrink-0" /> Monitor de Backups</button>
+
+          <button
+            onClick={() => setActiveSubTab('error-logs')}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
+              activeSubTab === 'error-logs' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+            }`}
+          ><AlertTriangle className="w-4 h-4 shrink-0" /> Log de Erros</button>
+
+          <button
             onClick={() => setActiveSubTab('sql-installation')}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
               activeSubTab === 'sql-installation'
@@ -435,6 +526,13 @@ export const SaaSConfigPanel: React.FC = () => {
         {/* Content Container */}
         <div className="md:col-span-3 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs">
           
+          {activeSubTab === 'overview' && (
+            <AdminSeoOverviewPanel
+              onOpenContentManagement={onOpenContentManagement}
+              onOpenSeoConfig={() => setActiveSubTab('seo')}
+            />
+          )}
+
           {/* TAB 1: BRANDING */}
           {activeSubTab === 'branding' && config && (
             <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
@@ -501,6 +599,24 @@ export const SaaSConfigPanel: React.FC = () => {
               <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
                 <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Planos & Barreiras Limitadoras</h3>
                 <p className="text-[11px] text-slate-400 mt-1">Defina preços mensais e cotas rígidas para evitar sobrecarga ou incentivar upgrades.</p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/20 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-black text-indigo-900 dark:text-indigo-200">Módulo adicional de notificações</h4>
+                    <p className="text-[11px] text-indigo-800/80 dark:text-indigo-300/80 mt-1">Plano gratuito usa o telefone SaaS. O plano pago libera o número WhatsApp próprio da empresa e será cobrado pelo Asaas.</p>
+                  </div>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-indigo-800 dark:text-indigo-200"><input type="checkbox" checked={config.notificationModule?.enabled ?? true} onChange={e => updateNotificationModuleField('enabled', e.target.checked)} /> Ativo</label>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Nome do plano gratuito<input type="text" value={config.notificationModule?.freePlanName || DEFAULT_NOTIFICATION_MODULE.freePlanName} onChange={e => updateNotificationModuleField('freePlanName', e.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Nome do plano de número próprio<input type="text" value={config.notificationModule?.ownNumberPlanName || DEFAULT_NOTIFICATION_MODULE.ownNumberPlanName} onChange={e => updateNotificationModuleField('ownNumberPlanName', e.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Valor mensal do número próprio (R$)<input type="number" min="0" step="0.01" value={config.notificationModule?.ownNumberMonthlyPrice ?? DEFAULT_NOTIFICATION_MODULE.ownNumberMonthlyPrice} onChange={e => updateNotificationModuleField('ownNumberMonthlyPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Ativação assistida (R$)<input type="number" min="0" step="0.01" value={config.notificationModule?.assistedActivationPrice ?? DEFAULT_NOTIFICATION_MODULE.assistedActivationPrice} onChange={e => updateNotificationModuleField('assistedActivationPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Número adicional (R$/mês)<input type="number" min="0" step="0.01" value={config.notificationModule?.extraNumberMonthlyPrice ?? DEFAULT_NOTIFICATION_MODULE.extraNumberMonthlyPrice} onChange={e => updateNotificationModuleField('extraNumberMonthlyPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                </div>
+                <p className="text-[10px] text-indigo-800/80 dark:text-indigo-300/80">Preço inicial sugerido: número SaaS sem mensalidade adicional; número próprio R$ 89,90/mês; ativação assistida R$ 149,90 uma vez; número extra R$ 29,90/mês. Todos os valores ficam editáveis aqui.</p>
               </div>
 
               <div className="space-y-5">
@@ -604,6 +720,20 @@ export const SaaSConfigPanel: React.FC = () => {
             </form>
           )}
 
+          {/* TAB ASAAS: PAYMENTS */}
+          {activeSubTab === 'asaas' && config && (
+            <AsaasConfigPanel
+              config={config}
+              saving={saving}
+              onUpdateConfig={async (updated) => {
+                const newConfig = { ...config, ...updated };
+                setConfig(newConfig);
+                await api.updateSaaSGlobalConfig(newConfig);
+                setMessage({ text: 'Configuração Asaas salva com segurança!', type: 'success' });
+                setTimeout(() => setMessage(null), 4000);
+              }}
+            />
+          )}
           {/* TAB 3: OPERATING RULES */}
           {activeSubTab === 'rules' && config && (
             <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
@@ -860,8 +990,13 @@ export const SaaSConfigPanel: React.FC = () => {
             <div className="space-y-6">
               <form onSubmit={handleSaveWhatsAppConfig} className="space-y-6">
                 <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Configuração de Disparos em Tempo Real</h3>
-                  <p className="text-[11px] text-slate-400 mt-1">Conecte o sistema a um gateway de envios (ex: Twilio, Z-API, Evolution, API-Brasil) para disparar códigos OTP corporativos e alertas.</p>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Configuração de Disparos em Tempo Real</h3>
+                      <p className="text-[11px] text-slate-400 mt-1">Conecte o sistema ao Atendo CRM para disparar códigos OTP corporativos e alertas.</p>
+                    </div>
+                    <button type="button" onClick={() => setShowWhatsAppTenantModal(true)} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-2 cursor-pointer"><MessageSquare className="w-4 h-4" /> Gerenciar conexões por empresa</button>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -897,7 +1032,7 @@ export const SaaSConfigPanel: React.FC = () => {
                       <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Número do Canal Transmissor</label>
                       <input
                         type="text"
-                        placeholder="Ex: 5517997451176"
+                        placeholder="Informe um número com DDI e DDD"
                         value={waConfig.defaultChannelNumber || ''}
                         onChange={e => setWaConfig({ ...waConfig, defaultChannelNumber: e.target.value })}
                         className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono focus:outline-emerald-500"
@@ -973,7 +1108,7 @@ export const SaaSConfigPanel: React.FC = () => {
                     <label className="text-[10px] font-bold text-slate-500">Destinatário (WhatsApp)</label>
                     <input
                       type="text"
-                      placeholder="Ex: 5517997451176"
+                      placeholder="Informe um número com DDI e DDD"
                       value={testPhone}
                       onChange={e => setTestPhone(e.target.value.replace(/\D/g, ''))}
                       className="w-full px-2.5 py-1.5 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-mono"
@@ -1475,6 +1610,22 @@ export const SaaSConfigPanel: React.FC = () => {
             </div>
           )}
 
+          {activeSubTab === 'analytics' && <VisitAnalyticsPanel />}
+
+          {activeSubTab === 'seo' && config && (
+            <SeoConfigPanel config={config} saving={saving} onUpdateConfig={async (updated) => {
+              const newConfig = { ...config, ...updated };
+              setConfig(newConfig);
+              await api.updateSaaSGlobalConfig(newConfig);
+              setMessage({ text: 'Configuração SEO salva com sucesso!', type: 'success' });
+            }} />
+          )}
+          {activeSubTab === 'notifications' && <><NotificationTemplatesPanel /><NotificationDeliveryLedger /></>}
+
+          {activeSubTab === 'backups' && <BackupMonitorPanel />}
+
+          {activeSubTab === 'error-logs' && <ErrorLogPanel />}
+
           {/* TAB 8: SQL & INSTALAÇÃO VPS */}
           {activeSubTab === 'sql-installation' && config && (
             <SqlAndInstallationConfig
@@ -1574,6 +1725,11 @@ export const SaaSConfigPanel: React.FC = () => {
           )}
 
         </div>
+
+        <WhatsAppConfigModal
+          isOpen={showWhatsAppTenantModal}
+          onClose={() => setShowWhatsAppTenantModal(false)}
+        />
 
       </div>
 

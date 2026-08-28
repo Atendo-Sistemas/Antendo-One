@@ -1,16 +1,22 @@
 {
-  "name": "Elo Log - Gestão de Fretes",
-  "short_name": "Elo Log",
-  "description": "Plataforma inteligente de gestão e publicação de fretes em tempo real.",
-  "start_url": "/",
+  "name": "Atendo One — Gestão de Fretes",
+  "short_name": "Atendo One",
+  "description": "Plataforma de gestão logística para transportadoras, motoristas e operações de fretes.",
+  "start_url": "/login",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#2563eb",
+  "background_color": "#f8fafc",
+  "theme_color": "#047857",
   "icons": [
     {
-      "src": "/vite.svg",
-      "sizes": "192x192 512x512",
-      "type": "image/svg+xml",
+      "src": "/icons/atendo-one-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/atendo-one-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

@@ -1,0 +1,34 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '..');
+const api = fs.readFileSync(path.join(root, 'server/api.ts'), 'utf8');
+const db = fs.readFileSync(path.join(root, 'server/db.ts'), 'utf8');
+const client = fs.readFileSync(path.join(root, 'src/services/api.ts'), 'utf8');
+const modal = fs.readFileSync(path.join(root, 'src/components/common/WhatsAppConfigModal.tsx'), 'utf8');
+
+assert.match(db, /WHATSAPP_TENANT_SECRET_PREFIX = 'whatsapp-tenant:'/);
+assert.match(db, /persistWhatsAppSecretForTenant/);
+assert.match(db, /SELECT id, ciphertext FROM app_secrets WHERE id LIKE \$1/);
+assert.match(db, /token: ''/);
+assert.match(api, /Authorization: `Bearer \$\{config\.token\.trim\(\)\}`/);
+assert.match(api, /apiRouter\.get\('\/integrations\/whatsapp\/status'/);
+assert.match(api, /apiRouter\.post\('\/integrations\/whatsapp\/qr'/);
+assert.match(api, /callWhatsAppGateway\(config, '\/statuschannel'/);
+assert.match(api, /callWhatsAppGateway\(config, '\/qrcode'/);
+assert.match(api, /requestedNumber/, 'O telefone opcional deve ser normalizado antes da solicitação.');
+assert.match(api, /extractWhatsAppQrCode/);
+assert.match(api, /QR_AVAILABLE/);
+assert.match(api, /safeWhatsAppConfig/);
+assert.match(api, /canManageWhatsAppTenant/);
+assert.match(api, /validateWhatsAppBaseUrl/);
+assert.match(api, /if \(tenantConfig\?\.token && tenantConfig\.baseUrl\) return tenantConfig;/, 'Configuração de tenant incompleta deve usar fallback global.');
+assert.ok(!api.includes('bearertoken='), 'O token não deve ser enviado na query string.');
+assert.match(client, /getWhatsAppStatus/);
+assert.match(client, /requestWhatsAppQr/);
+assert.match(modal, /Gerar QR Code/);
+assert.match(modal, /QR Code temporário/);
+assert.match(modal, /Nunca é exibido|nunca é exibido|nunca é exibido/, 'A UI deve informar que o token não é exibido.');
+assert.match(modal, /tenantId/);
+console.log('WHATSAPP_TENANT_INVARIANTS_OK');

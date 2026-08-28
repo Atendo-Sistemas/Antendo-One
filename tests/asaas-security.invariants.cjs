@@ -1,0 +1,25 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const api = fs.readFileSync('server/api.ts', 'utf8');
+const panel = fs.readFileSync('src/components/superadmin/AsaasConfigPanel.tsx', 'utf8');
+
+assert.match(api, /const normalizeAsaasPhone =/);
+assert.match(api, /const buildAsaasCustomerPayload =/);
+assert.match(api, /mobilePhone = normalizeAsaasPhone\(tenant\.phone\)/);
+assert.doesNotMatch(api, /phone:\s*tenant\.phone/);
+assert.match(api, /const asaasSafeError =/);
+assert.match(api, /const findAsaasSubscriptionByExternalReference =/);
+assert.match(api, /if \(billingType === 'CREDIT_CARD'\) return res\.status\(400\)/);
+assert.match(api, /billing\/asaas\/subscription\/cancel/);
+assert.match(api, /billing\/asaas\/subscription\/change-plan/);
+assert.match(api, /billing\/asaas\/notification-module\/cancel/);
+assert.match(api, /billing\/asaas\/financial-summary/);
+assert.match(api, /notificationConsentFor =/);
+assert.match(api, /status: 'IGNORADO'/);
+assert.match(api, /notification-consent/);
+assert.match(api, /const existingExternal = await findOpenAsaasSubscriptionForTenant\(/);
+assert.equal((api.match(/const existingExternal = await findOpenAsaasSubscriptionForTenant\(/g) || []).length, 2);
+assert.doesNotMatch(api, /body\?\.errors\?\.\[0\]\?\.description \|\| 'Falha ao criar assinatura Asaas\.'/);
+assert.doesNotMatch(api, /error: err\.message \|\| 'Não foi possível (acessar|criar .*Asaas)/);
+assert.doesNotMatch(panel, /<option value="CREDIT_CARD">/);
+console.log('ASAAS_SECURITY_INVARIANTS=PASS');

@@ -66,7 +66,7 @@ export const SqlAndInstallationConfig: React.FC<SqlAndInstallationConfigProps> =
       port: 5432,
       database: 'elolog',
       username: 'elolog_user',
-      password: 'elolog_secret_password_2026',
+      password: '',
       ssl: false,
       autoMigrate: true,
       connectionStatus: 'UNCONFIGURED'

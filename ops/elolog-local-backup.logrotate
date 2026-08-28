@@ -1,0 +1,11 @@
+/var/log/elolog-local-backup.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    su root root
+    create 0600 root root
+}

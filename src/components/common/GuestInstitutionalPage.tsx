@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Truck, ShieldCheck, Mail, Phone, Lock, User as UserIcon, Building2, FileText, Send, CheckCircle2, ArrowRight, AlertTriangle, MessageSquare } from 'lucide-react';
+import { Truck, ShieldCheck, Mail, Phone, Lock, User as UserIcon, Building2, FileText, Send, CheckCircle2, ArrowRight, AlertTriangle, MessageSquare, PlayCircle } from 'lucide-react';
 import { api, setAuthToken } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useSaaS } from '../../context/SaaSContext';
@@ -10,16 +10,46 @@ import { PrivacyPolicy } from './PrivacyPolicy';
 
 interface GuestInstitutionalPageProps {
   onLoginSuccess: () => void;
+  onDemoStart: (userId: string) => Promise<void>;
+  initialTab?: 'inicio' | 'contato' | 'login' | 'cadastro';
 }
 
-export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ onLoginSuccess }) => {
+const DEMO_PROFILES = [
+  {
+    id: 'user-demo-company-admin',
+    label: 'Administradora da empresa',
+    role: 'EMPRESA_SUPER_ADMIN',
+    description: 'Visão geral do painel empresarial, indicadores, fretes, usuários e documentos.'
+  },
+  {
+    id: 'user-demo-supervisor',
+    label: 'Supervisor operacional',
+    role: 'SUPERVISOR',
+    description: 'Acompanhe a operação, fretes, motoristas, veículos e formulários em modo leitura.'
+  },
+  {
+    id: 'user-demo-operator',
+    label: 'Usuária operacional',
+    role: 'USUARIO',
+    description: 'Experimente a rotina de consulta e acompanhamento de cargas da equipe.'
+  },
+  {
+    id: 'user-demo-driver',
+    label: 'Motorista',
+    role: 'MOTORISTA',
+    description: 'Veja a perspectiva do motorista, seus fretes, veículo e checklist fictício.'
+  }
+] as const;
+
+export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ onLoginSuccess, onDemoStart, initialTab = 'inicio' }) => {
   const { refreshProfile, refreshNotifications } = useAuth();
   const { config } = useSaaS();
-  const [activeSubTab, setActiveSubTab] = useState<'inicio' | 'contato' | 'login' | 'cadastro'>('inicio');
+  const [activeSubTab, setActiveSubTab] = useState<'inicio' | 'contato' | 'login' | 'cadastro'>(initialTab);
 
   // Terms and Privacy View
   const [showTerms, setShowTerms] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [publicContent, setPublicContent] = useState<any[]>([]);
 
   // Dynamic layout / institutional home text config with fallbacks
   const logoName = config?.layout?.logoText || 'Elo Log';
@@ -27,7 +57,19 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
   const homeTitle = config?.layout?.homeTitle || 'Gestão e Publicação de Fretes em';
   const homeTitleAccent = config?.layout?.homeTitleAccent || 'Tempo Real';
   const homeSubtitle = config?.layout?.homeSubtitle || 'O Elo Log conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.';
+
+  useEffect(() => {
+    const seo = config?.seo;
+    if (!seo) return;
+    document.title = seo.title || config?.layout?.browserTabTitle || logoName;
+    let description = document.querySelector('meta[name="description"]') as HTMLMetaElement | null;
+    if (!description) { description = document.createElement('meta'); description.name = 'description'; document.head.appendChild(description); }
+    description.content = seo.description || homeSubtitle;
+  }, [config, homeSubtitle, logoName]);
   
+  useEffect(() => {
+    api.getPublicSeo().then(data => setPublicContent(data.content || [])).catch(() => undefined);
+  }, []);
   // Login Form States
   const [loginMode, setLoginMode] = useState<'email' | 'phone'>('email');
   const [loginEmail, setLoginEmail] = useState('');
@@ -61,6 +103,9 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
   const [contactMessage, setContactMessage] = useState('');
   const [contactSuccess, setContactSuccess] = useState(false);
   const [contactLoading, setContactLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoError, setDemoError] = useState('');
+  const [showDemoProfiles, setShowDemoProfiles] = useState(false);
 
   // Countdown timer effect for WhatsApp OTP
   useEffect(() => {
@@ -74,6 +119,26 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
     }
     return () => clearInterval(interval);
   }, [loginTimerActive, loginTimer]);
+
+  const openDemoChooser = () => {
+    if (demoLoading) return;
+    setDemoError('');
+    setShowDemoProfiles(true);
+  };
+
+  const handleStartDemo = async (userId: string) => {
+    if (demoLoading) return;
+    setDemoLoading(true);
+    setDemoError('');
+    try {
+      await onDemoStart(userId);
+      setShowDemoProfiles(false);
+    } catch (err: any) {
+      setDemoError(err?.message || 'Não foi possível iniciar a demonstração. Tente novamente.');
+    } finally {
+      setDemoLoading(false);
+    }
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -215,7 +280,9 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
         responsibleName: regResponsibleName,
         email: regEmail,
         phone: regPhone,
-        password: regPassword
+        password: regPassword,
+        termsAccepted: regTermsAccepted,
+        privacyAccepted: regPrivacyAccepted
       });
 
       setRegStep('verify');
@@ -299,6 +366,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
               >
                 Início
               </button>
+              <a href="/vitrine-fretes" className="px-4 py-2 rounded-lg text-sm font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50">Fretes disponíveis</a>
               <button
                 onClick={() => setActiveSubTab('contato')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -328,6 +396,13 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
                 Entrar
               </button>
               <button
+                onClick={openDemoChooser}
+                disabled={demoLoading}
+                className="px-4 py-2 rounded-lg text-sm font-bold border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-60"
+              >
+                {demoLoading ? 'Abrindo demonstração...' : 'Demonstração'}
+              </button>
+              <button
                 onClick={() => {
                   setRegStep('form');
                   setRegError('');
@@ -343,6 +418,13 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
 
             {/* Mobile Actions Header */}
             <div className="flex sm:hidden items-center gap-1">
+              <button
+                onClick={openDemoChooser}
+                disabled={demoLoading}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-emerald-200 bg-emerald-50 text-emerald-700 disabled:opacity-60"
+              >
+                {demoLoading ? 'Abrindo...' : 'Demo'}
+              </button>
               <button 
                 onClick={() => setActiveSubTab('login')}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-800"
@@ -359,6 +441,39 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
           </div>
         </div>
       </nav>
+
+      {showDemoProfiles && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" role="presentation">
+          <div role="dialog" aria-modal="true" aria-labelledby="demo-profile-title" className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600 dark:text-indigo-300">Demonstração pública</p>
+                <h2 id="demo-profile-title" className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">Escolha uma função para experimentar</h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">Todos os perfis usam dados fictícios da mesma empresa demo. Você poderá navegar e testar a experiência, mas nenhuma alteração será salva.</p>
+              </div>
+              <button type="button" onClick={() => setShowDemoProfiles(false)} disabled={demoLoading} className="rounded-xl px-3 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800" aria-label="Fechar escolha de perfil">Fechar</button>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {DEMO_PROFILES.map(profile => (
+                <button key={profile.id} type="button" onClick={() => void handleStartDemo(profile.id)} disabled={demoLoading} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:border-indigo-400 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-indigo-500 dark:hover:bg-indigo-950/30">
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-black text-slate-900 dark:text-white">{profile.label}</span>
+                    <span className="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">Perfil demo</span>
+                  </span>
+                  <span className="mt-2 block text-xs leading-relaxed text-slate-500 dark:text-slate-400">{profile.description}</span>
+                </button>
+              ))}
+            </div>
+
+            {demoLoading && <p className="mt-4 text-center text-sm font-bold text-indigo-700 dark:text-indigo-300">Preparando o perfil selecionado...</p>}
+            {demoError && <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700" role="alert">{demoError}</p>}
+            <div className="mt-5 flex justify-end">
+              <button type="button" onClick={() => setShowDemoProfiles(false)} disabled={demoLoading} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Sections */}
       <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -413,12 +528,22 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </button>
                 <button
+                  onClick={openDemoChooser}
+                  disabled={demoLoading}
+                  className="px-6 py-3 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white text-base shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  <PlayCircle className="w-5 h-5" />
+                  {demoLoading ? 'Abrindo demonstração...' : 'Acessar demonstração'}
+                </button>
+                <button
                   onClick={() => setActiveSubTab('contato')}
                   className="px-6 py-3 rounded-xl font-semibold bg-white dark:bg-slate-900 hover:bg-slate-50 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-base flex items-center justify-center cursor-pointer"
                 >
                   Falar com Comercial
                 </button>
               </div>
+              {demoError && <p className="mt-3 text-sm font-medium text-rose-600" role="alert">{demoError}</p>}
+              <p className="mt-3 text-xs text-slate-500">A demonstração usa dados fictícios e não permite acessar configurações, credenciais ou pagamentos.</p>
             </div>
 
             <div className="lg:col-span-5 relative">
@@ -470,7 +595,77 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
           </div>
         )}
 
+        {activeSubTab === 'inicio' && (
+          <section className="mt-14 border-t border-slate-200 dark:border-slate-800 pt-12" aria-labelledby="planos-comerciais">
+            <div className="text-center max-w-2xl mx-auto">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600">Planos comerciais</p>
+              <h2 id="planos-comerciais" className="mt-2 text-2xl md:text-3xl font-black text-slate-900 dark:text-white">Escolha a estrutura ideal para sua operação</h2>
+              <p className="mt-3 text-slate-600 dark:text-slate-300">Planos transparentes para organizar fretes, equipes e notificações, com contratação do WhatsApp próprio quando sua empresa precisar.</p>
+            </div>
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              {(config?.plans || []).filter(plan => plan.isActive).map(plan => (
+                <div key={plan.id} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm">
+                  <h3 className="font-extrabold text-slate-900 dark:text-white">{plan.name}</h3>
+                  <p className="mt-3 text-3xl font-black text-emerald-700 dark:text-emerald-400">R$ {Number(plan.price).toFixed(2).replace('.', ',')}<span className="text-xs font-semibold text-slate-500">/mês</span></p>
+                  <p className="mt-3 text-sm text-slate-500">Até {plan.maxUsers} usuários, {plan.maxDrivers} motoristas e {plan.maxFreightsMonthly} fretes por mês.</p>
+                </div>
+              ))}
+            </div>
+            {config?.notificationModule?.enabled !== false && (
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/20 p-5">
+                  <div className="flex items-center justify-between gap-3"><h3 className="font-extrabold text-emerald-900 dark:text-emerald-200">{config?.notificationModule?.freePlanName || 'WhatsApp SaaS — Gratuito'}</h3><span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-black uppercase text-white">Grátis</span></div>
+                  <p className="mt-3 text-sm text-emerald-900/80 dark:text-emerald-200/80">{config?.notificationModule?.freePlanDescription || 'Notificações usando o telefone oficial da plataforma.'}</p>
+                  <p className="mt-4 flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300"><CheckCircle2 className="w-4 h-4" /> Ativação inicial incluída</p>
+                </div>
+                <div className="rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/20 p-5">
+                  <div className="flex items-center justify-between gap-3"><h3 className="font-extrabold text-indigo-900 dark:text-indigo-200">{config?.notificationModule?.ownNumberPlanName || 'WhatsApp Próprio da Empresa'}</h3><span className="text-2xl font-black text-indigo-700 dark:text-indigo-300">R$ {Number(config?.notificationModule?.ownNumberMonthlyPrice ?? 89.90).toFixed(2).replace('.', ',')}<span className="text-xs font-semibold">/mês</span></span></div>
+                  <p className="mt-3 text-sm text-indigo-900/80 dark:text-indigo-200/80">{config?.notificationModule?.ownNumberPlanDescription || 'Notificações usando o número e canal WhatsApp da empresa.'}</p>
+                  <p className="mt-4 flex items-center gap-2 text-xs font-bold text-indigo-800 dark:text-indigo-300"><CheckCircle2 className="w-4 h-4" /> Cobrança recorrente pelo Asaas</p>
+                </div>
+              </div>
+            )}
+            <p className="mt-4 text-center text-[11px] text-slate-500">A ativação assistida e os números adicionais podem ser contratados conforme a configuração comercial do SaaS. A disponibilidade depende da configuração do administrador.</p>
+          </section>
+        )}
+
         {/* TAB CONTATO */}
+        {activeSubTab === 'inicio' && (
+          <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16" aria-labelledby="conteudos-logisticos">
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-12">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600">Conteúdo e soluções Atendo One</p>
+              <h2 id="conteudos-logisticos" className="mt-2 text-2xl md:text-3xl font-black text-slate-900 dark:text-white">Organize a operação logística com informação e método</h2>
+              <p className="mt-3 max-w-3xl text-slate-600 dark:text-slate-300">Guias práticos para transportadoras que querem publicar fretes com clareza, acompanhar viagens e melhorar seus registros operacionais.</p>
+              <div className="mt-7 grid gap-4 md:grid-cols-3">
+                {(publicContent.length ? publicContent : [
+                  { slug: 'gestao-de-fretes-para-transportadoras', publicPath: 'conteudo', title: 'Gestão de fretes para transportadoras', excerpt: 'Como organizar publicação, negociação e acompanhamento de fretes.' },
+                  { slug: 'sistema-de-gestao-de-transportes-tms', publicPath: 'conteudo', title: 'Sistema de gestão de transportes (TMS)', excerpt: 'Recursos essenciais para digitalizar a rotina logística.' },
+                  { slug: 'checklist-de-viagem-para-transportadoras', publicPath: 'conteudo', title: 'Checklist de viagem para transportadoras', excerpt: 'Como registrar conferências, evidências e ocorrências.' }
+                ]).filter((item: any) => !['politica-de-privacidade', 'termos-de-uso'].includes(item.slug)).slice(0, 6).map((item: any) => (
+                  <a key={item.slug} href={`/${item.publicPath === 'elo-log' ? 'elo-log' : 'conteudo'}/${encodeURIComponent(item.slug)}`} className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 hover:border-emerald-400 hover:shadow-lg transition-all">
+                    <h3 className="font-extrabold text-slate-900 dark:text-white group-hover:text-emerald-700 dark:group-hover:text-emerald-400">{item.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-slate-400">{item.excerpt || 'Conheça o conteúdo completo no portal Atendo One.'}</p>
+                    <span className="mt-4 inline-block text-xs font-black uppercase tracking-wide text-emerald-700 dark:text-emerald-400">Ler conteúdo →</span>
+                  </a>
+                ))}
+              </div>
+              <div className="mt-8 grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl bg-slate-900 p-5 text-white"><h3 className="font-extrabold">Publicação organizada</h3><p className="mt-2 text-sm text-slate-300">Centralize origem, destino, carga, prazos e condições antes de disponibilizar um frete.</p></div>
+                <div className="rounded-2xl bg-emerald-700 p-5 text-white"><h3 className="font-extrabold">Visibilidade da viagem</h3><p className="mt-2 text-sm text-emerald-50">Acompanhe status, responsáveis e ocorrências em um fluxo claro para a equipe.</p></div>
+                <div className="rounded-2xl bg-teal-700 p-5 text-white"><h3 className="font-extrabold">Dados para decidir</h3><p className="mt-2 text-sm text-teal-50">Mantenha históricos e registros úteis para suporte, auditoria e melhoria contínua.</p></div>
+              </div>
+              <div className="mt-10 max-w-4xl">
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">Dúvidas frequentes sobre gestão de fretes</h2>
+                <div className="mt-4 divide-y divide-slate-200 dark:divide-slate-800 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                  <details className="p-5"><summary className="cursor-pointer font-bold text-slate-900 dark:text-white">O que é gestão de fretes?</summary><p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">É a organização das etapas de cadastro, publicação, aceite, acompanhamento e encerramento de uma oportunidade de transporte.</p></details>
+                  <details className="p-5"><summary className="cursor-pointer font-bold text-slate-900 dark:text-white">Quem pode usar o Elo Log?</summary><p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">Transportadoras, equipes operacionais e motoristas podem usar os recursos conforme seus perfis e permissões.</p></details>
+                  <details className="p-5"><summary className="cursor-pointer font-bold text-slate-900 dark:text-white">Como começar?</summary><p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">Cadastre a empresa, organize os usuários autorizados e comece com um fluxo padronizado de publicação e acompanhamento.</p></details>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
         {activeSubTab === 'contato' && (
           <div className="max-w-xl mx-auto py-6">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-md">
@@ -555,10 +750,10 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
           <div className="max-w-md mx-auto py-6">
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 shadow-md">
               <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2 text-center">
-                Acesse o Elo Log
+                Acesse o Atendo One
               </h2>
               <p className="text-xs text-slate-500 text-center mb-6">
-                Escolha o método de autenticação corporativa de sua preferência
+                Entre com segurança na sua operação logística
               </p>
 
               {/* Toggle Login Mode */}

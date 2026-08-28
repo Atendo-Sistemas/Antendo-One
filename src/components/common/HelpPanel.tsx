@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen } from 'lucide-react';
 import { api } from '../../services/api';
+import { sanitizeRichHtml } from '../../utils/sanitizeHtml';
 import 'react-quill-new/dist/quill.snow.css';
 
 export const HelpPanel: React.FC<{ role: string }> = ({ role }) => {
@@ -36,7 +37,7 @@ export const HelpPanel: React.FC<{ role: string }> = ({ role }) => {
         <div className="ql-snow">
           <div 
             className="ql-editor text-sm text-slate-600 dark:text-slate-300 max-w-none px-0"
-            dangerouslySetInnerHTML={{ __html: content }} 
+            dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(content) }} 
           />
         </div>
       )}
