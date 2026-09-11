@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SaaSGlobalConfig, MapboxConfig } from '../../types';
 import { api } from '../../services/api';
 import { 
@@ -46,6 +46,12 @@ export const MapboxConfigPanel: React.FC<MapboxConfigPanelProps> = ({
   const [showToken, setShowToken] = useState(false);
   const [testingToken, setTestingToken] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [localSaving, setLocalSaving] = useState(false);
+
+  // Sync form state with config changes from parent
+  useEffect(() => {
+    setMapboxForm(config.mapboxConfig || DEFAULT_MAPBOX_CONFIG);
+  }, [config.mapboxConfig]);
 
   const handleTestToken = async () => {
     const tokenToTest = mapboxForm.apiKey.includes('•') || mapboxForm.apiKey.includes('*')
@@ -76,9 +82,18 @@ export const MapboxConfigPanel: React.FC<MapboxConfigPanelProps> = ({
   };
 
   const handleSave = async () => {
-    await onUpdateConfig({
-      mapboxConfig: mapboxForm
-    });
+    setLocalSaving(true);
+    try {
+      await onUpdateConfig({
+        mapboxConfig: mapboxForm
+      });
+      // Ensure form stays in sync after save
+      setMapboxForm(mapboxForm);
+    } catch (err) {
+      console.error('Error saving Mapbox config:', err);
+    } finally {
+      setLocalSaving(false);
+    }
   };
 
   return (
@@ -271,10 +286,10 @@ export const MapboxConfigPanel: React.FC<MapboxConfigPanelProps> = ({
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || localSaving}
             className="px-6 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50 transition-colors shadow-sm flex items-center gap-2"
           >
-            {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {saving || localSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
             <span>Salvar Configuração do Mapbox</span>
           </button>
         </div>
