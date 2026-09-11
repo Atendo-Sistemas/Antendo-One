@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Truck, ShieldCheck, Mail, Phone, Lock, User as UserIcon, Building2, FileText, Send, CheckCircle2, ArrowRight, AlertTriangle, MessageSquare, PlayCircle } from 'lucide-react';
-import { api, setAuthToken } from '../../services/api';
+import { api, setAuthSession, setAuthToken } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useSaaS } from '../../context/SaaSContext';
 import { ThemeToggle } from './ThemeToggle';
@@ -52,11 +52,11 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
   const [publicContent, setPublicContent] = useState<any[]>([]);
 
   // Dynamic layout / institutional home text config with fallbacks
-  const logoName = config?.layout?.logoText || 'Elo Log';
-  const homeBadge = config?.layout?.homeBadgeText || 'Solução Completa Multi-Tenant de Carga';
+  const logoName = config?.layout?.logoText || 'Atendo One';
+  const homeBadge = config?.layout?.homeBadgeText || 'Gestão completa para sua operação de transporte';
   const homeTitle = config?.layout?.homeTitle || 'Gestão e Publicação de Fretes em';
   const homeTitleAccent = config?.layout?.homeTitleAccent || 'Tempo Real';
-  const homeSubtitle = config?.layout?.homeSubtitle || 'O Elo Log conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.';
+  const homeSubtitle = config?.layout?.homeSubtitle || 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.';
 
   useEffect(() => {
     const seo = config?.seo;
@@ -193,7 +193,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
 
     try {
       const res = await api.login(loginEmail, undefined, loginPassword);
-      setAuthToken(res.token);
+      setAuthSession(res.token, res.refreshToken);
       await refreshProfile();
       await refreshNotifications();
       onLoginSuccess();
@@ -240,7 +240,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
 
     try {
       const res = await api.verifyOtp(loginPhone, loginOtpCode);
-      setAuthToken(res.token);
+      setAuthSession(res.token, res.refreshToken);
       await refreshProfile();
       await refreshNotifications();
       onLoginSuccess();
@@ -418,6 +418,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
 
             {/* Mobile Actions Header */}
             <div className="flex sm:hidden items-center gap-1">
+              <a href="/vitrine-fretes" className="px-3 py-1.5 rounded-lg text-xs font-bold border border-emerald-200 bg-emerald-50 text-emerald-700 whitespace-nowrap" aria-label="Ver fretes disponíveis">Fretes</a>
               <button
                 onClick={openDemoChooser}
                 disabled={demoLoading}
@@ -502,8 +503,8 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
                     <Building2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-slate-900 dark:text-white text-sm">Controle de Tenants</h4>
-                    <p className="text-xs text-slate-500">Dados individuais e blindados para cada transportadora.</p>
+                    <h4 className="font-semibold text-slate-900 dark:text-white text-sm">Operação segura e organizada</h4>
+                    <p className="text-xs text-slate-500">Cada empresa visualiza apenas seus próprios dados, usuários e operações.</p>
                   </div>
                 </div>
 
@@ -549,6 +550,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
             <div className="lg:col-span-5 relative">
               <div className="absolute inset-0 bg-gradient-to-tr from-emerald-500 to-teal-500 rounded-3xl rotate-3 blur-md opacity-10"></div>
               <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl">
+                {config?.layout?.homeHeroImageUrl && <img src={config.layout.homeHeroImageUrl} alt="Imagem de apresentação da plataforma" className="mb-6 h-40 w-full rounded-2xl object-cover" />}
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
                   <Truck className="text-emerald-600 w-5 h-5" />
                   Acesso Rápido ao Portal
@@ -658,7 +660,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
                 <h2 className="text-xl font-black text-slate-900 dark:text-white">Dúvidas frequentes sobre gestão de fretes</h2>
                 <div className="mt-4 divide-y divide-slate-200 dark:divide-slate-800 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                   <details className="p-5"><summary className="cursor-pointer font-bold text-slate-900 dark:text-white">O que é gestão de fretes?</summary><p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">É a organização das etapas de cadastro, publicação, aceite, acompanhamento e encerramento de uma oportunidade de transporte.</p></details>
-                  <details className="p-5"><summary className="cursor-pointer font-bold text-slate-900 dark:text-white">Quem pode usar o Elo Log?</summary><p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">Transportadoras, equipes operacionais e motoristas podem usar os recursos conforme seus perfis e permissões.</p></details>
+                  <details className="p-5"><summary className="cursor-pointer font-bold text-slate-900 dark:text-white">Quem pode usar o Atendo One?</summary><p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">Transportadoras, equipes operacionais e motoristas podem usar os recursos conforme seus perfis e permissões.</p></details>
                   <details className="p-5"><summary className="cursor-pointer font-bold text-slate-900 dark:text-white">Como começar?</summary><p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">Cadastre a empresa, organize os usuários autorizados e comece com um fluxo padronizado de publicação e acompanhamento.</p></details>
                 </div>
               </div>
@@ -1170,7 +1172,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
                   </div>
 
                   <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed max-w-md mx-auto">
-                    Por motivos de segurança e para garantir o isolamento da arquitetura Multi-Tenant, <strong>sua conta foi registrada no estado pendente</strong>. 
+                    Por motivos de segurança e para garantir o proteção dos dados da sua empresa, <strong>sua conta foi registrada no estado pendente</strong>. 
                   </p>
 
                   <div className="p-4 bg-amber-50/50 border border-amber-100 rounded-2xl text-left max-w-md mx-auto text-amber-800 text-xs space-y-1.5 leading-relaxed">
@@ -1196,7 +1198,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
       {/* Institutional Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>{config?.layout?.footerText || 'Elo Log • Gestão Logística Integrada © 2026'}</span>
+          <span>{config?.layout?.footerText || 'Atendo One • Gestão Logística Integrada © 2026'}</span>
           <span className="font-mono text-[10px] text-slate-400">
             Plataforma SaaS Segura • Conectividade Offline Garantida
           </span>

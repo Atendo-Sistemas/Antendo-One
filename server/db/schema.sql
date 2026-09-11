@@ -283,7 +283,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires_at ON auth_tokens(expires_at)
 -- 13. TABELA DE CONFIGURAÇÃO GLOBAL DO SAAS (SINGLETON ROW)
 CREATE TABLE IF NOT EXISTS saas_global_config (
     id VARCHAR(32) PRIMARY KEY DEFAULT 'primary',
-    system_name VARCHAR(128) NOT NULL DEFAULT 'Elo Log',
+    system_name VARCHAR(128) NOT NULL DEFAULT 'Atendo One',
     support_phone VARCHAR(32) DEFAULT NULL,
     support_email VARCHAR(128) DEFAULT 'contato@elolog.com.br',
     default_commission_percent NUMERIC(5,2) DEFAULT 12.00,
@@ -328,11 +328,11 @@ INSERT INTO saas_global_config (
     id, system_name, support_phone, support_email, plans, layout, form_fields, image_compression, database_config
 ) VALUES (
     'primary',
-    'Elo Log',
+    'Atendo One',
     NULL,
     'contato@elolog.com.br',
     '[{"id":"BASICO","name":"Plano Básico","price":299,"maxFreightsMonthly":50,"maxUsers":3,"maxDrivers":5,"isActive":true},{"id":"PROFISSIONAL","name":"Plano Profissional","price":599,"maxFreightsMonthly":150,"maxUsers":10,"maxDrivers":30,"isActive":true},{"id":"EMPRESARIAL","name":"Plano Empresarial","price":1499,"maxFreightsMonthly":9999,"maxUsers":50,"maxDrivers":200,"isActive":true}]'::jsonb,
-    '{"primaryColor":"#059669","borderRadius":"xl","fontFamily":"sans","navbarStyle":"dark","logoText":"ELO LOG","systemBackground":"minimal","homeBadgeText":"Solução Completa Multi-Tenant de Carga","homeTitle":"Gestão e Publicação de Fretes em","homeTitleAccent":"Tempo Real","homeSubtitle":"O Elo Log conecta transportadoras e motoristas com total isolamento e segurança."}'::jsonb,
+    '{"primaryColor":"#059669","borderRadius":"xl","fontFamily":"sans","navbarStyle":"dark","logoText":"ATENDO ONE","systemBackground":"minimal","homeBadgeText":"Gestão completa para sua operação de transporte","homeTitle":"Gestão e Publicação de Fretes em","homeTitleAccent":"Tempo Real","homeSubtitle":"O Atendo One conecta transportadoras e motoristas com segurança e organização."}'::jsonb,
     '{}'::jsonb,
     '{"enabled":true,"maxWidth":1600,"maxHeight":1600,"quality":0.8,"format":"image/jpeg","autoCompressDocuments":true,"maxFileSizeKB":400}'::jsonb,
     '{"enabled":true,"dbType":"postgres","host":"postgres","port":5432,"database":"elolog","username":"elolog_user","ssl":false,"autoMigrate":true}'::jsonb

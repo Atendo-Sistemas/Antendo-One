@@ -125,6 +125,26 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
     fetchFreights();
   }, [fetchFreights]);
 
+  // Public tracking receives the driver's position, never the visitor's location.
+  useEffect(() => {
+    if (!driver?.id || !navigator.geolocation) return;
+    const activeFreight = freights.find(f => f.assignedDriverId === driver.id && ['RESERVADO', 'EM_COLETA', 'COLETADO', 'EM_TRANSITO'].includes(f.status));
+    if (!activeFreight) return;
+    const watchId = navigator.geolocation.watchPosition(
+      position => {
+        void api.updateFreightLocation(activeFreight.id, {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          speedKmh: position.coords.speed == null ? undefined : position.coords.speed * 3.6,
+          accuracyMeters: position.coords.accuracy
+        }).catch(error => console.warn('Não foi possível publicar a posição GPS:', error));
+      },
+      error => console.warn('GPS indisponível para rastreamento público:', error.message),
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [driver?.id, freights]);
+
   // Handle atomic freight acceptance
   const handleAcceptFreight = async (freight: Freight) => {
     setIsAccepting(true);
@@ -507,6 +527,25 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
                     <p className="text-slate-500 mt-1">📅 Previsão: {new Date(freight.destination.date).toLocaleDateString()}</p>
                   </div>
                 </div>
+                {['RESERVADO', 'EM_COLETA', 'COLETADO', 'EM_TRANSITO'].includes(freight.status) && (
+                  <div className="flex flex-wrap gap-2">
+                    <a target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${freight.origin.address}, ${freight.origin.number}, ${freight.origin.city}, ${freight.origin.state}`)}`} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">Buscar rota para coleta</a>
+                    <a target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${freight.destination.address}, ${freight.destination.number}, ${freight.destination.city}, ${freight.destination.state}`)}`} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700">Buscar rota para entrega</a>
+                  </div>
+                )}
+                {freight.trackingStops && freight.trackingStops.some(stop => stop.type === 'PARADA') && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 dark:border-amber-900/50 dark:bg-amber-950/20 p-3.5">
+                    <span className="font-bold text-amber-900 dark:text-amber-200 block uppercase text-[10px]">Locais de parada cadastrados</span>
+                    <div className="mt-2 space-y-2">
+                      {freight.trackingStops.filter(stop => stop.type === 'PARADA').map((stop, index) => (
+                        <div key={stop.id} className="flex items-center justify-between gap-2 text-xs">
+                          <span className="font-semibold text-slate-700 dark:text-slate-200">{index + 1}. {stop.city}/{stop.state}</span>
+                          <span className="flex items-center gap-2"><a target="_blank" rel="noreferrer" href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${stop.city}, ${stop.state}`)}`} className="text-[10px] font-bold text-blue-700 hover:underline">Rota</a><span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">{stop.status === 'CONCLUIDA' ? 'Concluída' : stop.status === 'EM_ANDAMENTO' ? 'Em andamento' : 'Pendente'}</span></span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* State Machine Action Flow */}
                 <div className="bg-emerald-50/60 dark:bg-emerald-950/30 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
@@ -553,7 +592,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
                               className="py-2.5 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 font-bold text-xs hover:bg-emerald-100 transition-colors cursor-pointer flex items-center gap-1.5"
                             >
                               <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                              <span>Vistoria / Checklist Elo Log</span>
+                              <span>Vistoria / Checklist Atendo One</span>
                             </button>
                             <button
                               onClick={() => onOpenFormModal('form-checklist-coleta', freight.id)}
@@ -597,7 +636,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
                               className="py-2.5 px-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 font-bold text-xs hover:bg-emerald-100 transition-colors cursor-pointer flex items-center gap-1.5"
                             >
                               <FileText className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                              <span>Checklist Elo Log</span>
+                              <span>Checklist Atendo One</span>
                             </button>
                             <button
                               onClick={() => onOpenFormModal('form-comprovante-entrega', freight.id)}

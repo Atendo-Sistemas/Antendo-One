@@ -1,0 +1,11 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const sw = fs.readFileSync(path.resolve(__dirname, '../public/sw.js'), 'utf8');
+const main = fs.readFileSync(path.resolve(__dirname, '../src/main.tsx'), 'utf8');
+assert.match(sw, /CACHE_NAME = 'atendo-one-v1\.8\.0'/);
+assert.match(sw, /skipWaiting/);
+assert.match(sw, /clients\.claim/);
+assert.match(sw, /pathname\.startsWith\('\/api\/'\)/);
+assert.match(main, /serviceWorker\.register\('\/sw\.js'\)/);
+console.log('PWA_INVARIANTS_OK');

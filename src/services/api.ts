@@ -32,7 +32,9 @@ import {
 } from '../types';
 
 let currentToken: string | null = null;
+let currentRefreshToken: string | null = null;
 const AUTH_TOKEN_STORAGE_KEY = 'frete_auth_token';
+const REFRESH_TOKEN_STORAGE_KEY = 'frete_refresh_token';
 
 export const setAuthToken = (token: string) => {
   currentToken = token || null;
@@ -45,7 +47,24 @@ export const setAuthToken = (token: string) => {
   }
 };
 
-export const clearAuthToken = () => setAuthToken('');
+export const clearAuthToken = () => {
+  setAuthToken('');
+  currentRefreshToken = null;
+  if (typeof window !== 'undefined') {
+    try { window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY); } catch { /* storage unavailable */ }
+  }
+};
+
+export const setAuthSession = (token: string, refreshToken?: string) => {
+  setAuthToken(token);
+  currentRefreshToken = refreshToken || null;
+  if (typeof window !== 'undefined') {
+    try {
+      if (currentRefreshToken) window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, currentRefreshToken);
+      else window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+    } catch { /* storage unavailable */ }
+  }
+};
 
 export const getAuthToken = (): string => {
   if (currentToken) return currentToken;
@@ -56,6 +75,13 @@ export const getAuthToken = (): string => {
     currentToken = null;
   }
   return currentToken || '';
+};
+
+const getRefreshToken = (): string => {
+  if (currentRefreshToken) return currentRefreshToken;
+  if (typeof window === 'undefined') return '';
+  try { currentRefreshToken = window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) || null; } catch { currentRefreshToken = null; }
+  return currentRefreshToken || '';
 };
 
 export interface OfflineResponse {
@@ -96,7 +122,7 @@ export const setSimulatedOffline = (offline: boolean) => {
   window.dispatchEvent(new Event('elolog_offline_queue_changed'));
 };
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(endpoint: string, options: RequestInit = {}, allowRefresh = true): Promise<T> {
   const token = getAuthToken();
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
@@ -121,12 +147,33 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   if (!res.ok) {
-    if (res.status === 401 && token) clearAuthToken();
+    if (res.status === 401 && token && allowRefresh && !endpoint.startsWith('/auth/refresh') && !endpoint.startsWith('/auth/logout') && getRefreshToken()) {
+      try {
+        const refreshResponse = await fetch('/api/auth/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ refreshToken: getRefreshToken() }) });
+        const refreshData = await refreshResponse.json().catch(() => ({}));
+        if (refreshResponse.ok && refreshData.token && refreshData.refreshToken) {
+          setAuthSession(refreshData.token, refreshData.refreshToken);
+          return request<T>(endpoint, options, false);
+        }
+      } catch { /* fall through to session clearing */ }
+      clearAuthToken();
+    } else if (res.status === 401 && token) clearAuthToken();
     const error = new Error(data.message || data.error || `Erro ${res.status}: Ocorreu um erro na requisição`) as Error & { status?: number };
     error.status = res.status;
     throw error;
   }
 
+  return data as T;
+}
+
+async function publicRequest<T>(endpoint: string): Promise<T> {
+  const res = await fetch(`/api${endpoint}`, { headers: { Accept: 'application/json' } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const error = new Error(data.message || data.error || `Erro ${res.status}: não foi possível carregar o rastreamento`) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
+  }
   return data as T;
 }
 
@@ -145,7 +192,7 @@ export const api = {
   },
 
   async login(email: string, role?: string, password?: string) {
-    return request<{ user: User; token: string }>('/auth/login', {
+    return request<{ user: User; token: string; refreshToken: string }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, role, password })
     });
@@ -210,7 +257,7 @@ export const api = {
   },
 
   async verifyOtp(phone: string, code: string) {
-    return request<{ user: User; token: string }>('/auth/verify-otp', {
+    return request<{ user: User; token: string; refreshToken: string }>('/auth/verify-otp', {
       method: 'POST',
       body: JSON.stringify({ phone, code })
     });
@@ -258,6 +305,7 @@ export const api = {
   async deletePost(id: string) { return request<{ success: boolean }>(`/posts/${id}`, { method: 'DELETE' }); },
   async getPublicSeo() { return request<{ seo: any; content: any[] }>('/public/seo'); },
   async getVisitAnalytics(days = 30) { return request<VisitAnalyticsResponse>(`/analytics/visits?days=${days}`); },
+  async recordPublicVisit(payload: { path: string; referrer?: string; source?: string; medium?: string; campaign?: string; device?: string }) { return request<void>('/analytics/visit', { method: 'POST', body: JSON.stringify(payload) }); },
   async getPublicContent(slug: string, section?: 'conteudo' | 'elo-log') { return request<any>(`/public/content/${encodeURIComponent(slug)}${section ? `?section=${section}` : ''}`); },
   async getRegistrationLegalContent(slug: string) { return request<any>(`/public/registration-content/${encodeURIComponent(slug)}`); },
   async getNotificationDeliveries(limit = 100) { return request<NotificationDelivery[]>(`/notification-deliveries?limit=${limit}`); },
@@ -328,6 +376,13 @@ export const api = {
     return request<Tenant>(`/tenants/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
+    });
+  },
+
+  async activateTenantPlan(id: string, plan: Tenant['plan'], days = 30) {
+    return request<{ success: boolean; tenant: Tenant }>(`/tenants/${id}/activate-plan`, {
+      method: 'POST',
+      body: JSON.stringify({ plan, days })
     });
   },
 
@@ -425,6 +480,18 @@ export const api = {
   async getPublicFreights() {
     return request<PublicFreightSummary[]>('/public/freights');
   },
+  async getPublicTracking(code: string) {
+    return publicRequest<Freight>(`/public/tracking/${encodeURIComponent(code)}`);
+  },
+  subscribePublicTracking(code: string, onUpdate: (freight: Freight) => void, onError?: () => void) {
+    const source = new EventSource(`/api/public/tracking/${encodeURIComponent(code)}/events`);
+    source.addEventListener('tracking', event => { try { onUpdate(JSON.parse((event as MessageEvent).data) as Freight); } catch { /* ignora payload inválido */ } });
+    if (onError) source.onerror = onError;
+    return () => source.close();
+  },
+  async setPublicTrackingRevoked(freightId: string, revoked: boolean) {
+    return request<{ success: boolean; revoked: boolean; freightId: string }>(`/freights/${encodeURIComponent(freightId)}/public-tracking/revoke`, { method: 'POST', body: JSON.stringify({ revoked }) });
+  },
   async getPublicFreightDetails(id: string) {
     return request<PublicFreightSummary & { price: number | null; priceAvailable: boolean; message?: string }>(`/public/freights/${id}`);
   },
@@ -463,6 +530,9 @@ export const api = {
       body: JSON.stringify({ newStatus, notes, location })
     });
   },
+  async updateFreightLocation(id: string, location: { lat: number; lng: number; speedKmh?: number; accuracyMeters?: number; label?: string }) {
+    return request<Freight>(`/freights/${id}/location`, { method: 'POST', body: JSON.stringify(location) });
+  },
 
   // Forms
   async getForms(params?: { triggerEvent?: string }) {
@@ -470,12 +540,24 @@ export const api = {
     if (params?.triggerEvent) query.set('triggerEvent', params.triggerEvent);
     return request<FormDefinition[]>(`/forms?${query.toString()}`);
   },
+  async getCompanyStops(tenantId?: string) { return request<import('../types').CompanyStop[]>(`/company-stops${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
+  async createCompanyStop(data: Partial<import('../types').CompanyStop> & { tenantId?: string }) { return request<import('../types').CompanyStop>('/company-stops', { method: 'POST', body: JSON.stringify(data) }); },
+  async getLodgingPartners(tenantId?: string) { return request<import('../types').LodgingPartner[]>(`/lodging-partners${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
+  async createLodgingPartner(data: Partial<import('../types').LodgingPartner> & { tenantId?: string }) { return request<import('../types').LodgingPartner>('/lodging-partners', { method: 'POST', body: JSON.stringify(data) }); },
 
   async createForm(data: Partial<FormDefinition>) {
     return request<FormDefinition>('/forms', {
       method: 'POST',
       body: JSON.stringify(data)
     });
+  },
+
+  async copyForm(id: string, tenantId?: string) {
+    return request<FormDefinition>(`/forms/${id}/copy`, { method: 'POST', body: JSON.stringify(tenantId ? { tenantId } : {}) });
+  },
+
+  async updateForm(id: string, data: Partial<FormDefinition>) {
+    return request<FormDefinition>(`/forms/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   },
 
   async submitFormResponse(data: { 
@@ -681,6 +763,10 @@ export const api = {
     return request<DashboardStats>('/stats');
   },
 
+  async getDetailedHealth() {
+    return request<any>('/health/detailed');
+  },
+
   // Deletes
   async deleteFreight(id: string) {
     return request<{ success: boolean; message: string }>(`/freights/${id}`, { method: 'DELETE' });
@@ -829,4 +915,28 @@ export const api = {
       body: JSON.stringify({ role, content })
     });
   }
+};
+
+
+export const budgetApi = {
+  list: () => request<import('../types').Budget[]>('/budgets'),
+  get: (id: string) => request<import('../types').Budget>(`/budgets/${id}`),
+  create: (data: Partial<import('../types').Budget>) => request<import('../types').Budget>('/budgets', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<import('../types').Budget>) => request<import('../types').Budget>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify({ ...data, expectedVersion: (data as any).version }) }),
+  calculate: (data: Partial<import('../types').Budget>) => request<{ expenses: import('../types').BudgetExpense[]; financials: import('../types').BudgetFinancials }>('/budgets/calculate', { method: 'POST', body: JSON.stringify(data) }),
+  status: (id: string, status: import('../types').BudgetStatus) => request<import('../types').Budget>(`/budgets/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+  duplicate: (id: string) => request<import('../types').Budget>(`/budgets/${id}/duplicate`, { method: 'POST' }),
+  convert: (id: string) => request<{ budget: import('../types').Budget; freightId: string; idempotent: boolean }>(`/budgets/${id}/convert`, { method: 'POST' }),
+  remove: (id: string) => request<import('../types').Budget>(`/budgets/${id}`, { method: 'DELETE' }),
+  geocode: (query: string) => request<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/mapbox/geocode?q=${encodeURIComponent(query)}`),
+  directions: (origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) => request<{ distanceKm: number; estimatedMinutes: number }>(`/mapbox/directions?origin=${origin.lng},${origin.lat}&destination=${destination.lng},${destination.lat}`),
+  clientConfig: () => request<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number }>('/mapbox/client-config')
+};
+
+export const clientApi = {
+  list: (search = '') => request<import('../types').Client[]>(`/clients${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  lookupCnpj: (cnpj: string) => request<{ cnpj: string; data: any }>(`/clients/cnpj/${encodeURIComponent(cnpj)}/lookup`),
+  create: (data: Partial<import('../types').Client>) => request<import('../types').Client>('/clients', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<import('../types').Client>) => request<import('../types').Client>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  remove: (id: string) => request<import('../types').Client>(`/clients/${id}`, { method: 'DELETE' })
 };

@@ -10,6 +10,7 @@ import path from 'path';
 import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import { buildAtendoCrmCreateTenantRequest, externalTenantIdFromResponse } from './atendoCrmProvisioning';
 import { sanitizeServerHtml } from './sanitizeHtml';
+import { APP_VERSION } from '../src/version';
 import {
   User,
   FreightStatus,
@@ -39,7 +40,10 @@ import {
   BackupStatusResponse,
   LegalDocumentVersion,
   ReportTemplateType,
-  TenantReportTemplate
+  TenantReportTemplate,
+  CompanyStop,
+  LodgingPartner,
+  Client
 } from '../src/types';
 
 
@@ -50,6 +54,12 @@ if (!JWT_SECRET) {
 }
 const SAFE_JWT_SECRET = JWT_SECRET;
 
+export const requestIp = (req: Request) => { const forwarded = req.headers['x-forwarded-for']; return String(Array.isArray(forwarded) ? forwarded[0] : forwarded || req.socket.remoteAddress || '').split(',')[0].trim().slice(0, 64) || undefined; };
+
+const auditAuthFailure = (req: AuthenticatedRequest, action: string, email?: unknown, details = 'Falha de autenticação.') => {
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase().slice(0, 254) : '';
+  db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: 'anonymous', userName: normalizedEmail ? `email:${normalizedEmail}` : 'anonymous', userRole: 'USUARIO', action, entity: 'Auth', entityId: normalizedEmail || 'unknown', details });
+};
 export const apiRouter = Router();
 
 const BACKUP_CONTROL_DIR = process.env.BACKUP_CONTROL_DIR || '/var/lib/elolog-backup';
@@ -211,24 +221,32 @@ interface SupportSessionRecord {
 }
 
 const SUPPORT_SESSION_TTL_MS = 30 * 60 * 1000;
-const USER_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const USER_SESSION_TTL_MS = 10 * 60 * 1000;
+const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const activeSupportSessions = new Map<string, SupportSessionRecord>();
+const activeRefreshFamilies = new Map<string, string>();
 
 function issueUserSession(user: User) {
   const sessionId = randomUUID();
   const expiresAt = new Date(Date.now() + USER_SESSION_TTL_MS).toISOString();
+  const refreshTokenId = randomUUID();
+  const refreshFamilyId = activeRefreshFamilies.get(user.id) || randomUUID();
+  activeRefreshFamilies.set(user.id, refreshFamilyId);
   user.activeSessionId = sessionId;
   user.activeSessionExpiresAt = expiresAt;
-  const token = jwt.sign({ userId: user.id, sid: sessionId }, SAFE_JWT_SECRET, { expiresIn: '24h' });
+  const token = jwt.sign({ userId: user.id, sid: sessionId, typ: 'access' }, SAFE_JWT_SECRET, { expiresIn: '10m' });
+  const refreshToken = jwt.sign({ userId: user.id, jti: refreshTokenId, familyId: refreshFamilyId, typ: 'refresh' }, SAFE_JWT_SECRET, { expiresIn: '7d' });
   db.saveAuthToken(token, user.id, new Date(expiresAt));
+  db.saveRefreshToken(refreshTokenId, user.id, refreshFamilyId, new Date(Date.now() + REFRESH_TOKEN_TTL_MS));
   void db.persistNow();
-  return { token, expiresAt };
+  return { token, refreshToken, expiresAt };
 }
 
 export interface AuthenticatedRequest extends Request {
   user?: User;
   tenant?: Tenant | null;
   supportSession?: SupportSessionRecord;
+  authToken?: string;
 }
 
 const TENANT_ADMIN_ROLES: UserRole[] = ['EMPRESA_SUPER_ADMIN', 'ADMIN'];
@@ -263,6 +281,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
   // Explicit public / unauthenticated routes
   const publicPaths = [
     '/auth/login',
+    '/auth/refresh',
     '/auth/request-otp',
     '/auth/verify-otp',
     '/auth/register-company',
@@ -270,12 +289,14 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     '/auth/register-driver',
     '/auth/switch-demo',
     '/auth/demo-session',
+    '/analytics/visit',
     '/health',
     '/internal/backups/event'
   ];
 
   const isPublicRoute =
     publicPaths.includes(path) ||
+    (req.method === 'GET' && /^\/public\/tracking\/[^/]+$/.test(path)) ||
     (path === '/saas/config' && req.method === 'GET') ||
     (path === '/push/vapid-key' && req.method === 'GET');
   const routeExists = ((apiRouter as any).stack || []).some((layer: any) => {
@@ -303,7 +324,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
         };
         const foundUser = db.users.find(u => u.id === decoded.userId);
         if (foundUser) {
-          if (decoded.support !== true && foundUser.activeSessionId && (decoded.sid !== foundUser.activeSessionId || !foundUser.activeSessionExpiresAt || Date.parse(foundUser.activeSessionExpiresAt) <= Date.now())) {
+          if (decoded.support !== true && (!foundUser.activeSessionId || decoded.sid !== foundUser.activeSessionId || !foundUser.activeSessionExpiresAt || Date.parse(foundUser.activeSessionExpiresAt) <= Date.now())) {
             return res.status(401).json({ error: 'Sessão substituída, expirada ou revogada. Faça login novamente.' });
           }
           if (decoded.support === true) {
@@ -324,6 +345,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
             req.supportSession = supportSession;
           }
           req.user = foundUser;
+          req.authToken = token;
           req.tenant = foundUser.tenantId ? db.tenants.find(t => t.id === foundUser.tenantId) || null : null;
           return next();
         }
@@ -645,7 +667,7 @@ apiRouter.post('/webhooks/asaas', async (req: AuthenticatedRequest, res: Respons
         }
       }
     }
-    db.addAuditLog({ tenantId: undefined, userId: 'asaas-webhook', userName: 'Asaas Webhook', userRole: 'SUPER_ADMIN', action: 'ASAAS_WEBHOOK', entity: payment.id ? 'AsaasPayment' : 'AsaasSubscription', entityId: String(payment.id || subscriptionPayload.id || eventId), details: `Evento ${event} recebido e processado de forma idempotente.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: 'asaas-webhook', userName: 'Asaas Webhook', userRole: 'SUPER_ADMIN', action: 'ASAAS_WEBHOOK', entity: payment.id ? 'AsaasPayment' : 'AsaasSubscription', entityId: String(payment.id || subscriptionPayload.id || eventId), details: `Evento ${event} recebido e processado de forma idempotente.` });
     await db.persistNow();
   }
   return res.status(200).json({ received: true, duplicate });
@@ -689,6 +711,18 @@ const publicContentPayload = (item: any) => ({
   author: publicContentBrand(item.author),
   canonicalUrl: publicContentCanonical(item),
   content: sanitizePublicContent(item.content)
+});
+apiRouter.post('/analytics/visit', (req: AuthenticatedRequest, res: Response) => {
+  const body = req.body || {};
+  const referrer = String(body.referrer || '').trim().slice(0, 120);
+  const host = referrer ? (() => { try { return new URL(referrer).hostname.toLowerCase(); } catch { return ''; } })() : '';
+  const source = String(body.source || (host.includes('google.') ? 'Google' : host.includes('bing.') ? 'Bing' : /facebook|instagram|linkedin|tiktok|youtube/.test(host) ? 'Rede social' : host ? host : 'Acesso direto')).slice(0, 80);
+  const medium = String(body.medium || (host ? 'referência web' : 'direto')).slice(0, 40);
+  const campaign = String(body.campaign || '').slice(0, 120);
+  const device = String(body.device || 'desconhecido').slice(0, 30);
+  const path = String(body.path || '/').replace(/[^\w\-./?=&%]/g, '').slice(0, 160) || '/';
+  db.recordVisit({ date: new Date().toISOString().slice(0, 10), path, source, medium, campaign, referrer: host, device, country: '' });
+  return res.status(204).end();
 });
 apiRouter.get('/public/seo', (req: AuthenticatedRequest, res: Response) => {
   res.json({ seo: publicSeoConfig(), content: publicContentItems().map(item => ({
@@ -751,10 +785,88 @@ const redactDriverFreightPayment = (freight: Freight, driverId: string | undefin
   : { ...freight, payment: { ...freight.payment, price: undefined, clientRevenue: undefined, driverCost: undefined, notes: undefined } } as any;
 const isPublicFreight = (freight: Freight) => {
   const expiresAt = freight.origin.date ? new Date(`${freight.origin.date}T23:59:59`) : null;
-  return freight.publicListingEnabled === true && freight.operationType !== 'LOGISTICA_VEICULOS' && ['DISPONIVEL', 'PUBLICADO'].includes(freight.status) && (!expiresAt || expiresAt.getTime() >= Date.now());
+  return freight.publicListingEnabled === true && ['DISPONIVEL', 'PUBLICADO'].includes(freight.status) && (!expiresAt || expiresAt.getTime() >= Date.now());
 };
+const isPublicTrackingFreight = (freight: Freight) => freight.publicTrackingEnabled !== false && !['RASCUNHO', 'CANCELADO'].includes(freight.status);
+const trackingSubscribers = new Map<string, Set<Response>>();
+apiRouter.get('/mapbox/geocode', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
+  const query = String(req.query.q || '').trim().slice(0, 180);
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+  if (query.length < 3) return res.json([]);
+  if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
+  try {
+    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
+    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
+    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; context?: Array<{ id: string; text: string }> }> };
+    return res.json((data.features || []).filter(item => item.center).map(item => ({ id: item.id, placeName: item.place_name, address: item.text || item.place_name, city: item.context?.find(c => c.id.startsWith('place'))?.text, state: item.context?.find(c => c.id.startsWith('region'))?.text, lng: item.center![0], lat: item.center![1] })));
+  } catch {
+    return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
+  }
+});
+apiRouter.get('/mapbox/directions', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
+  const origin = String(req.query.origin || '').split(',').map(Number); const destination = String(req.query.destination || '').split(',').map(Number);
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+  if (origin.length !== 2 || destination.length !== 2 || origin.some(Number.isNaN) || destination.some(Number.isNaN)) return res.status(400).json({ error: 'Coordenadas de origem e destino inválidas.' });
+  if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
+  try { const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${origin.join(',')};${destination.join(',')}?overview=false&access_token=${encodeURIComponent(token)}`); const data: any = await response.json().catch(() => ({})); if (!response.ok || !data.routes?.[0]) return res.status(502).json({ error: 'Não foi possível calcular a rota no Mapbox.' }); const route = data.routes[0]; return res.json({ distanceKm: Number(route.distance || 0) / 1000, estimatedMinutes: Number(route.duration || 0) / 60 }); } catch { return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' }); }
+  });
+apiRouter.get('/mapbox/client-config', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+  const isPublicToken = token.startsWith('pk.');
+  return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : '', defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || 'streets-v12', defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
+});
 apiRouter.get('/public/freights', (req: AuthenticatedRequest, res: Response) => {
   res.json(db.freights.filter(isPublicFreight).map(publicFreightSummary));
+});
+const publicTrackingPayload = (freight: Freight) => {
+  const policy = db.tenants.find(tenant => tenant.id === freight['tenant' + 'Id'])?.publicTracking || db.saasGlobalConfig.publicTracking || { enabled: true, precision: 'APPROXIMATE' as const, allowedFields: ['route', 'status', 'vehicle', 'driver', 'location', 'stops'] as const };
+  const allowed = new Set(policy.allowedFields);
+  const location = freight.currentLocation && allowed.has('location') ? {
+    ...freight.currentLocation,
+    lat: policy.precision === 'EXACT' ? freight.currentLocation.lat : Number(freight.currentLocation.lat.toFixed(2)),
+    lng: policy.precision === 'EXACT' ? freight.currentLocation.lng : Number(freight.currentLocation.lng.toFixed(2))
+  } : undefined;
+  return {
+    id: freight.id,
+    code: freight.code,
+    tenantName: freight.tenantName,
+    origin: allowed.has('route') ? { city: freight.origin.city, state: freight.origin.state, address: freight.origin.address, date: freight.origin.date, timeWindow: freight.origin.timeWindow } : undefined,
+    destination: allowed.has('route') ? { city: freight.destination.city, state: freight.destination.state, address: freight.destination.address, date: freight.destination.date, timeWindow: freight.destination.timeWindow } : undefined,
+    distanceKm: freight.distanceKm,
+    cargo: { description: freight.cargo.description, type: freight.cargo.type, weightKg: freight.cargo.weightKg, volumeCount: freight.cargo.volumeCount },
+    status: allowed.has('status') ? freight.status : undefined,
+    assignedDriverName: allowed.has('driver') ? freight.assignedDriverName : undefined,
+    assignedVehiclePlate: allowed.has('vehicle') ? freight.assignedVehiclePlate : undefined,
+    assignedVehicleModel: allowed.has('vehicle') ? freight.assignedVehicleModel : undefined,
+    currentLocation: location,
+    trackingStops: allowed.has('stops') ? (freight.trackingStops || [
+      { id: `${freight.id}-origin`, type: 'ORIGEM', city: freight.origin.city, state: freight.origin.state, status: ['EM_TRANSITO', 'ENTREGUE', 'FINALIZADO'].includes(freight.status) ? 'CONCLUIDA' : 'EM_ANDAMENTO' },
+      { id: `${freight.id}-destination`, type: 'DESTINO', city: freight.destination.city, state: freight.destination.state, status: ['ENTREGUE', 'FINALIZADO'].includes(freight.status) ? 'CONCLUIDA' : 'PENDENTE' }
+    ]) : [],
+    statusUpdatedAt: freight.updatedAt
+  };
+};
+apiRouter.get('/public/tracking/:token', (req: AuthenticatedRequest, res: Response) => {
+  const token = String(req.params.token || '').trim();
+  if (!/^[a-f0-9]{32}$/i.test(token)) return res.status(404).json({ error: 'Rastreamento público não encontrado ou encerrado.' });
+  const freight = db.freights.find(item => (isPublicFreight(item) || isPublicTrackingFreight(item)) && item.publicTrackingToken === token && !item.publicTrackingRevokedAt && (!item.publicTrackingExpiresAt || new Date(item.publicTrackingExpiresAt).getTime() > Date.now()));
+  if (!freight) return res.status(404).json({ error: 'Rastreamento público não encontrado ou encerrado.' });
+  const tenantPolicy = db.tenants.find(tenant => tenant.id === freight['tenant' + 'Id'])?.publicTracking;
+  if (tenantPolicy?.enabled === false || (!tenantPolicy && db.saasGlobalConfig.publicTracking?.enabled === false)) return res.status(404).json({ error: 'Rastreamento público desativado.' });
+  return res.json(publicTrackingPayload(freight));
+});
+apiRouter.get('/public/tracking/:token/events', (req: AuthenticatedRequest, res: Response) => {
+  const token = String(req.params.token || '').trim();
+  const freight = db.freights.find(item => item.publicTrackingToken === token && isPublicTrackingFreight(item) && !item.publicTrackingRevokedAt && (!item.publicTrackingExpiresAt || new Date(item.publicTrackingExpiresAt).getTime() > Date.now()));
+  if (!freight) return res.status(404).json({ error: 'Rastreamento público não encontrado ou encerrado.' });
+  res.setHeader('Content-Type', 'text/event-stream'); res.setHeader('Cache-Control', 'no-cache, no-transform'); res.setHeader('Connection', 'keep-alive'); res.flushHeaders?.();
+  const listeners = trackingSubscribers.get(token) || new Set<Response>(); listeners.add(res); trackingSubscribers.set(token, listeners);
+  res.write(`event: tracking\ndata: ${JSON.stringify(publicTrackingPayload(freight))}\n\n`);
+  const heartbeat = setInterval(() => { try { res.write(': heartbeat\\n\\n'); } catch { clearInterval(heartbeat); } }, 25000);
+  req.on('close', () => { clearInterval(heartbeat); listeners.delete(res); if (!listeners.size) trackingSubscribers.delete(token); });
 });
 apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest, res: Response) => {
   const freight = db.freights.find(item => item.id === req.params.id);
@@ -797,7 +909,7 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
   const interest: FreightInterest = { id: `freight-interest-${Date.now()}`, freightId: freight.id, driverId: driver.id, userId: user.id, tenantId: freight.tenantId, status: 'PENDENTE', profileCompleted: false, createdAt: now, updatedAt: now };
   db.freightInterests.unshift(interest);
   db.upsertDriverCompanyLink({ driverId: driver.id, tenantId: freight.tenantId, status: 'PENDENTE', scope: 'FRETE', source: 'FREIGHT_INTEREST', freightId: freight.id });
-  db.addAuditLog({ tenantId: freight.tenantId, userId: user.id, userName: name, userRole: 'MOTORISTA', action: 'INTERESSE_FRETE', entity: 'FreightInterest', entityId: interest.id, details: `Solicitação de interesse no frete ${freight.code} criada para análise da empresa.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: freight.tenantId, userId: user.id, userName: name, userRole: 'MOTORISTA', action: 'INTERESSE_FRETE', entity: 'FreightInterest', entityId: interest.id, details: `Solicitação de interesse no frete ${freight.code} criada para análise da empresa.` });
   const code = randomInt(100000, 1000000).toString();
   const expiresAt = Date.now() + 5 * 60 * 1000;
   activeOTPs.set(cleanPhone, { code, expiresAt, failedAttempts: 0 });
@@ -809,6 +921,21 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
 });
 // Apply auth middleware to all authenticated /api routes.
 apiRouter.use(authMiddleware);
+apiRouter.get('/health/detailed', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Apenas Super Admin.' });
+  const sqlStatus = await sqlAdapter.getStatus();
+  const postgresConnected = sqlAdapter.isEnabled() && sqlStatus.status === 'CONNECTED';
+  return res.json({ status: 'ok', version: process.env.APP_VERSION || APP_VERSION, uptimeSeconds: Math.floor(process.uptime()), counts: { tenants: db.tenants.length, users: db.users.length, freights: db.freights.length, budgets: db.budgets.length, clients: db.clients.length, gpsLocations: db.freightLocations.length, notifications: db.notifications.length }, integrations: { mapboxConfigured: Boolean(db.saasGlobalConfig.mapboxConfig?.apiKey), cnpjWsConfigured: true, postgresConfigured: postgresConnected }, persistence: { mode: postgresConnected ? 'postgresql' : 'memory-with-snapshot', lastCheckedAt: new Date().toISOString() }, generatedAt: new Date().toISOString() });
+});
+apiRouter.post('/freights/:id/public-tracking/revoke', async (req: AuthenticatedRequest, res: Response) => {
+  const freight = db.freights.find(item => item['id'] === req.params.id);
+  if (!freight) return res.status(404).json({ error: 'Frete não encontrado.' });
+  if (req.user?.role !== 'SUPER_ADMIN' && freight.tenantId !== req.user?.tenantId) return res.status(403).json({ error: 'Acesso não autorizado.' });
+  freight.publicTrackingRevokedAt = req.body?.revoked === false ? undefined : new Date().toISOString();
+  freight.publicTrackingEnabled = req.body?.revoked === false;
+  freight.updatedAt = new Date().toISOString(); await db.persistNow();
+  return res.json({ success: true, revoked: Boolean(freight.publicTrackingRevokedAt), freightId: freight.id });
+});
 
 // Keep analytics after authMiddleware so req.user is available for the Super Admin check.
 apiRouter.get('/analytics/visits', (req: AuthenticatedRequest, res: Response) => {
@@ -896,7 +1023,7 @@ apiRouter.put('/notification-consent', async (req: AuthenticatedRequest, res: Re
     source: 'USER' as const
   };
   req.user.notificationConsents = consent;
-  db.addAuditLog({ tenantId: req.user.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ATUALIZAR_CONSENTIMENTO_NOTIFICACOES', entity: 'User', entityId: req.user.id, details: `Preferências de canal alteradas: e-mail ${consent.email ? 'ativo' : 'inativo'}; WhatsApp ${consent.whatsapp ? 'autorizado' : 'não autorizado'}.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ATUALIZAR_CONSENTIMENTO_NOTIFICACOES', entity: 'User', entityId: req.user.id, details: `Preferências de canal alteradas: e-mail ${consent.email ? 'ativo' : 'inativo'}; WhatsApp ${consent.whatsapp ? 'autorizado' : 'não autorizado'}.` });
   await db.persistNow();
   return res.json({ email: consent.email, whatsapp: consent.whatsapp, updatedAt: consent.updatedAt });
 });
@@ -949,7 +1076,7 @@ apiRouter.put('/admin/backups/notifications', async (req: AuthenticatedRequest, 
   try {
     const next = backupNotificationConfigFromInput(req.body, backupNotificationConfig());
     db.saasGlobalConfig.backupNotifications = next;
-    db.addAuditLog({ tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'BACKUP_ALERT_CONFIG_UPDATED', entity: 'BackupNotificationConfig', entityId: 'global-backup-alerts', details: `Alertas de backup atualizados; WhatsApp ${next.whatsappEnabled && next.whatsappPhone ? 'habilitado' : 'desabilitado'}; falhas ${next.notifyOnFailure ? 'ativas' : 'inativas'}; sucessos ${next.notifyOnSuccess ? 'ativos' : 'inativos'}.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'BACKUP_ALERT_CONFIG_UPDATED', entity: 'BackupNotificationConfig', entityId: 'global-backup-alerts', details: `Alertas de backup atualizados; WhatsApp ${next.whatsappEnabled && next.whatsappPhone ? 'habilitado' : 'desabilitado'}; falhas ${next.notifyOnFailure ? 'ativas' : 'inativas'}; sucessos ${next.notifyOnSuccess ? 'ativos' : 'inativos'}.` });
     await db.persistNow();
     return res.json({ success: true, notifications: safeBackupNotifications() });
   } catch (error: any) {
@@ -970,7 +1097,7 @@ apiRouter.post('/admin/backups/run', async (req: AuthenticatedRequest, res: Resp
     const temporary = path.join(BACKUP_REQUEST_DIR, `.manual-${requestId}.tmp`);
     await fs.promises.writeFile(temporary, JSON.stringify({ requestedAt: new Date().toISOString() }), { encoding: 'utf8', mode: 0o600 });
     await fs.promises.rename(temporary, target);
-    db.addAuditLog({ tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'BACKUP_MANUAL_REQUESTED', entity: 'BackupJob', entityId: requestId, details: 'Solicitou uma execução manual do backup local pelo painel Super Admin.' });
+    db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'BACKUP_MANUAL_REQUESTED', entity: 'BackupJob', entityId: requestId, details: 'Solicitou uma execução manual do backup local pelo painel Super Admin.' });
     await db.persistNow();
     return res.status(202).json({ success: true, requestId, status: 'QUEUED', message: 'Backup manual enfileirado. O status será atualizado pelo serviço de backup.' });
   } catch {
@@ -989,7 +1116,7 @@ apiRouter.post('/admin/backups/whatsapp-test', async (req: AuthenticatedRequest,
       body: `Atendo One: teste de alerta do backup realizado pelo painel Super Admin em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`,
       externalKey: `backup-alert-test-${Date.now()}`
     });
-    db.addAuditLog({ tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: result.success ? 'BACKUP_ALERT_TEST_SENT' : 'BACKUP_ALERT_TEST_FAILED', entity: 'BackupNotificationConfig', entityId: 'global-backup-alerts', details: result.success ? 'Teste de alerta WhatsApp de backup enviado.' : 'Gateway recusou o teste de alerta WhatsApp de backup.' });
+    db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: result.success ? 'BACKUP_ALERT_TEST_SENT' : 'BACKUP_ALERT_TEST_FAILED', entity: 'BackupNotificationConfig', entityId: 'global-backup-alerts', details: result.success ? 'Teste de alerta WhatsApp de backup enviado.' : 'Gateway recusou o teste de alerta WhatsApp de backup.' });
     await db.persistNow();
     return res.status(result.success ? 200 : 502).json({ success: result.success, message: result.success ? 'Mensagem de teste enviada.' : 'O gateway não confirmou a mensagem de teste.' });
   } catch {
@@ -1041,7 +1168,7 @@ apiRouter.post('/public/freights/:id/interest/complete', async (req: Authenticat
   interest.profileCompleted = true;
   interest.updatedAt = completedAt;
   await db.recordLegalConsent({ userId: user.id, tenantId: freight.tenantId, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy, acceptedAt: completedAt });
-  db.addAuditLog({ tenantId: freight.tenantId, userId: user.id, userName: user.name, userRole: 'MOTORISTA', action: 'CONCLUIR_CADASTRO_INTERESSE', entity: 'FreightInterest', entityId: interest.id, details: `Cadastro complementar concluído; aguardando aprovação da empresa para o frete ${freight.code}.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: freight.tenantId, userId: user.id, userName: user.name, userRole: 'MOTORISTA', action: 'CONCLUIR_CADASTRO_INTERESSE', entity: 'FreightInterest', entityId: interest.id, details: `Cadastro complementar concluído; aguardando aprovação da empresa para o frete ${freight.code}.` });
   const companyAdmins = db.users.filter(item => item.tenantId === freight.tenantId && ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(item.role));
   void dispatchConfiguredNotification('MOTORISTA_CADASTRADO', [user, ...companyAdmins], { nome: user.name, empresa: db.tenants.find(item => item.id === freight.tenantId)?.name || '', status: user.status, freightCode: freight.code, tenantId: freight.tenantId, link: process.env.APP_URL || '' });
   await db.persistNow();
@@ -1110,7 +1237,7 @@ apiRouter.put('/driver-company-links/:id/status', (req: AuthenticatedRequest, re
     driver.status = 'DISPONIVEL';
     if (driverUser) driverUser.status = 'ATIVO';
   }
-  db.addAuditLog({ tenantId: link.tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'ATUALIZAR_VINCULO_MOTORISTA', entity: 'DriverCompanyLink', entityId: companyLink?.id || link.id, details: `Vínculo do motorista atualizado para ${status} no escopo ${isCompanyDecision ? 'EMPRESA' : 'FRETE'}. A decisão é exclusiva desta empresa.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: link.tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'ATUALIZAR_VINCULO_MOTORISTA', entity: 'DriverCompanyLink', entityId: companyLink?.id || link.id, details: `Vínculo do motorista atualizado para ${status} no escopo ${isCompanyDecision ? 'EMPRESA' : 'FRETE'}. A decisão é exclusiva desta empresa.` });
   const linkedFreight = link.freightId ? db.freights.find(item => item.id === link.freightId) : undefined;
   if (driverUser) void dispatchConfiguredNotification('INTERESSE_FRETE', [driverUser], { nome: driverUser.name, empresa: req.tenant?.name || 'empresa responsável', status, codigoFrete: linkedFreight?.code || '', link: process.env.APP_URL || '' });
   return res.json({ success: true, link, companyLink });
@@ -1296,7 +1423,7 @@ apiRouter.post('/billing/asaas/checkout', async (req: AuthenticatedRequest, res:
       tenantId: tenant.id,
       link: paymentBody.invoiceUrl || ''
     });
-    db.addAuditLog({ tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_PAYMENT_CREATED', entity: 'AsaasPayment', entityId: paymentBody.id, details: `Cobrança do plano ${plan.id} criada no ambiente ${db.saasGlobalConfig.asaasConfig?.environment}` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_PAYMENT_CREATED', entity: 'AsaasPayment', entityId: paymentBody.id, details: `Cobrança do plano ${plan.id} criada no ambiente ${db.saasGlobalConfig.asaasConfig?.environment}` });
     await db.persistNow();
     return res.status(201).json({ id: paymentBody.id, status: paymentBody.status, invoiceUrl: paymentBody.invoiceUrl, bankSlipUrl: paymentBody.bankSlipUrl, value: paymentBody.value, dueDate: paymentBody.dueDate });
   } catch (_error) {
@@ -1339,7 +1466,7 @@ apiRouter.post('/billing/asaas/subscribe', async (req: AuthenticatedRequest, res
       (tenant as any).billingStatus = existingExternal.status || 'PENDING';
       (tenant as any).billingCycle = existingExternal.cycle || cycle;
       (tenant as any).billingNextDueDate = existingExternal.nextDueDate || dueDate;
-      db.addAuditLog({ tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_SUBSCRIPTION_RECONCILED', entity: 'AsaasSubscription', entityId: String(existingExternal.id), details: `Assinatura existente do plano ${plan.id} reconciliada por referência externa no ambiente ${db.saasGlobalConfig.asaasConfig?.environment}.` });
+      db.addAuditLog({ ip: requestIp(req), tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_SUBSCRIPTION_RECONCILED', entity: 'AsaasSubscription', entityId: String(existingExternal.id), details: `Assinatura existente do plano ${plan.id} reconciliada por referência externa no ambiente ${db.saasGlobalConfig.asaasConfig?.environment}.` });
       await db.persistNow();
       return res.status(200).json({ id: String(existingExternal.id), status: existingExternal.status || 'PENDING', cycle: existingExternal.cycle || cycle, nextDueDate: existingExternal.nextDueDate || dueDate, value: existingExternal.value || Number(plan.price), reconciled: true });
     }
@@ -1362,7 +1489,7 @@ apiRouter.post('/billing/asaas/subscribe', async (req: AuthenticatedRequest, res
     (tenant as any).billingNextDueDate = body.nextDueDate || dueDate;
     const record = { asaasSubscriptionId: body.id, tenantId: tenant.id, planId: plan.id, value: Number(plan.price), billingType, cycle, status: body.status || 'PENDING', nextDueDate: body.nextDueDate || dueDate, externalReference, webhookEventIds: [], createdAt: now, updatedAt: now };
     db.asaasSubscriptions.unshift(record);
-    db.addAuditLog({ tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_SUBSCRIPTION_CREATED', entity: 'AsaasSubscription', entityId: String(body.id), details: `Assinatura recorrente do plano ${plan.id} criada no ambiente ${db.saasGlobalConfig.asaasConfig?.environment}.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_SUBSCRIPTION_CREATED', entity: 'AsaasSubscription', entityId: String(body.id), details: `Assinatura recorrente do plano ${plan.id} criada no ambiente ${db.saasGlobalConfig.asaasConfig?.environment}.` });
     void dispatchConfiguredNotification('PAGAMENTO_CRIADO', db.users.filter(user => user.tenantId === tenant.id && ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role)), { nome: req.user.name, empresa: tenant.name, plano: plan.name, valor: `R$ ${Number(plan.price).toFixed(2)}`, tenantId: tenant.id, link: body.invoiceUrl || '' });
     await db.persistNow();
     return res.status(201).json({ id: body.id, status: body.status, cycle, nextDueDate: body.nextDueDate || dueDate, value: body.value || Number(plan.price) });
@@ -1388,7 +1515,7 @@ apiRouter.post('/billing/asaas/subscription/cancel', async (req: AuthenticatedRe
     subscription.updatedAt = new Date().toISOString();
     (tenant as any).billingStatus = 'INACTIVE';
     (tenant as any).updatedAt = new Date().toISOString();
-    db.addAuditLog({ tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_SUBSCRIPTION_CANCELED', entity: 'AsaasSubscription', entityId: String(subscription.asaasSubscriptionId), details: `Assinatura principal cancelada${response.status === 404 ? ' após confirmação de ausência no Asaas' : ''}.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_SUBSCRIPTION_CANCELED', entity: 'AsaasSubscription', entityId: String(subscription.asaasSubscriptionId), details: `Assinatura principal cancelada${response.status === 404 ? ' após confirmação de ausência no Asaas' : ''}.` });
     await db.persistNow();
     return res.json({ success: true, status: 'INACTIVE', subscription: { id: subscription.asaasSubscriptionId, planId: subscription.planId, cycle: subscription.cycle, billingType: subscription.billingType, status: subscription.status, nextDueDate: subscription.nextDueDate, updatedAt: subscription.updatedAt } });
   } catch (_error) {
@@ -1433,7 +1560,7 @@ apiRouter.post('/billing/asaas/subscription/change-plan', async (req: Authentica
     (tenant as any).billingStatus = subscription.status || 'PENDING';
     (tenant as any).billingCycle = subscription.cycle;
     (tenant as any).billingNextDueDate = subscription.nextDueDate;
-    db.addAuditLog({ tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_SUBSCRIPTION_PLAN_CHANGED', entity: 'AsaasSubscription', entityId: String(subscription.asaasSubscriptionId), details: `Plano alterado para ${plan.id}; cobranças pendentes atualizadas: ${updatePendingPayments ? 'sim' : 'não'}.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ASAAS_SUBSCRIPTION_PLAN_CHANGED', entity: 'AsaasSubscription', entityId: String(subscription.asaasSubscriptionId), details: `Plano alterado para ${plan.id}; cobranças pendentes atualizadas: ${updatePendingPayments ? 'sim' : 'não'}.` });
     await db.persistNow();
     return res.json({ success: true, id: subscription.asaasSubscriptionId, planId: plan.id, status: subscription.status, cycle: subscription.cycle, billingType: subscription.billingType, value: subscription.value, nextDueDate: subscription.nextDueDate });
   } catch (_error) {
@@ -1460,7 +1587,7 @@ apiRouter.post('/billing/asaas/notification-module/free', async (req: Authentica
   tenant!.notificationSubscriptionId = undefined;
   tenant!.notificationBillingNextDueDate = undefined;
   tenant!.updatedAt = new Date().toISOString();
-  db.addAuditLog({ tenantId: tenant!.id, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'NOTIFICATION_MODULE_FREE_SELECTED', entity: 'NotificationModule', entityId: tenant!.id, details: 'Módulo gratuito selecionado com uso do telefone SaaS.' });
+  db.addAuditLog({ ip: requestIp(req), tenantId: tenant!.id, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'NOTIFICATION_MODULE_FREE_SELECTED', entity: 'NotificationModule', entityId: tenant!.id, details: 'Módulo gratuito selecionado com uso do telefone SaaS.' });
   await db.persistNow();
   return res.json(notificationStatusForTenant(tenant!));
 });
@@ -1516,7 +1643,7 @@ apiRouter.post('/billing/asaas/notification-module/subscribe', async (req: Authe
     tenant!.notificationBillingNextDueDate = body.nextDueDate || dueDate;
     const record = { asaasSubscriptionId: body.id, tenantId: tenant!.id, planId: 'NOTIFICATION_MODULE', product: 'NOTIFICATION_MODULE', feature: 'WHATSAPP_OWN_NUMBER', value: Number(moduleConfig.ownNumberMonthlyPrice), billingType, cycle: 'MONTHLY', status: body.status || 'PENDING', nextDueDate: body.nextDueDate || dueDate, externalReference, webhookEventIds: [], createdAt: now, updatedAt: now };
     db.asaasSubscriptions.unshift(record);
-    db.addAuditLog({ tenantId: tenant!.id, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'ASAAS_NOTIFICATION_MODULE_SUBSCRIPTION_CREATED', entity: 'AsaasSubscription', entityId: String(body.id), details: `Assinatura do módulo ${moduleConfig.ownNumberPlanName} criada no ambiente ${db.saasGlobalConfig.asaasConfig?.environment}. A ativação depende do webhook de pagamento.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: tenant!.id, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'ASAAS_NOTIFICATION_MODULE_SUBSCRIPTION_CREATED', entity: 'AsaasSubscription', entityId: String(body.id), details: `Assinatura do módulo ${moduleConfig.ownNumberPlanName} criada no ambiente ${db.saasGlobalConfig.asaasConfig?.environment}. A ativação depende do webhook de pagamento.` });
     await db.persistNow();
     return res.status(201).json({ id: body.id, status: body.status || 'PENDING', value: Number(moduleConfig.ownNumberMonthlyPrice), nextDueDate: body.nextDueDate || dueDate, module: 'WHATSAPP_OWN_NUMBER' });
   } catch (_error) {
@@ -1546,7 +1673,7 @@ apiRouter.post('/billing/asaas/notification-module/cancel', async (req: Authenti
     delete tenant.notificationSubscriptionId;
     delete tenant.notificationBillingNextDueDate;
     if (record) { record.status = 'INACTIVE'; record.updatedAt = new Date().toISOString(); }
-    db.addAuditLog({ tenantId: tenant.id, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'ASAAS_NOTIFICATION_MODULE_CANCELED', entity: 'AsaasSubscription', entityId: subscriptionId, details: `Módulo de número próprio cancelado${response.status === 404 ? ' após confirmação de ausência no Asaas' : ''}; fallback para o telefone SaaS.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: tenant.id, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'ASAAS_NOTIFICATION_MODULE_CANCELED', entity: 'AsaasSubscription', entityId: subscriptionId, details: `Módulo de número próprio cancelado${response.status === 404 ? ' após confirmação de ausência no Asaas' : ''}; fallback para o telefone SaaS.` });
     await db.persistNow();
     return res.json({ success: true, plan: 'SAAS_FREE', billingStatus: 'CANCELED', canUseOwnNumber: false, subscriptionId: null });
   } catch (_error) {
@@ -1708,7 +1835,7 @@ apiRouter.put('/pages/:id', async (req: AuthenticatedRequest, res: Response) => 
   if (req.body?.isPublished !== undefined) page.isPublished = Boolean(req.body.isPublished);
   if (req.body?.isIndexable !== undefined) page.isIndexable = Boolean(req.body.isIndexable);
   page.updatedAt = now;
-  db.addAuditLog({ tenantId: page.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: legalType ? 'PUBLICAR_DOCUMENTO_JURIDICO' : 'EDITAR_PAGINA', entity: 'WebPage', entityId: page.id, details: legalType ? `Documento ${legalType} publicado na versão ${page.contentVersion}.` : `Página ${page.slug} atualizada.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: page.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: legalType ? 'PUBLICAR_DOCUMENTO_JURIDICO' : 'EDITAR_PAGINA', entity: 'WebPage', entityId: page.id, details: legalType ? `Documento ${legalType} publicado na versão ${page.contentVersion}.` : `Página ${page.slug} atualizada.` });
   await db.persistNow();
   return res.json(page);
 });
@@ -1720,7 +1847,7 @@ apiRouter.delete('/pages/:id', async (req: AuthenticatedRequest, res: Response) 
   page.isPublished = false;
   page.isIndexable = false;
   page.updatedAt = new Date().toISOString();
-  db.addAuditLog({ tenantId: page.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'DESPUBLICAR_PAGINA', entity: 'WebPage', entityId: page.id, details: `Página ${page.slug} despublicada sem apagar conteúdo ou histórico.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: page.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'DESPUBLICAR_PAGINA', entity: 'WebPage', entityId: page.id, details: `Página ${page.slug} despublicada sem apagar conteúdo ou histórico.` });
   await db.persistNow();
   return res.json({ success: true, message: 'Página despublicada; conteúdo e histórico preservados.' });
 });
@@ -1750,7 +1877,7 @@ apiRouter.delete('/posts/:id', async (req: AuthenticatedRequest, res: Response) 
   post.isPublished = false;
   post.isIndexable = false;
   post.updatedAt = new Date().toISOString();
-  db.addAuditLog({ tenantId: post.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'DESPUBLICAR_POST', entity: 'BlogPost', entityId: post.id, details: `Post ${post.slug} despublicado sem apagar conteúdo ou histórico.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: post.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'DESPUBLICAR_POST', entity: 'BlogPost', entityId: post.id, details: `Post ${post.slug} despublicado sem apagar conteúdo ou histórico.` });
   await db.persistNow();
   return res.json({ success: true, message: 'Post despublicado; conteúdo e histórico preservados.' });
 });
@@ -1789,9 +1916,15 @@ apiRouter.get('/auth/me', (req: AuthenticatedRequest, res: Response) => {
 
 apiRouter.post('/auth/logout', async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Não autenticado' });
+  if (req.authToken) db.revokeAuthToken(req.authToken);
+  const refreshFamilyId = activeRefreshFamilies.get(req.user.id);
+  if (refreshFamilyId) {
+    db.revokeRefreshFamily(refreshFamilyId);
+    activeRefreshFamilies.delete(req.user.id);
+  }
   delete req.user.activeSessionId;
   delete req.user.activeSessionExpiresAt;
-  db.addAuditLog({ tenantId: req.user.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'LOGOUT', entity: 'User', entityId: req.user.id, details: 'Sessão atual revogada pelo próprio usuário.' });
+  db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'LOGOUT', entity: 'User', entityId: req.user.id, details: 'Sessão atual revogada pelo próprio usuário.' });
   await db.persistNow();
   return res.json({ success: true });
 });
@@ -1828,7 +1961,7 @@ apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) =
     iss: 'elolog-support'
   }, SAFE_JWT_SECRET, { expiresIn: '30m' });
   db.saveAuthToken(token, targetUser.id, new Date(expiresAt));
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
     tenantName: targetUser.tenantId ? db.tenants.find(t => t.id === targetUser.tenantId)?.name : undefined,
     userId: req.user.id,
@@ -1865,7 +1998,7 @@ apiRouter.post('/support/sessions/end', (req: AuthenticatedRequest, res: Respons
 
   activeSupportSessions.delete(supportSession.id);
   const { token } = issueUserSession(actorUser);
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: req.user.tenantId || undefined,
     tenantName: req.tenant?.name || undefined,
     userId: actorUser.id,
@@ -1891,8 +2024,8 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
   const targetUser = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
 
   if (!targetUser) {
-
-    return res.status(404).json({ error: 'Usuário não encontrado' });
+    auditAuthFailure(req, 'LOGIN_FAILED', email, 'Tentativa de login com usuário inexistente.');
+    return res.status(401).json({ error: 'Credenciais inválidas.' });
   }
 
   // Check if pending approval
@@ -1910,15 +2043,16 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
   }
   const isMatch = await bcrypt.compare(password, targetUser.password).catch(() => false);
   if (!isMatch) {
-    return res.status(401).json({ error: 'Senha incorreta.' });
+    auditAuthFailure(req, 'LOGIN_FAILED', email, 'Tentativa de login com senha inválida.');
+    return res.status(401).json({ error: 'Credenciais inválidas.' });
   }
 
   targetUser.lastLoginAt = new Date().toISOString();
 
   // Um novo login substitui a sessão anterior do mesmo usuário.
-  const { token } = issueUserSession(targetUser);
+  const { token, refreshToken } = issueUserSession(targetUser);
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
     tenantName: targetUser.tenantId ? db.tenants.find(t => t.id === targetUser?.tenantId)?.name : 'Plataforma Global',
     userId: targetUser.id,
@@ -1932,8 +2066,32 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
 
   res.json({
     user: sanitizeUser(targetUser),
-    token: token
+    token,
+    refreshToken
   });
+});
+
+apiRouter.post('/auth/refresh', (req: AuthenticatedRequest, res: Response) => {
+  const rawRefreshToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : '';
+  if (!rawRefreshToken) return res.status(401).json({ error: 'Refresh token ausente.' });
+  try {
+    const decoded = jwt.verify(rawRefreshToken, SAFE_JWT_SECRET) as { userId?: string; jti?: string; familyId?: string; typ?: string };
+    if (decoded.typ !== 'refresh' || !decoded.userId || !decoded.jti || !decoded.familyId) return res.status(401).json({ error: 'Refresh token inválido.' });
+    const consumed = db.consumeRefreshToken(decoded.jti);
+    if (!consumed || consumed.userId !== decoded.userId || consumed.familyId !== decoded.familyId) {
+      db.revokeRefreshFamily(decoded.familyId);
+      activeRefreshFamilies.delete(decoded.userId);
+      return res.status(401).json({ error: 'Refresh token reutilizado, expirado ou revogado. Faça login novamente.' });
+    }
+    const user = db.users.find(item => item.id === decoded.userId && item.status === 'ATIVO');
+    if (!user) return res.status(401).json({ error: 'Usuário inválido ou inativo.' });
+    const issued = issueUserSession(user);
+    db.addAuditLog({ ip: requestIp(req), tenantId: user.tenantId || undefined, userId: user.id, userName: user.name, userRole: user.role, action: 'REFRESH_ROTATED', entity: 'UserSession', entityId: user.id, details: 'Refresh token consumido uma única vez e substituído por nova sessão.' });
+    return res.json({ user: sanitizeUser(user), token: issued.token, refreshToken: issued.refreshToken });
+  } catch {
+    auditAuthFailure(req, 'REFRESH_FAILED', undefined, 'Refresh token inválido ou expirado.');
+    return res.status(401).json({ error: 'Refresh token inválido ou expirado.' });
+  }
 });
 
 // Public demonstration session: only fixed TEST users from the public demo tenant can mint tokens.
@@ -1949,7 +2107,7 @@ apiRouter.post('/auth/demo-session', async (req: AuthenticatedRequest, res: Resp
 
   targetUser.lastLoginAt = new Date().toISOString();
   const { token } = issueUserSession(targetUser);
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: PUBLIC_DEMO_TENANT_ID,
     tenantName: db.tenants.find(item => item.id === PUBLIC_DEMO_TENANT_ID)?.name || 'Demonstração',
     userId: targetUser.id,
@@ -2089,7 +2247,7 @@ apiRouter.post('/auth/request-otp', async (req: AuthenticatedRequest, res: Respo
     externalKey: `otp-${Date.now()}`
   });
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
     userId: targetUser.id,
     userName: targetUser.name,
@@ -2133,6 +2291,7 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
   const targetUser = matchingUsers[0];
 
   if (!targetUser) {
+    auditAuthFailure(req, 'OTP_VERIFY_FAILED', `phone-last4:${cleanPhone.slice(-4)}`, 'Tentativa OTP para telefone não cadastrado.');
     return res.status(404).json({ error: 'Usuário não encontrado para este telefone.' });
   }
 
@@ -2155,6 +2314,7 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
   const codesMatch = expectedCode.length === providedCode.length && timingSafeEqual(expectedCode, providedCode);
   if (!codesMatch) {
     activeOtp.failedAttempts = (activeOtp.failedAttempts || 0) + 1;
+    auditAuthFailure(req, 'OTP_VERIFY_FAILED', `user:${targetUser.id}`, `Código OTP inválido; tentativa ${activeOtp.failedAttempts}/5.`);
     if (activeOtp.failedAttempts >= 5) {
       activeOTPs.delete(cleanPhone);
       activeOTPs.delete(cleanUserPhone);
@@ -2170,9 +2330,9 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
   activeOTPs.delete(targetUser.id);
 
   targetUser.lastLoginAt = new Date().toISOString();
-  const { token } = issueUserSession(targetUser);
+  const { token, refreshToken } = issueUserSession(targetUser);
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
     userId: targetUser.id,
     userName: targetUser.name,
@@ -2185,7 +2345,8 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
 
   res.json({
     user: sanitizeUser(targetUser),
-    token: token
+    token,
+    refreshToken
   });
 });
 
@@ -2234,7 +2395,10 @@ async function provisionAtendoCrmTenant(tenant: Tenant): Promise<AtendoProvision
     const responseData = contentType.includes('application/json') ? await response.json() : await response.text();
     if (!response.ok) {
       tenant.atendoCrmProvisioningStatus = 'ERROR';
-      tenant.atendoCrmProvisioningError = `Atendo CRM retornou HTTP ${response.status}.`;
+      const providerMessage = typeof responseData === 'string'
+        ? responseData.replace(/\s+/g, ' ').trim().slice(0, 180)
+        : String(responseData?.message || responseData?.error || responseData?.detail || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+      tenant.atendoCrmProvisioningError = `Atendo CRM retornou HTTP ${response.status}${providerMessage ? `: ${providerMessage}` : '.'}`;
       db.addErrorLog({ service: 'atendo-crm-admin', route: 'createtenant', method: 'POST', statusCode: response.status, event: 'ATENDO_CRM_PROVISIONING_REJECTED', message: 'O Atendo CRM rejeitou o provisionamento de uma empresa.' });
       await db.persistNow();
       return { status: 'ERROR', error: tenant.atendoCrmProvisioningError };
@@ -2255,9 +2419,10 @@ async function provisionAtendoCrmTenant(tenant: Tenant): Promise<AtendoProvision
     tenant.atendoCrmProvisioningError = undefined;
     await db.persistNow();
     return { status: 'PROVISIONED', externalTenantId };
-  } catch {
+  } catch (error: any) {
     tenant.atendoCrmProvisioningStatus = 'ERROR';
-    tenant.atendoCrmProvisioningError = 'Falha de comunicação com o Atendo CRM durante o provisionamento.';
+    const reason = String(error?.name === 'AbortError' ? 'tempo limite excedido' : error?.message || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+    tenant.atendoCrmProvisioningError = `Falha de comunicação com o Atendo CRM durante o provisionamento${reason ? `: ${reason}` : '.'}`;
     db.addErrorLog({ service: 'atendo-crm-admin', route: 'createtenant', method: 'POST', event: 'ATENDO_CRM_PROVISIONING_ERROR', message: 'Falha de comunicação ao provisionar uma empresa no Atendo CRM.' });
     await db.persistNow();
     return { status: 'ERROR', error: tenant.atendoCrmProvisioningError };
@@ -2458,7 +2623,7 @@ apiRouter.post('/auth/verify-registration', async (req: AuthenticatedRequest, re
     userId: 'user-superadmin'
   });
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId,
     userId,
     userName: pending.responsibleName,
@@ -2594,7 +2759,7 @@ apiRouter.post('/tenants', async (req: AuthenticatedRequest, res: Response) => {
   db.users.push(newUser);
   await db.recordLegalConsent({ userId: newUser.id, tenantId: newTenant.id, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy, acceptedAt: now, ipAddress: req.ip, userAgent: req.get('user-agent') || '' });
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     userId: req.user.id,
     userName: req.user.name,
     userRole: req.user.role,
@@ -2621,7 +2786,7 @@ apiRouter.post('/tenants/:id/provision-atendo', async (req: AuthenticatedRequest
   return res.json({ success: result.status === 'PROVISIONED', status: result.status, tenant: { ...tenant, atendoCrmProvisioningError: result.status === 'ERROR' ? tenant.atendoCrmProvisioningError : undefined } });
 });
 
-apiRouter.put('/tenants/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/tenants/:id', async (req: AuthenticatedRequest, res: Response) => {
   const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
   const isCompanyAdmin = (req.user?.role === 'EMPRESA_SUPER_ADMIN' || req.user?.role === 'ADMIN') && req.user?.tenantId === req.params.id;
 
@@ -2677,18 +2842,32 @@ apiRouter.put('/tenants/:id', (req: AuthenticatedRequest, res: Response) => {
           u.status = 'ATIVO';
         }
       });
-      const approvedUsers = db.users.filter(user => user.tenantId === tenant.id);
-      void dispatchConfiguredNotification('EMPRESA_APROVADA', approvedUsers, {
-        nome: approvedUsers[0]?.name || tenant.name,
+      // The approval message must go to the responsible person who completed
+      // the registration, not to every tenant user or the gateway sender.
+      const responsibleUser = db.users.find(user =>
+        user.tenantId === tenant.id &&
+        user.role === 'EMPRESA_SUPER_ADMIN' &&
+        String(user.email || '').trim().toLowerCase() === String(tenant.email || '').trim().toLowerCase()
+      ) || db.users.find(user => user.tenantId === tenant.id && user.role === 'EMPRESA_SUPER_ADMIN');
+      const notificationRecipients = [
+        responsibleUser,
+        ...db.users.filter(user => user.role === 'SUPER_ADMIN')
+      ].filter((user): user is User => Boolean(user));
+      void dispatchConfiguredNotification('EMPRESA_APROVADA', notificationRecipients, {
+        nome: responsibleUser?.name || tenant.name,
         empresa: tenant.name,
         tenantId: tenant.id,
         link: process.env.APP_URL || ''
       });
+
+      // A aprovação dispara o provisionamento e aguarda o retorno para que o
+      // painel mostre imediatamente se a empresa foi criada no CRM Atendo.
+      await provisionAtendoCrmTenant(tenant);
     }
   }
   tenant.updatedAt = new Date().toISOString();
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     userId: req.user!.id,
     userName: req.user!.name,
     userRole: req.user!.role,
@@ -2698,7 +2877,38 @@ apiRouter.put('/tenants/:id', (req: AuthenticatedRequest, res: Response) => {
     details: `Empresa ${tenant.name} atualizada`
   });
 
+  await db.persistNow();
   res.json(tenant);
+});
+
+// Manual plan activation for SaaS operations; does not create an Asaas subscription.
+apiRouter.post('/tenants/:id/activate-plan', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Apenas Super Admin pode ativar planos manualmente.' });
+  const tenant = db.tenants.find(item => item.id === req.params.id);
+  if (!tenant) return res.status(404).json({ error: 'Empresa não encontrada.' });
+  const plan = req.body?.plan || tenant.plan;
+  const validPlans = ['BASICO', 'PROFISSIONAL', 'EMPRESARIAL'];
+  if (!validPlans.includes(plan)) return res.status(400).json({ error: 'Plano inválido.' });
+  const days = Number(req.body?.days ?? 30);
+  if (!Number.isInteger(days) || days < 1 || days > 3660) return res.status(400).json({ error: 'A validade deve ser um número inteiro entre 1 e 3660 dias.' });
+  tenant.plan = plan;
+  tenant.planLimits = {
+    maxUsers: plan === 'EMPRESARIAL' ? 100 : plan === 'PROFISSIONAL' ? 25 : 5,
+    maxDrivers: plan === 'EMPRESARIAL' ? 500 : plan === 'PROFISSIONAL' ? 100 : 20,
+    maxFreightsMonthly: plan === 'EMPRESARIAL' ? 2000 : plan === 'PROFISSIONAL' ? 500 : 50,
+    customForms: plan !== 'BASICO',
+    exportReports: true,
+    prioritySupport: plan === 'EMPRESARIAL'
+  };
+  tenant.status = 'ATIVA';
+  tenant.billingStatus = 'ACTIVE';
+  tenant.billingCycle = 'MANUAL';
+  tenant.billingNextDueDate = new Date(Date.now() + days * 86400000).toISOString();
+  tenant.updatedAt = new Date().toISOString();
+  db.users.forEach(user => { if (user.tenantId === tenant.id && user.status === 'PENDENTE') user.status = 'ATIVO'; });
+  db.addAuditLog({ ip: requestIp(req), userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'ATIVAR_PLANO_MANUAL', entity: 'Tenant', entityId: tenant.id, details: `Plano ${plan} ativado manualmente por ${days} dias.` });
+  await db.persistNow();
+  return res.json({ success: true, tenant });
 });
 
 apiRouter.delete('/tenants/:id', async (req: AuthenticatedRequest, res: Response) => {
@@ -2717,7 +2927,7 @@ apiRouter.delete('/tenants/:id', async (req: AuthenticatedRequest, res: Response
   tenant.status = 'INATIVA';
   tenant.updatedAt = new Date().toISOString();
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: tenant.id,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -2879,7 +3089,7 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     }
   }
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: targetTenantId || undefined,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -2955,7 +3165,7 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
     }
   }
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: user.tenantId || undefined,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -2992,7 +3202,7 @@ apiRouter.delete('/users/:id', async (req: AuthenticatedRequest, res: Response) 
   targetUser.status = 'BLOQUEADO';
   targetUser.readOnly = true;
   targetUser.updatedAt = new Date().toISOString();
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -3027,7 +3237,7 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
 
   user.updatedAt = new Date().toISOString();
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: user.tenantId || undefined,
     userId: user.id,
     userName: user.name,
@@ -3054,7 +3264,7 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
     }
   }
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: user.tenantId || undefined,
     userId: user.id,
     userName: user.name,
@@ -3111,7 +3321,7 @@ apiRouter.post('/drivers/register', async (req: AuthenticatedRequest, res: Respo
   db.drivers.push(newDriver);
   db.vehicles.push(newVehicle);
   db.upsertDriverCompanyLink({ driverId, tenantId: targetTenantId, status: 'APROVADO', scope: 'EMPRESA', source: 'COMPANY_ADMIN_REGISTRATION', approvedAt: now, approvedByUserId: req.user.id });
-  db.addAuditLog({ tenantId: targetTenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'CADASTRO_MOTORISTA', entity: 'Driver', entityId: driverId, details: `Motorista global cadastrado e aprovado para a empresa ${targetTenantId}.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: targetTenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'CADASTRO_MOTORISTA', entity: 'Driver', entityId: driverId, details: `Motorista global cadastrado e aprovado para a empresa ${targetTenantId}.` });
   void dispatchConfiguredNotification('MOTORISTA_CADASTRADO', [newUser, ...db.users.filter(user => user.tenantId === targetTenantId && ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user.role))], { nome: name, empresa: db.tenants.find(tenant => tenant.id === targetTenantId)?.name || '', status: newUser.status, link: process.env.APP_URL || '' });
   await db.persistNow();
   return res.status(201).json({ user: sanitizeUser(newUser), driver: newDriver, vehicle: newVehicle });
@@ -3152,7 +3362,7 @@ apiRouter.put('/drivers/:id', (req: AuthenticatedRequest, res: Response) => {
     if (body.status !== undefined && ['DISPONIVEL', 'EM_VIAGEM', 'INATIVO', 'PENDENTE'].includes(body.status)) driver.status = body.status;
   }
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: driver.tenantId,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -3191,7 +3401,7 @@ apiRouter.post('/company-vehicles', (req: AuthenticatedRequest, res: Response) =
   const now = new Date().toISOString();
   const vehicle: CompanyVehicle = { id: `company-vehicle-${Date.now()}`, tenantId, type: body.type, brand: String(body.brand).trim(), model: String(body.model).trim(), year: Number(body.year || new Date().getFullYear()), plate: String(body.plate).trim().toUpperCase(), renavam: String(body.renavam).trim(), capacityKg: Number(body.capacityKg || 0), bodyType: body.bodyType, ownerName: String(body.ownerName || '').trim(), ownerCnpj: String(body.ownerCnpj || '').trim(), registrationState: String(body.registrationState || '').trim().toUpperCase(), crlvNumber: String(body.crlvNumber || '').trim(), status: 'ATIVO', notes: String(body.notes || '').trim(), createdAt: now, updatedAt: now };
   db.companyVehicles.unshift(vehicle);
-  db.addAuditLog({ tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'CRIAR_VEICULO_PROPRIO', entity: 'CompanyVehicle', entityId: vehicle.id, details: `Veículo próprio ${vehicle.plate} cadastrado para documentos e operações da empresa.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'CRIAR_VEICULO_PROPRIO', entity: 'CompanyVehicle', entityId: vehicle.id, details: `Veículo próprio ${vehicle.plate} cadastrado para documentos e operações da empresa.` });
   res.status(201).json(vehicle);
 });
 apiRouter.put('/company-vehicles/:id', (req: AuthenticatedRequest, res: Response) => {
@@ -3214,7 +3424,7 @@ apiRouter.delete('/company-vehicles/:id', (req: AuthenticatedRequest, res: Respo
   if (!vehicle) return res.status(404).json({ error: 'Veículo próprio não encontrado.' });
   if (req.user?.role !== 'SUPER_ADMIN' && vehicle.tenantId !== req.user?.tenantId) return res.status(403).json({ error: 'Este veículo pertence a outra empresa.' });
   vehicle.status = 'INATIVO'; vehicle.updatedAt = new Date().toISOString();
-  db.addAuditLog({ tenantId: vehicle.tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'DESATIVAR_VEICULO_PROPRIO', entity: 'CompanyVehicle', entityId: vehicle.id, details: `Veículo próprio ${vehicle.plate} desativado sem apagar histórico.` });
+  db.addAuditLog({ ip: requestIp(req), tenantId: vehicle.tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'DESATIVAR_VEICULO_PROPRIO', entity: 'CompanyVehicle', entityId: vehicle.id, details: `Veículo próprio ${vehicle.plate} desativado sem apagar histórico.` });
   res.json({ success: true, message: 'Veículo próprio desativado; histórico preservado.' });
 });
 /* =========================================================================
@@ -3334,6 +3544,9 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     publicPriceVisibleToRegistered,
     publicInterestEnabled
   } = req.body;
+  const requestedBudgetId = customData?.budgetId ? String(customData.budgetId) : '';
+  const linkedBudget = requestedBudgetId ? db.budgets.find((budget: any) => budget.id === requestedBudgetId && budget.tenantId === tenantId && !budget.convertedFreightId) : undefined;
+  if (requestedBudgetId && !linkedBudget) return res.status(400).json({ error: 'Orçamento selecionado não pertence à empresa, não existe ou já foi convertido.' });
 
   if (!origin?.city || !origin?.state || !destination?.city || !destination?.state || !payment?.price) {
     return res.status(400).json({ error: 'Origem, destino e valor são obrigatórios' });
@@ -3342,7 +3555,7 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   if (companyVehicleId && !db.companyVehicles.some(vehicle => vehicle.id === companyVehicleId && vehicle.tenantId === tenantId && vehicle.status === 'ATIVO')) return res.status(400).json({ error: 'Veículo próprio selecionado não pertence à empresa ou está inativo.' });
   if (req.body.operationType !== undefined && !['CARGA_GERAL', 'LOGISTICA_VEICULOS'].includes(req.body.operationType)) return res.status(400).json({ error: 'Tipo de operação inválido.' });
   const safeOperationType = req.body.operationType === 'LOGISTICA_VEICULOS' ? 'LOGISTICA_VEICULOS' : 'CARGA_GERAL';
-  const safePublicListing = Boolean(publicListingEnabled) && safeOperationType === 'CARGA_GERAL';
+  const safePublicListing = Boolean(publicListingEnabled);
   const initialStatus: FreightStatus = publishImmediately ? 'DISPONIVEL' : 'RASCUNHO';
   const now = new Date().toISOString();
   const nextSeq = db.freights.length + 1;
@@ -3363,6 +3576,9 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
       state: origin.state,
       date: origin.date || new Date().toISOString().split('T')[0],
       timeWindow: origin.timeWindow || '08:00 às 17:00',
+      lat: Number.isFinite(Number(origin.lat)) ? Number(origin.lat) : undefined,
+      lng: Number.isFinite(Number(origin.lng)) ? Number(origin.lng) : undefined,
+      mapboxPlaceId: origin.mapboxPlaceId ? String(origin.mapboxPlaceId).slice(0, 180) : undefined,
       contactName: origin.contactName,
       contactPhone: origin.contactPhone
     },
@@ -3375,6 +3591,9 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
       state: destination.state,
       date: destination.date || new Date().toISOString().split('T')[0],
       timeWindow: destination.timeWindow || '08:00 às 18:00',
+      lat: Number.isFinite(Number(destination.lat)) ? Number(destination.lat) : undefined,
+      lng: Number.isFinite(Number(destination.lng)) ? Number(destination.lng) : undefined,
+      mapboxPlaceId: destination.mapboxPlaceId ? String(destination.mapboxPlaceId).slice(0, 180) : undefined,
       contactName: destination.contactName,
       contactPhone: destination.contactPhone
     },
@@ -3417,17 +3636,18 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     createdByName: req.user!.name,
     createdAt: now,
     updatedAt: now,
-    customData,
+    customData: requestedBudgetId ? { ...(customData || {}), budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status } : customData,
     companyVehicleId: companyVehicleId || undefined,
     publicListingEnabled: safePublicListing,
     publicPriceVisibleToRegistered: safePublicListing && publicPriceVisibleToRegistered !== false,
     publicInterestEnabled: safePublicListing && publicInterestEnabled !== false,
     publicPublishedAt: safePublicListing && publishImmediately ? now : undefined
+    ,publicTrackingToken: randomBytes(16).toString('hex')
   };
 
   db.freights.unshift(newFreight);
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: tenantId || undefined,
     tenantName: tenant?.name,
     userId: req.user!.id,
@@ -3567,7 +3787,7 @@ apiRouter.put('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
     if (freight.publicListingEnabled && !freight.publicPublishedAt) freight.publicPublishedAt = updatedAt;
   }
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: freight.tenantId,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -3663,7 +3883,7 @@ apiRouter.post('/freights/:id/accept', async (req: AuthenticatedRequest, res: Re
       link: process.env.APP_URL || ''
     });
     // Audit Log
-    db.addAuditLog({
+    db.addAuditLog({ ip: requestIp(req),
       tenantId: freight.tenantId,
       tenantName: freight.tenantName,
       userId: user.id,
@@ -3691,6 +3911,47 @@ apiRouter.post('/freights/:id/accept', async (req: AuthenticatedRequest, res: Re
 /* =========================================================================
    7. STATE MACHINE TRANSITION (EM_COLETA, COLETADO, EM_TRANSITO, ENTREGUE, etc.)
    ========================================================================= */
+
+apiRouter.get('/freights/:id/locations', (req: AuthenticatedRequest, res: Response) => {
+  const freight = db.freights.find(item => item.id === req.params.id);
+  if (!freight) return res.status(404).json({ error: 'Frete não encontrado.' });
+  if (req.user?.role !== 'SUPER_ADMIN' && freight.tenantId !== req.user?.tenantId) return res.status(403).json({ error: 'Acesso não autorizado.' });
+  return res.json(db.freightLocations.filter(item => item.freightId === freight.id).slice(0, 2000));
+});
+
+apiRouter.post('/freights/:id/location', async (req: AuthenticatedRequest, res: Response) => {
+  const freight = db.freights.find(item => item.id === req.params.id);
+  if (!freight) return res.status(404).json({ error: 'Frete não encontrado.' });
+  const isAssignedDriver = req.user?.role === 'MOTORISTA' && freight.assignedDriverId === req.user.driverId;
+  const isTenantOperator = req.user?.role !== 'MOTORISTA' && req.user?.role !== 'SUPER_ADMIN' && freight.tenantId === req.user?.tenantId;
+  if (!isAssignedDriver && !isTenantOperator && req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Acesso não autorizado a este frete.' });
+  const lat = Number(req.body?.lat);
+  const lng = Number(req.body?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: 'Coordenadas GPS inválidas.' });
+  }
+  const now = new Date().toISOString();
+  freight.currentLocation = {
+    lat,
+    lng,
+    speedKmh: Number.isFinite(Number(req.body?.speedKmh)) ? Math.max(0, Math.min(250, Number(req.body.speedKmh))) : undefined,
+    accuracyMeters: Number.isFinite(Number(req.body?.accuracyMeters)) ? Math.max(0, Math.min(10000, Number(req.body.accuracyMeters))) : undefined,
+    label: typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 120) : undefined,
+    recordedAt: now
+  };
+  freight.publicTrackingEnabled = true;
+  freight.updatedAt = now;
+  const historyEntry = { freightId: freight.id, tenantId: freight.tenantId, ...freight.currentLocation };
+  db.freightLocations = db.freightLocations.filter(item => item.freightId !== freight.id || item.recordedAt !== now);
+  db.freightLocations.unshift(historyEntry);
+  db.freightLocations = db.freightLocations.filter(item => item.freightId !== freight.id || Date.now() - new Date(item.recordedAt).getTime() < 90 * 24 * 60 * 60 * 1000).slice(0, 100000);
+  await db.persistNow();
+  if (freight.publicTrackingToken) {
+    const message = `event: tracking\ndata: ${JSON.stringify(publicTrackingPayload(freight))}\n\n`;
+    trackingSubscribers.get(freight.publicTrackingToken)?.forEach(listener => { try { listener.write(message); } catch { trackingSubscribers.get(freight.publicTrackingToken!)?.delete(listener); } });
+  }
+  return res.json(freight);
+});
 
 apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response) => {
   const { newStatus, notes, location } = req.body as { newStatus: FreightStatus; notes?: string; location?: string };
@@ -3774,7 +4035,7 @@ apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response
       link: process.env.APP_URL || ''
     });
   }
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: freight.tenantId,
     tenantName: freight.tenantName,
     userId: req.user!.id,
@@ -3792,6 +4053,40 @@ apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response
 /* =========================================================================
    8. DYNAMIC FORM BUILDER & FORM RESPONSES
    ========================================================================= */
+
+const canManageLocalResources = (user: User | undefined) => Boolean(user && DIRECTORY_ADMIN_ROLES.includes(user.role));
+const resourceTenantId = (req: AuthenticatedRequest) => req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || req.query?.tenantId || '') : req.user?.tenantId || '';
+
+apiRouter.get('/company-stops', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !TENANT_USER_ROLES.includes(req.user.role)) return res.status(403).json({ error: 'Acesso não autorizado.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : req.user.tenantId;
+  if (!tenantId) return res.status(400).json({ error: 'Empresa obrigatória.' });
+  return res.json(db.companyStops.filter(stop => stop.tenantId === tenantId && stop.active));
+});
+apiRouter.post('/company-stops', async (req: AuthenticatedRequest, res: Response) => {
+  if (!canManageLocalResources(req.user)) return res.status(403).json({ error: 'Somente administradores podem cadastrar paradas.' });
+  const tenantId = resourceTenantId(req);
+  const { name, type = 'PARADA', address, city, state, phone, notes } = req.body || {};
+  if (!tenantId || !name || !address || !city || !state) return res.status(400).json({ error: 'Nome, endereço, cidade e estado são obrigatórios.' });
+  const now = new Date().toISOString();
+  const stop: CompanyStop = { id: `stop-${randomUUID()}`, tenantId, name: String(name).trim(), type, address: String(address).trim(), city: String(city).trim(), state: String(state).trim().toUpperCase(), phone: phone ? String(phone).trim() : undefined, notes: notes ? String(notes).trim() : undefined, active: true, createdAt: now, updatedAt: now };
+  db.companyStops.push(stop); await db.persistNow(); return res.status(201).json(stop);
+});
+apiRouter.get('/lodging-partners', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !TENANT_USER_ROLES.includes(req.user.role)) return res.status(403).json({ error: 'Acesso não autorizado.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : req.user.tenantId;
+  if (!tenantId) return res.status(400).json({ error: 'Empresa obrigatória.' });
+  return res.json(db.lodgingPartners.filter(partner => partner.tenantId === tenantId && partner.active));
+});
+apiRouter.post('/lodging-partners', async (req: AuthenticatedRequest, res: Response) => {
+  if (!canManageLocalResources(req.user)) return res.status(403).json({ error: 'Somente administradores podem cadastrar hospedagens.' });
+  const tenantId = resourceTenantId(req);
+  const { name, address, city, state, phone, discount, rules } = req.body || {};
+  if (!tenantId || !name || !address || !city || !state) return res.status(400).json({ error: 'Nome, endereço, cidade e estado são obrigatórios.' });
+  const now = new Date().toISOString();
+  const partner: LodgingPartner = { id: `lodging-${randomUUID()}`, tenantId, name: String(name).trim(), address: String(address).trim(), city: String(city).trim(), state: String(state).trim().toUpperCase(), phone: phone ? String(phone).trim() : undefined, discount: discount ? String(discount).trim() : undefined, rules: rules ? String(rules).trim() : undefined, active: true, createdAt: now, updatedAt: now };
+  db.lodgingPartners.push(partner); await db.persistNow(); return res.status(201).json(partner);
+});
 
 // List forms for tenant
 apiRouter.get('/forms', (req: AuthenticatedRequest, res: Response) => {
@@ -3837,7 +4132,7 @@ apiRouter.post('/forms', (req: AuthenticatedRequest, res: Response) => {
 
   db.forms.push(newForm);
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: targetTenantId || undefined,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -3849,6 +4144,44 @@ apiRouter.post('/forms', (req: AuthenticatedRequest, res: Response) => {
   });
 
   res.status(201).json(newForm);
+});
+
+apiRouter.post('/forms/:id/copy', async (req: AuthenticatedRequest, res: Response) => {
+  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem copiar formulários.' });
+  const source = db.forms.find(form => form.id === req.params.id);
+  if (!source) return res.status(404).json({ error: 'Modelo de formulário não encontrado.' });
+  const targetTenantId = req.user.role === 'SUPER_ADMIN' ? (req.body?.tenantId || source.tenantId) : req.user.tenantId;
+  if (!targetTenantId || !db.tenants.some(tenant => tenant.id === targetTenantId)) return res.status(400).json({ error: 'Empresa de destino inválida.' });
+  const now = new Date().toISOString();
+  const copy: FormDefinition = {
+    ...source,
+    id: `form-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    tenantId: targetTenantId,
+    title: req.body?.title || `${source.title} (Cópia)`,
+    fields: source.fields.map((field, index) => ({ ...field, id: `field-${randomUUID().slice(0, 8)}`, order: index + 1 })),
+    createdAt: now,
+    updatedAt: now
+  };
+  db.forms.push(copy);
+  db.addAuditLog({ ip: requestIp(req), tenantId: targetTenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'COPIAR_FORMULARIO_MODELO', entity: 'FormDefinition', entityId: copy.id, details: `Formulário '${source.title}' copiado como '${copy.title}'.` });
+  await db.persistNow();
+  return res.status(201).json(copy);
+});
+
+apiRouter.put('/forms/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem editar formulários.' });
+  const form = db.forms.find(item => item.id === req.params.id);
+  if (!form) return res.status(404).json({ error: 'Formulário não encontrado.' });
+  if (req.user.role !== 'SUPER_ADMIN' && form.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Este formulário pertence a outra empresa.' });
+  if (typeof req.body?.title === 'string' && req.body.title.trim()) form.title = req.body.title.trim();
+  if (typeof req.body?.description === 'string') form.description = req.body.description;
+  if (Array.isArray(req.body?.fields)) form.fields = req.body.fields.map((field: any, index: number) => ({ ...field, id: field.id || `field-${randomUUID().slice(0, 8)}`, order: index + 1 }));
+  if (req.body?.category) form.category = req.body.category;
+  if (req.body?.triggerEvent) form.triggerEvent = req.body.triggerEvent;
+  form.updatedAt = new Date().toISOString();
+  db.addAuditLog({ ip: requestIp(req), tenantId: form.tenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'EDITAR_FORMULARIO', entity: 'FormDefinition', entityId: form.id, details: `Formulário '${form.title}' editado.` });
+  await db.persistNow();
+  return res.json(form);
 });
 
 // Submit or Update Form Response (Supports Saving Partial / Retirada / Final Entrega)
@@ -3924,7 +4257,7 @@ apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) =>
     if (isDraft !== undefined) existingResponse.isDraft = isDraft;
     existingResponse.updatedAt = now;
 
-    db.addAuditLog({
+    db.addAuditLog({ ip: requestIp(req),
       tenantId: form.tenantId,
       userId: req.user!.id,
       userName: req.user!.name,
@@ -3964,7 +4297,7 @@ apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) =>
     }
   }
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: form.tenantId,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -4275,6 +4608,7 @@ function updateWhatsAppConnectionState(tenantId: string | undefined, patch: Part
 
 // 1. Get WhatsApp Gateway Configuration
 apiRouter.get('/integrations/whatsapp/config', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'A configuração da API está disponível somente no painel SaaS.' });
   await db.waitForPersistence();
   const scope = getWhatsAppScope(req, req.query.tenantId);
   if (!scope) {
@@ -4313,6 +4647,7 @@ function isTestOrDemoUser(user: any): boolean {
 
 // 2. Save / Update WhatsApp Gateway Configuration
 apiRouter.post('/integrations/whatsapp/config', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'A configuração da API está disponível somente no painel SaaS.' });
   await db.waitForPersistence();
   const scope = getWhatsAppScope(req, req.body?.tenantId);
   if (!scope) {
@@ -4375,7 +4710,7 @@ apiRouter.post('/integrations/whatsapp/config', async (req: AuthenticatedRequest
   }
   await db.persistNow();
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: tenantId,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -4559,7 +4894,7 @@ apiRouter.post('/integrations/whatsapp/test', async (req: AuthenticatedRequest, 
   });
   await db.persistNow();
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -4599,7 +4934,7 @@ apiRouter.post('/integrations/whatsapp/notify', async (req: AuthenticatedRequest
     buttons
   });
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -4691,7 +5026,7 @@ apiRouter.post('/forms/send-dispatch', async (req: AuthenticatedRequest, res: Re
   }
 
   // Audit log
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -4827,7 +5162,7 @@ apiRouter.delete('/freights/:id', async (req: AuthenticatedRequest, res: Respons
   freight.publicListingEnabled = false;
   freight.publicPublishedAt = undefined;
   freight.updatedAt = now;
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: freight.tenantId,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -4857,7 +5192,7 @@ apiRouter.delete('/drivers/:id', async (req: AuthenticatedRequest, res: Response
       link.status = 'BLOQUEADO'; link.updatedAt = now;
     }
   }
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: req.user?.role === 'SUPER_ADMIN' ? driver.tenantId : req.user?.tenantId,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -4882,7 +5217,7 @@ apiRouter.delete('/users/:id', async (req: AuthenticatedRequest, res: Response) 
   targetUser.status = 'BLOQUEADO';
   targetUser.readOnly = true;
   targetUser.updatedAt = new Date().toISOString();
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -4905,7 +5240,7 @@ apiRouter.delete('/forms/:id', async (req: AuthenticatedRequest, res: Response) 
   }
   form.active = false;
   form.updatedAt = new Date().toISOString();
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: form.tenantId || undefined,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -4928,7 +5263,7 @@ apiRouter.delete('/vehicles/:id', async (req: AuthenticatedRequest, res: Respons
     return res.status(403).json({ error: 'Acesso não autorizado. Veículos de parceiros só podem ser desativados pelo próprio motorista ou pelo Super Admin.' });
   }
   vehicle.status = 'INATIVO';
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: vehicle.tenantId || req.user?.tenantId || undefined,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -5096,7 +5431,7 @@ apiRouter.put('/tenant/report-templates/:type', async (req: AuthenticatedRequest
 
   const saved = db.saveTenantReportTemplate(tenant.id, nextInput);
   const actor = safeTenantNotificationAuditActor(req);
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: tenant.id,
     tenantName: tenant.name,
     userId: actor.id,
@@ -5177,7 +5512,7 @@ apiRouter.put('/tenant/notification-templates/:id', async (req: AuthenticatedReq
   const nextOverrides = [...currentOverrides.filter(item => item.id !== globalTemplate.id), nextTemplate];
   db.tenantNotificationTemplates.set(tenant.id, nextOverrides);
   const actor = safeTenantNotificationAuditActor(req);
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: tenant.id,
     tenantName: tenant.name,
     userId: actor.id,
@@ -5228,6 +5563,10 @@ const safeLayoutConfig = (layout: any) => layout ? {
   fontFamily: ['sans', 'serif', 'mono', 'display'].includes(layout.fontFamily) ? layout.fontFamily : 'sans',
   navbarStyle: ['dark', 'light', 'colored'].includes(layout.navbarStyle) ? layout.navbarStyle : 'dark',
   logoText: safeConfigText(layout.logoText),
+  logoImageUrl: safePublicUrl(layout.logoImageUrl) || undefined,
+  faviconUrl: safePublicUrl(layout.faviconUrl) || undefined,
+  appIconUrl: safePublicUrl(layout.appIconUrl) || undefined,
+  homeHeroImageUrl: safePublicUrl(layout.homeHeroImageUrl) || undefined,
   browserTabTitle: safeConfigText(layout.browserTabTitle),
   footerText: safeConfigText(layout.footerText, 1000),
   systemBackground: ['minimal', 'warm', 'slate'].includes(layout.systemBackground) ? layout.systemBackground : 'minimal',
@@ -5434,6 +5773,13 @@ apiRouter.post('/saas/config', async (req: AuthenticatedRequest, res: Response) 
   if (newConfig.databaseConfig) {
     sqlAdapter.updateConfig(databaseConfig);
   }
+  if (mapboxConfig?.apiKey) {
+    try {
+      await db.persistMapboxSecret(mapboxConfig.apiKey);
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Não foi possível armazenar a configuração Mapbox com segurança.' });
+    }
+  }
   if (emailConfig?.host && emailConfig?.user && emailConfig?.password) {
     try {
       await db.persistEmailSecret(emailConfig);
@@ -5448,7 +5794,7 @@ apiRouter.post('/saas/config', async (req: AuthenticatedRequest, res: Response) 
       return res.status(500).json({ error: 'Não foi possível armazenar a configuração Asaas com segurança.' });
     }
   }
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: undefined,
     userId: req.user!.id,
     userName: req.user!.name,
@@ -5458,7 +5804,7 @@ apiRouter.post('/saas/config', async (req: AuthenticatedRequest, res: Response) 
     entityId: 'global-saas-config',
     details: `Atualizou configurações globais do SaaS (Nome: ${db.saasGlobalConfig.systemName})`
   });
-  void db.persistNow();
+  await db.persistNow();
   res.json({ success: true, config: exposeSafeSaaSConfig(db.saasGlobalConfig) });
 });
 /* =========================================================================
@@ -5502,7 +5848,7 @@ apiRouter.post('/database/migrate', async (req: AuthenticatedRequest, res: Respo
 
   const result = await sqlAdapter.runMigration();
   if (result.success) {
-    db.addAuditLog({
+    db.addAuditLog({ ip: requestIp(req),
       tenantId: undefined,
       userId: req.user!.id,
       userName: req.user!.name,
@@ -5709,7 +6055,7 @@ apiRouter.post('/expenses', (req: AuthenticatedRequest, res: Response) => {
   }
   db.tripExpenses.unshift(newReport);
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: newReport.tenantId,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -5808,7 +6154,7 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
 
   db.tripExpenses[index] = updatedReport;
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: updatedReport.tenantId,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -5843,7 +6189,7 @@ apiRouter.delete('/expenses/:id', (req: AuthenticatedRequest, res: Response) => 
   report.archivedAt = new Date().toISOString();
   report.updatedAt = report.archivedAt;
 
-  db.addAuditLog({
+  db.addAuditLog({ ip: requestIp(req),
     tenantId: report.tenantId,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
@@ -5890,7 +6236,8 @@ apiRouter.post('/integrations/email/test', async (req: AuthenticatedRequest, res
   const host = String(req.body?.host || '').trim();
   const port = Number(req.body?.port);
   const user = String(req.body?.user || '').trim();
-  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  const incomingPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+  const password = incomingPassword && incomingPassword !== '********' ? incomingPassword : String(db.saasGlobalConfig.emailConfig?.password || '');
   const senderEmail = String(req.body?.senderEmail || '').trim().slice(0, 254);
   const testEmail = String(req.body?.testEmail || '').trim().slice(0, 254);
 
@@ -5903,6 +6250,10 @@ apiRouter.post('/integrations/email/test', async (req: AuthenticatedRequest, res
       host,
       port,
       secure: port === 465,
+      requireTLS: port === 587 || port === 2525,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
       auth: { user, pass: password }
     });
     await transporter.verify();
@@ -5916,9 +6267,87 @@ apiRouter.post('/integrations/email/test', async (req: AuthenticatedRequest, res
     res.json({ success: true, message: 'E-mail de teste enviado com sucesso!' });
   } catch (err: any) {
     console.error('SMTP test failed', { code: err?.code || 'UNKNOWN', name: err?.name || 'Error' });
-    res.status(502).json({ success: false, message: 'Não foi possível concluir o teste SMTP.' });
+    const message = err?.code === 'EAUTH' ? 'O servidor SMTP recusou as credenciais.' : err?.code === 'ETIMEDOUT' || err?.code === 'ESOCKET' ? 'O servidor SMTP não respondeu dentro do prazo.' : 'Não foi possível concluir o teste SMTP. Confira host, porta, TLS e remetente.';
+    res.status(502).json({ success: false, message });
   }
 });
 
 
+// Budget / quotation domain (additive, tenant-scoped, server-calculated)
+import { calculateBudget, normalizeExpense } from './budgetService';
 
+const budgetActor = (req: AuthenticatedRequest) => req.user && (req.user.role === 'SUPER_ADMIN' || ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) ? req.user : null;
+const budgetTenantId = (req: AuthenticatedRequest) => req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || req.query?.tenantId || '') : String(req.user?.tenantId || '');
+const budgetForRequest = (req: AuthenticatedRequest, id: string) => db.budgets.find(item => item.id === id && (req.user?.role === 'SUPER_ADMIN' || item.tenantId === req.user?.tenantId));
+const validBudgetTransition: Record<string, string[]> = { RASCUNHO: ['EM_ANALISE', 'CANCELADO'], EM_ANALISE: ['APROVADO', 'REPROVADO', 'CANCELADO'], APROVADO: ['CONVERTIDO', 'CANCELADO'], REPROVADO: ['EM_ANALISE', 'CANCELADO'], CANCELADO: [], CONVERTIDO: [] };
+
+const clientTenantId = (req: AuthenticatedRequest) => req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || req.query?.tenantId || '') : String(req.user?.tenantId || '');
+const clientForRequest = (req: AuthenticatedRequest, id: string) => db.clients.find(client => client.id === id && (req.user?.role === 'SUPER_ADMIN' || client.tenantId === req.user?.tenantId));
+const clientCnpj = (value: unknown) => normalizePublicIdentity(value).slice(0, 14);
+const clientLookupCache = new Map<string, { expiresAt: number; data: any }>();
+const clientLookupRate = new Map<string, number[]>();
+const CLIENT_LOOKUP_WINDOW_MS = 60_000;
+const CLIENT_LOOKUP_LIMIT = 30;
+const clientPayload = (body: any, tenantId: string, existing?: Client): Client => {
+  const now = new Date().toISOString();
+  return { ...(existing || { id: randomUUID(), createdAt: now }), tenantId, cnpj: clientCnpj(body?.cnpj), legalName: String(body?.legalName || body?.razaoSocial || '').trim().slice(0, 180), tradeName: String(body?.tradeName || body?.nomeFantasia || '').trim().slice(0, 180) || undefined, email: String(body?.email || '').trim().slice(0, 180) || undefined, phone: String(body?.phone || body?.telefone || '').trim().slice(0, 40) || undefined, address: String(body?.address || body?.logradouro || '').trim().slice(0, 240) || undefined, number: String(body?.number || body?.numero || '').trim().slice(0, 30) || undefined, complement: String(body?.complement || body?.complemento || '').trim().slice(0, 120) || undefined, neighborhood: String(body?.neighborhood || body?.bairro || '').trim().slice(0, 120) || undefined, zipCode: String(body?.zipCode || body?.cep || '').trim().slice(0, 20) || undefined, city: String(body?.city || body?.municipio || '').trim().slice(0, 120) || undefined, state: String(body?.state || body?.uf || '').trim().slice(0, 10) || undefined, status: String(body?.status || 'ATIVO').slice(0, 30), source: body?.source === 'CNPJ_WS' ? 'CNPJ_WS' : 'MANUAL', cnpjData: body?.cnpjData && typeof body.cnpjData === 'object' ? body.cnpjData : existing?.cnpjData, updatedAt: now };
+};
+
+apiRouter.get('/clients/cnpj/:cnpj/lookup', async (req: AuthenticatedRequest, res: Response) => {
+  if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' });
+  const cnpj = clientCnpj(req.params.cnpj); if (cnpj.length !== 14) return res.status(400).json({ error: 'CNPJ inválido.' });
+  const ip = requestIp(req) || 'unknown'; const nowMs = Date.now(); const attempts = (clientLookupRate.get(ip) || []).filter(timestamp => nowMs - timestamp < CLIENT_LOOKUP_WINDOW_MS); if (attempts.length >= CLIENT_LOOKUP_LIMIT) return res.status(429).json({ error: 'Limite de consultas atingido. Tente novamente em alguns instantes.' }); attempts.push(nowMs); clientLookupRate.set(ip, attempts);
+  const cached = clientLookupCache.get(cnpj); if (cached && cached.expiresAt > nowMs) return res.json({ cnpj, data: cached.data, cached: true });
+  try { const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { headers: { Accept: 'application/json', 'X-Forwarded-For': ip, 'X-Real-IP': ip }, signal: AbortSignal.timeout(10000) }); const data: any = await response.json().catch(() => ({})); if (!response.ok) return res.status(response.status === 404 ? 404 : 502).json({ error: data?.detalhes || data?.message || 'Não foi possível consultar o CNPJ.' }); clientLookupCache.set(cnpj, { data, expiresAt: nowMs + 10 * 60_000 }); db.auditLogs.unshift({ id: randomUUID(), tenantId: req.user?.tenantId, tenantName: req.tenant?.name, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'CONSULTA_CNPJ', entity: 'CLIENT', entityId: cnpj, details: `Consulta CNPJ realizada${ip !== 'unknown' ? ` pelo IP ${ip}` : ''}`, ip, createdAt: new Date().toISOString() }); await db.persistNow(); return res.json({ cnpj, data }); } catch (error) { console.error('CNPJ lookup failed', error); return res.status(502).json({ error: 'Serviço de CNPJ indisponível no momento.' }); }
+});
+apiRouter.get('/clients', (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const tenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : String(req.user?.tenantId || ''); const search = String(req.query.search || '').trim().toLowerCase(); return res.json(db.clients.filter(client => (!tenantId || client.tenantId === tenantId) && client.status !== 'ARQUIVADO' && (!search || [client.cnpj, client.legalName, client.tradeName, client.email].some(value => String(value || '').toLowerCase().includes(search))))); });
+apiRouter.post('/clients', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const tenantId = clientTenantId(req); const cnpj = clientCnpj(req.body?.cnpj); if (!tenantId || !db.tenants.some(tenant => tenant.id === tenantId)) return res.status(400).json({ error: 'Empresa inválida.' }); if (cnpj.length !== 14 || !String(req.body?.legalName || req.body?.razaoSocial || '').trim()) return res.status(400).json({ error: 'CNPJ e razão social são obrigatórios.' }); if (db.clients.some(client => client.tenantId === tenantId && client.cnpj === cnpj && client.status !== 'ARQUIVADO')) return res.status(409).json({ error: 'Este CNPJ já está cadastrado.' }); const client = clientPayload(req.body, tenantId); db.clients.unshift(client); await db.persistNow(); return res.status(201).json(client); });
+apiRouter.put('/clients/:id', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const client = clientForRequest(req, req.params.id); if (!client) return res.status(404).json({ error: 'Cliente não encontrado.' }); const next = clientPayload(req.body, client.tenantId, client); if (next.cnpj.length !== 14 || !next.legalName) return res.status(400).json({ error: 'CNPJ e razão social são obrigatórios.' }); Object.assign(client, next); await db.persistNow(); return res.json(client); });
+apiRouter.delete('/clients/:id', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const client = clientForRequest(req, req.params.id); if (!client) return res.status(404).json({ error: 'Cliente não encontrado.' }); client.status = 'ARQUIVADO'; client.updatedAt = new Date().toISOString(); await db.persistNow(); return res.json(client); });
+
+apiRouter.get('/budget-forms', (req: AuthenticatedRequest, res: Response) => {
+  if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' });
+  const tenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : String(req.user?.tenantId || '');
+  return res.json(db.tenantBudgetForms.filter(form => !tenantId || form.tenantId === tenantId));
+});
+apiRouter.put('/budget-forms/:kind', async (req: AuthenticatedRequest, res: Response) => {
+  if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' });
+  const tenantId = budgetTenantId(req); const kind = String(req.params.kind || '').toUpperCase();
+  if (!tenantId || !['BUDGET', 'EXPENSE'].includes(kind)) return res.status(400).json({ error: 'Empresa ou tipo inválido.' });
+  const fields = Array.isArray(req.body?.fields) ? req.body.fields.slice(0, 100).map((field: any, index: number) => ({ ...field, id: String(field.id || randomUUID()), key: String(field.key || `campo_${index + 1}`).slice(0, 80), label: String(field.label || '').slice(0, 160), order: index })) : [];
+  const current: any = db.tenantBudgetForms.find(form => form.tenantId === tenantId && form.kind === kind && form.active);
+  const next: any = { id: randomUUID(), tenantId, kind, version: (current?.version || 0) + 1, fields, active: true, updatedAt: new Date().toISOString() };
+  db.tenantBudgetForms.filter(form => form.tenantId === tenantId && form.kind === kind).forEach(form => { form.active = false; });
+  db.tenantBudgetForms.unshift(next); await db.persistNow(); return res.json(next);
+});
+
+apiRouter.get('/budgets', (req: AuthenticatedRequest, res: Response) => {
+  if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão para orçamentos.' });
+  const tenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : req.user?.tenantId;
+  res.json(db.budgets.filter(item => !tenantId || item.tenantId === tenantId));
+});
+apiRouter.post('/budgets/calculate', (req: AuthenticatedRequest, res: Response) => {
+  if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão para calcular orçamento.' });
+  const expenses = Array.isArray(req.body?.expenses) ? req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)) : [];
+  res.json({ expenses, financials: calculateBudget({ ...req.body, expenses }) });
+});
+apiRouter.post('/budgets', async (req: AuthenticatedRequest, res: Response) => {
+  if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão para criar orçamento.' });
+  const tenantId = budgetTenantId(req); if (!tenantId || !db.tenants.some(item => item.id === tenantId)) return res.status(400).json({ error: 'Empresa inválida.' });
+  if (req.body?.clientId && !db.clients.some(client => client.id === req.body.clientId && client.tenantId === tenantId && client.status !== 'ARQUIVADO')) return res.status(400).json({ error: 'Cliente inválido para esta empresa.' });
+  const now = new Date().toISOString(); const expenses = Array.isArray(req.body?.expenses) ? req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)) : [];
+  const base: any = { id: randomUUID(), tenantId, code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, clientId: req.body?.clientId || undefined, clientName: String(req.body?.clientName || '').trim().slice(0, 180), origin: req.body?.origin || {}, destination: req.body?.destination || {}, date: String(req.body?.date || ''), cargoType: String(req.body?.cargoType || ''), weightKg: Math.max(0, Number(req.body?.weightKg) || 0), quantity: Math.max(0, Number(req.body?.quantity) || 0), vehicleType: String(req.body?.vehicleType || ''), driverId: req.body?.driverId || undefined, distanceKm: Math.max(0, Number(req.body?.distanceKm) || 0), pricePerKm: Math.max(0, Number(req.body?.pricePerKm) || 0), priceTableReference: String(req.body?.priceTableReference || '').slice(0, 160), tolls: Math.max(0, Number(req.body?.tolls) || 0), insurance: Math.max(0, Number(req.body?.insurance) || 0), dailyRate: Math.max(0, Number(req.body?.dailyRate) || 0), dailyCount: Math.max(0, Number(req.body?.dailyCount) || 0), assistantCount: Math.max(0, Number(req.body?.assistantCount) || 0), assistantDailyRate: Math.max(0, Number(req.body?.assistantDailyRate) || 0), estimatedMinutes: Math.max(0, Number(req.body?.estimatedMinutes) || 0), notes: String(req.body?.notes || '').slice(0, 2000), expenses, taxes: Array.isArray(req.body?.taxes) ? req.body.taxes : [], profitType: req.body?.profitType === 'FIXO' ? 'FIXO' : 'PERCENTUAL', profitValue: Number(req.body?.profitValue) || 0, driverPassed: Number(req.body?.driverPassed) || 0, driverPaid: Number(req.body?.driverPaid) || 0, customFields: req.body?.customFields || {}, versions: [], createdAt: now, updatedAt: now };
+  base.financials = calculateBudget(base); const version = { id: randomUUID(), budgetId: base.id, version: 1, snapshot: JSON.parse(JSON.stringify(base)), createdAt: now, createdByUserId: req.user!.id }; base.versions = [version]; db.budgets.unshift(base); await db.persistNow(); res.status(201).json(base);
+});
+apiRouter.get('/budgets/:id', (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget = budgetForRequest(req, req.params.id); return budget ? res.json(budget) : res.status(404).json({ error: 'Orçamento não encontrado.' }); });
+apiRouter.put('/budgets/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.status === 'CONVERTIDO') return res.status(409).json({ error: 'Orçamento convertido exige nova versão.' });
+  const expectedVersion = req.body?.expectedVersion === undefined ? undefined : Number(req.body.expectedVersion);
+  if (expectedVersion !== undefined && (!Number.isInteger(expectedVersion) || expectedVersion !== budget.version)) return res.status(409).json({ error: 'Este orçamento foi alterado por outra sessão. Recarregue os dados antes de salvar.', currentVersion: budget.version });
+  if (req.body?.clientId !== undefined && !db.clients.some(client => client.id === req.body.clientId && client.tenantId === budget.tenantId && client.status !== 'ARQUIVADO')) return res.status(400).json({ error: 'Cliente inválido para esta empresa.' });
+  const allowed = ['clientId','clientName','origin','destination','date','cargoType','weightKg','quantity','vehicleType','driverId','distanceKm','pricePerKm','priceTableReference','tolls','insurance','dailyRate','dailyCount','assistantCount','assistantDailyRate','estimatedMinutes','notes','taxes','profitType','profitValue','driverPassed','driverPaid','customFields']; for (const key of allowed) if (req.body[key] !== undefined) budget[key] = req.body[key]; if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)); budget.version += 1; budget.updatedAt = new Date().toISOString(); budget.financials = calculateBudget(budget); budget.versions.push({ id: randomUUID(), budgetId: budget.id, version: budget.version, snapshot: JSON.parse(JSON.stringify(budget)), createdAt: budget.updatedAt, createdByUserId: req.user!.id }); await db.persistNow(); res.json(budget);
+});
+apiRouter.post('/budgets/:id/status', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const status = String(req.body?.status || ''); if (!validBudgetTransition[budget.status]?.includes(status)) return res.status(409).json({ error: `Transição ${budget.status} → ${status} não permitida.` }); budget.status = status; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });
+apiRouter.post('/budgets/:id/duplicate', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const source: any = budgetForRequest(req, req.params.id); if (!source) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const now = new Date().toISOString(); const copy: any = { ...JSON.parse(JSON.stringify(source)), id: randomUUID(), code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, convertedFreightId: undefined, createdAt: now, updatedAt: now, versions: [] }; copy.expenses = copy.expenses.map((item: any, index: number) => ({ ...item, id: randomUUID() })); copy.financials = calculateBudget(copy); copy.versions = [{ id: randomUUID(), budgetId: copy.id, version: 1, snapshot: JSON.parse(JSON.stringify(copy)), createdAt: now, createdByUserId: req.user!.id }]; db.budgets.unshift(copy); await db.persistNow(); res.status(201).json(copy); });
+apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType, type: 'GERAL', weightKg: budget.weightKg, volumeCount: budget.quantity }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: false }, status: 'RASCUNHO', statusHistory: [], createdByUserId: req.user!.id, createdByName: req.user!.name, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
+apiRouter.delete('/budgets/:id', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.status === 'CONVERTIDO') return res.status(409).json({ error: 'Orçamento convertido não pode ser apagado.' }); budget.status = 'CANCELADO'; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });

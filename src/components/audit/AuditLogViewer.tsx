@@ -57,13 +57,14 @@ export const AuditLogViewer: React.FC = () => {
                 <th className="py-3.5 px-4">Ação</th>
                 <th className="py-3.5 px-4">Entidade</th>
                 <th className="py-3.5 px-4">Usuário / Ator</th>
+                <th className="py-3.5 px-4">IP de origem</th>
                 <th className="py-3.5 px-4">Detalhes Técnicos</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
               {logs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-slate-400 font-sans">
+                  <td colSpan={6} className="py-12 text-center text-slate-400 font-sans">
                     Nenhum log de auditoria registrado no período.
                   </td>
                 </tr>
@@ -71,7 +72,7 @@ export const AuditLogViewer: React.FC = () => {
                 logs.map(log => (
                   <tr key={log.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
                     <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
-                      {new Date(log.timestamp).toLocaleString()}
+                      {(() => { const raw = log.createdAt || (log as any).timestamp; const date = raw ? new Date(raw) : null; return date && !Number.isNaN(date.getTime()) ? date.toLocaleString('pt-BR') : 'Data não disponível'; })()}
                     </td>
                     <td className="py-3 px-4 font-bold text-emerald-700 dark:text-emerald-400">
                       {log.action}
@@ -83,6 +84,9 @@ export const AuditLogViewer: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 text-slate-800 dark:text-slate-200 font-sans font-semibold">
                       {log.userName}
+                    </td>
+                    <td className="py-3 px-4 text-[11px] text-slate-500 font-mono">
+                      {log.ip || 'IP não registrado'}
                     </td>
                     <td className="py-3 px-4 text-[11px] text-slate-500 font-sans">
                       {JSON.stringify(log.details)}

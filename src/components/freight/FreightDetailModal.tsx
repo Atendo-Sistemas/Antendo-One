@@ -49,6 +49,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
   const [loadingResponses, setLoadingResponses] = useState(false);
   const [isTrackingOpen, setIsTrackingOpen] = useState(false);
   const [isExpenseOpen, setIsExpenseOpen] = useState(false);
+  const [trackingBusy, setTrackingBusy] = useState(false);
 
   if (!freight) return null;
 
@@ -74,6 +75,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
       alert(err.message || 'Erro ao excluir frete');
     }
   };
+  const handleTrackingToggle = async () => { setTrackingBusy(true); try { const revoked = !freight.publicTrackingRevokedAt; await api.setPublicTrackingRevoked(freight.id, revoked); onUpdateSuccess?.({ ...freight, publicTrackingRevokedAt: revoked ? new Date().toISOString() : undefined, publicTrackingEnabled: !revoked }); } catch (err: any) { alert(err.message || 'Não foi possível alterar o link público.'); } finally { setTrackingBusy(false); } };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -119,6 +121,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
               <Navigation className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">🛰️ Rastreamento GPS</span>
             </button>
+            {isAdmin && <button type="button" disabled={trackingBusy} onClick={() => void handleTrackingToggle()} className="py-1.5 px-3 bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold" title="Revogar ou reativar o link público">{freight.publicTrackingRevokedAt ? 'Reativar link' : 'Revogar link'}</button>}
             <button
               onClick={onClose}
               className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"

@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { FormDefinition, Freight, Tenant, TenantReportTemplate } from '../../types';
 import { api, isOfflineMode } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
-import { WhatsAppConfigModal } from '../common/WhatsAppConfigModal';
 import { generateChecklistPdf } from '../../utils/checklistPdfGenerator';
 import { scanQrAndBarcodeFromCanvas, parseBrazilianPlateFromText } from '../../utils/barcodeAndPlateScanner';
 import { compressImageFile } from '../../utils/imageCompression';
@@ -23,7 +22,6 @@ import {
   Clock, 
   Send, 
   UserCheck, 
-  Settings,
   Lock,
   Eye,
   Trash2,
@@ -235,7 +233,6 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // WhatsApp Config Modal
-  const [showConfigModal, setShowConfigModal] = useState(false);
   const [showWhatsAppPanel, setShowWhatsAppPanel] = useState(false);
   const [whatsAppRecipient, setWhatsAppRecipient] = useState('');
   const [whatsAppMessage, setWhatsAppMessage] = useState('');
@@ -1086,17 +1083,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
                   Notificação e Envio do Checklist via WhatsApp
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowConfigModal(true)}
-                  className="text-[11px] text-emerald-300 hover:text-white bg-emerald-900/80 hover:bg-emerald-800 border border-emerald-700 px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer transition-colors"
-                  title="Configurar URL e Token da API WhatsApp"
-                >
-                  <Settings className="w-3 h-3" />
-                  <span>Configurar API</span>
-                </button>
-              </div>
+              <span className="text-[10px] text-emerald-300">Canal administrado pelo SaaS</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
@@ -1189,7 +1176,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
             activeVia === '2_VERDE' ? 'border-emerald-400 bg-emerald-50/20' : activeVia === '3_AMARELA' ? 'border-amber-400 bg-amber-50/20' : 'border-slate-800'
           }`}>
             
-            {/* 1. OFFICIAL HEADER (ELO LOG) */}
+            {/* 1. OFFICIAL HEADER (ATENDO ONE) */}
             <div className="border-b-2 border-slate-900 pb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               
               {/* Logo & Company info */}
@@ -1219,7 +1206,7 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
                   Contatos operacionais configurados pela empresa
                 </p>
                 <p className="text-slate-500">
-                  @elotransportesltda • www.elologtransportes.com.br
+                  Atendo One • Gestão Logística Integrada
                 </p>
                 
                 {/* Talão Number Box */}
@@ -2758,11 +2745,6 @@ export const EloLogChecklistModal: React.FC<EloLogChecklistModalProps> = ({
         </div>
       )}
 
-      {/* WhatsApp Configuration Modal */}
-      <WhatsAppConfigModal
-        isOpen={showConfigModal}
-        onClose={() => setShowConfigModal(false)}
-      />
     </div>
   );
 };

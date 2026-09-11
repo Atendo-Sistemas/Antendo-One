@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Tenant, OperationType } from '../../types';
 import { api } from '../../services/api';
-import { Building2, Shield, Plus, CheckCircle, TrendingUp, Users, Truck, DollarSign, Pencil, Trash2, X, Split, Lock, User as UserIcon, Mail, Phone, RefreshCw } from 'lucide-react';
+import { Building2, Shield, Plus, CheckCircle, TrendingUp, Users, Truck, DollarSign, Bell, Pencil, Trash2, X, Split, Lock, User as UserIcon, Mail, Phone, RefreshCw } from 'lucide-react';
 
 const formatCnpj = (value: string) => {
   const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -22,6 +22,7 @@ const formatPhone = (value: string) => {
 export const SuperAdminDashboard: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tenantSearch, setTenantSearch] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
@@ -208,6 +209,48 @@ export const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  const handleActivatePlan = async (t: Tenant) => {
+    const rawDays = window.prompt(`Por quantos dias deseja ativar o plano ${t.plan} para "${t.name}"?`, '30');
+    if (rawDays === null) return;
+    const days = Number(rawDays);
+    if (!Number.isInteger(days) || days < 1 || days > 3660) {
+      alert('Informe uma validade inteira entre 1 e 3660 dias.');
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      await api.activateTenantPlan(t.id, t.plan, days);
+      alert(`Plano ${t.plan} ativado manualmente por ${days} dias.`);
+      await loadTenants();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao ativar plano');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEnableNotifications = async (t: Tenant, chargeViaAsaas: boolean) => {
+    try {
+      setIsSubmitting(true);
+      if (chargeViaAsaas) {
+        const result = await api.createNotificationModuleSubscription({ tenantId: t.id, billingType: 'PIX' });
+        alert(`Módulo de notificações encaminhado pelo Asaas para ${t.name}. Status: ${result.status}. A ativação financeira depende da confirmação do pagamento/webhook.`);
+      } else {
+        await api.selectFreeNotificationModule(t.id);
+        alert(`Módulo de notificações SaaS ativado para ${t.name}.`);
+      }
+      await loadTenants();
+    } catch (err: any) {
+      alert(err.message || 'Não foi possível configurar o módulo de notificações.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const normalizedTenantSearch = tenantSearch.trim().toLowerCase();
+  const filteredTenants = tenants.filter(t => [t.name, t.legalName, t.cnpj, t.email, t.phone, t.city, t.state, t.atendoCrmTenantId || '', t.atendoCrmProvisioningStatus || '']
+    .some(value => String(value || '').toLowerCase().includes(normalizedTenantSearch)));
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       
@@ -242,9 +285,18 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        <label htmlFor="saas-tenant-search" className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">Pesquisar empresa</label>
+        <div className="flex items-center gap-2">
+          <input id="saas-tenant-search" value={tenantSearch} onChange={e => setTenantSearch(e.target.value)} placeholder="Nome, CNPJ, e-mail, cidade, telefone ou status CRM" className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-purple-500 dark:border-slate-700 dark:bg-slate-800" />
+          {tenantSearch && <button onClick={() => setTenantSearch('')} className="rounded-lg px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Limpar</button>}
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">Exibindo {filteredTenants.length} de {tenants.length} empresas.</p>
+      </div>
+
       {/* Tenants Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {tenants.map(t => (
+        {filteredTenants.map(t => (
           <div
             key={t.id}
             className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4 flex flex-col justify-between"
@@ -311,6 +363,12 @@ export const SuperAdminDashboard: React.FC = () => {
                     </button>
                   </div>
                 )}
+                {t.atendoCrmProvisioningStatus && t.atendoCrmProvisioningStatus !== 'PROVISIONED' && (
+                  <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+                    <strong>Empresa ainda não criada no CRM Atendo.</strong>
+                    <p className="mt-1">{t.atendoCrmProvisioningError || `Status do provisionamento: ${t.atendoCrmProvisioningStatus}.`}</p>
+                  </div>
+                )}
               </div>
 
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
@@ -333,6 +391,20 @@ export const SuperAdminDashboard: React.FC = () => {
                       <RefreshCw className={`w-3.5 h-3.5 ${isSubmitting ? 'animate-spin' : ''}`} />
                     </button>
                   )}
+                  <button onClick={() => handleEnableNotifications(t, false)} disabled={isSubmitting} className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer disabled:opacity-50" title="Ativar notificações pelo SaaS">
+                    <Bell className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => handleEnableNotifications(t, true)} disabled={isSubmitting} className="p-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/40 dark:hover:bg-violet-900/60 text-violet-700 dark:text-violet-300 transition-colors cursor-pointer disabled:opacity-50" title="Ativar notificações com cobrança Asaas">
+                    <DollarSign className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleActivatePlan(t)}
+                    disabled={isSubmitting}
+                    className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 transition-colors cursor-pointer disabled:opacity-50"
+                    title="Ativar plano manualmente"
+                  >
+                    <DollarSign className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     onClick={() => handleDeleteTenant(t.id, t.name)}
                     className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors cursor-pointer"

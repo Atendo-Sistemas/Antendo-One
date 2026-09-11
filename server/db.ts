@@ -28,6 +28,9 @@ import {
   LegalDocumentVersion,
   ReportTemplateType,
   TenantReportTemplate
+  ,CompanyStop
+  ,LodgingPartner
+  ,Client
 } from '../src/types';
 import { defaultNotificationTemplates } from './notificationDefaults';
 import { publicSeoPages, publicSeoPosts } from './publicContentDefaults';
@@ -36,6 +39,7 @@ import { sqlAdapter } from './db/sqlAdapter';
 
 const WHATSAPP_SECRET_ID = 'whatsapp-global';
 const WHATSAPP_TENANT_SECRET_PREFIX = 'whatsapp-tenant:';
+const MAPBOX_SECRET_ID = 'mapbox-global';
 const EMAIL_SECRET_ID = 'smtp-global';
 const ASAAS_SECRET_ID = 'asaas-global';
 const ATENDO_CRM_ADMIN_SECRET_ID = 'atendo-crm-admin';
@@ -127,6 +131,12 @@ class DatabaseStore {
   driverCompanyLinks: DriverCompanyLink[] = [];
   freightInterests: FreightInterest[] = [];
   companyVehicles: CompanyVehicle[] = [];
+  companyStops: CompanyStop[] = [];
+  lodgingPartners: LodgingPartner[] = [];
+  clients: Client[] = [];
+  budgets: import('../src/types').Budget[] = [];
+  tenantBudgetForms: import('../src/types').TenantBudgetForm[] = [];
+  freightLocations: import('../src/types').FreightLocationHistoryEntry[] = [];
   pages: WebPage[] = [];
   posts: BlogPost[] = [];
   asaasPayments: any[] = [];
@@ -192,7 +202,7 @@ class DatabaseStore {
       borderRadius: 'xl',
       fontFamily: 'sans',
       navbarStyle: 'dark',
-      logoText: 'ELO LOG',
+      logoText: 'ATENDO ONE',
       systemBackground: 'slate'
     },
     formFields: {
@@ -312,6 +322,7 @@ class DatabaseStore {
   
   // Storage for auth tokens
   private authTokens: Map<string, { userId: string, expiresAt: Date }> = new Map();
+  private refreshTokens: Map<string, { userId: string, expiresAt: Date, familyId: string }> = new Map();
   private persistenceReady: Promise<void>;
   private persistenceQueue: Promise<void> = Promise.resolve();
   private analyticsPersistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -320,9 +331,11 @@ class DatabaseStore {
   constructor() {
     this.seedInitialData();
     this.ensurePublicDemoData();
+    this.ensurePublicTrackingTokens();
     this.ensureSystemContent();
     this.persistenceReady = this.hydrateFromPostgres().then(async () => {
       await this.hydrateSecureAtendoCrmConfig();
+      this.ensurePublicTrackingTokens();
       this.ensureSystemContent();
       this.ensurePublicDemoData();
       return this.persistNow();
@@ -331,6 +344,14 @@ class DatabaseStore {
 
   async waitForPersistence(): Promise<void> {
     await this.persistenceReady;
+  }
+
+  private ensurePublicTrackingTokens(): void {
+    for (const freight of this.freights) {
+      if (!freight.publicTrackingToken) {
+        freight.publicTrackingToken = randomBytes(16).toString('hex');
+      }
+    }
   }
 
   getTenantReportTemplates(tenantId: string): TenantReportTemplate[] {
@@ -362,7 +383,7 @@ class DatabaseStore {
   }
   private ensureSystemContent(): void {
     const now = new Date().toISOString();
-    const legalVersion = '2026-08-27.1';
+    const legalVersion = '2026-09-07.1';
     const systemName = this.saasGlobalConfig.systemName || 'Gestor';
     const supportEmail = this.saasGlobalConfig.supportEmail || 'suporte informado na plataforma';
     const privacyContent = `<h1>Política de Privacidade</h1><p>Versão ${legalVersion}. Esta minuta explica como ${systemName} trata dados pessoais no serviço de gestão logística, fretes, usuários, motoristas, veículos, documentos, notificações e cobrança.</p><h2>1. Quem trata os dados</h2><p>A identificação jurídica do controlador e o canal atualizado do encarregado devem ser preenchidos pela organização responsável antes da publicação definitiva. Em operações criadas por uma empresa cliente, essa empresa também define as finalidades específicas dos dados que insere e das decisões que toma sobre usuários, motoristas e fretes.</p><h2>2. Dados tratados</h2><p>Podem ser tratados nome, e-mail, telefone, documentos cadastrais e de habilitação, cidade, estado, empresa, dados de veículos, dados de fretes, despesas e documentos enviados, credenciais protegidas, registros de acesso, auditoria, suporte e preferências de comunicação. Dados de cartão não são armazenados pelo ${systemName}; o fluxo comercial deve usar Checkout ou tokenização do provedor de pagamentos.</p><h2>3. Finalidades e bases legais</h2><p>Os dados são usados para criar e administrar contas, executar o contrato ou medidas pré-contratuais, operar fretes, validar vínculos de motoristas, emitir e organizar documentos, prestar suporte, prevenir fraude, manter a segurança, cumprir obrigações legais e conciliar pagamentos. Comunicações operacionais por e-mail podem ser enviadas conforme a configuração da conta; notificações operacionais por WhatsApp exigem autorização explícita do destinatário e podem ser revogadas a qualquer momento. O fundamento jurídico aplicável deve ser confirmado pelo controlador em cada operação.</p><h2>4. WhatsApp, consentimento e canais</h2><p>A empresa pode escolher o telefone oficial SaaS, sem mensalidade adicional, ou contratar o número próprio. A conexão própria pode usar o Atendo CRM e seus endpoints configurados pela empresa. Tokens de integração permanecem no servidor, cifrados e fora do navegador. O ${systemName} não autoriza disparos para pessoas que não tenham relação com a operação ou consentimento quando exigido. O titular pode retirar o consentimento em Preferências de notificações; a retirada não invalida tratamentos necessários à segurança, à autenticação ou ao cumprimento de obrigação legal.</p><h2>5. Pagamentos e Asaas</h2><p>Para assinaturas, o ${systemName} pode compartilhar com o Asaas os dados necessários para criar o cliente e a cobrança, como identificação empresarial, e-mail, telefone válido e informações do plano. O sistema mantém apenas referências, valores, vencimentos e estados de assinatura/pagamento necessários à conciliação. Número de cartão, validade e CVV não devem ser enviados ao backend do ${systemName} nem registrados em logs, banco ou analytics.</p><h2>6. Vitrine pública e motoristas</h2><p>Quando a empresa optar por publicar um frete, a vitrine mostra somente um resumo da oportunidade. Não são expostos valor, endereços exatos, contatos, clientes, notas internas ou documentos fiscais. O motorista deve concluir o cadastro e a empresa responsável analisa o interesse. O perfil de motorista pode ser global, mas cada vínculo empresarial é independente: a aprovação de uma empresa não substitui a validação de outra. O compartilhamento deve limitar-se ao necessário para análise e operação.</p><h2>7. Analytics e visitas</h2><p>As páginas públicas podem registrar estatísticas agregadas para melhorar conteúdo, navegação e campanhas. Podem ser tratados rota, data, origem geral, domínio referenciador, parâmetros de campanha, tipo de dispositivo e, quando fornecido pelo proxy, país. O mecanismo não registra o endereço IP completo, formulários, senhas, códigos ou fingerprint individual; os registros técnicos de visitas são mantidos por no máximo 366 dias e têm acesso restrito.</p><h2>8. Compartilhamento e operadores</h2><p>Dados podem ser acessados por provedores necessários à hospedagem, banco, envio de e-mail, WhatsApp, pagamentos, segurança e suporte, sempre conforme a finalidade e os contratos aplicáveis. Compartilhamentos adicionais devem ser informados pela empresa responsável. Transferências internacionais, quando ocorrerem, devem observar as salvaguardas exigidas pela legislação.</p><h2>9. Segurança, retenção e incidentes</h2><p>São aplicados segregação por empresa, controle de acesso, autenticação, cofre cifrado para segredos, não persistência de QR e tokens no estado operacional, auditoria, headers de segurança, rate limiting e backups. Nenhuma medida elimina todo risco. Os dados são mantidos pelo tempo necessário às finalidades, à defesa de direitos e às obrigações legais; depois podem ser eliminados ou anonimizados quando permitido.</p><h2>10. Direitos do titular</h2><p>O titular pode solicitar confirmação, acesso, correção, informação sobre compartilhamento, anonimização, bloqueio, eliminação quando aplicável, portabilidade, revisão de decisões automatizadas e revogação de consentimento. Para exercer direitos, use ${supportEmail}, informando o mínimo necessário para localizar a solicitação. O controlador avaliará a identidade, a base legal, os prazos e as exceções aplicáveis.</p><h2>11. Atualizações</h2><p>Esta política pode ser atualizada para refletir mudanças do serviço, da legislação ou dos provedores. A versão aceita no cadastro é registrada com data e versão. Esta é uma minuta operacional e precisa de revisão jurídica, identificação do controlador, definição do encarregado, bases legais específicas e validação fiscal antes de uso definitivo.</p>`;
@@ -419,7 +440,21 @@ class DatabaseStore {
     this.ensureAnalyticsTermsDisclosure();
     this.ensureAnalyticsPrivacyDisclosure();
     this.ensureDriverDataDisclosure();
+    this.ensureLegalCompleteness();
     this.ensureDriverCompanyLinks();
+  }
+  private ensureLegalCompleteness(): void {
+    const now = new Date().toISOString();
+    const privacy = this.pages.find(item => item.tenantId === null && item.slug === 'politica-de-privacidade');
+    const terms = this.pages.find(item => item.tenantId === null && item.slug === 'termos-de-uso');
+    if (privacy && !privacy.content.includes('Controlador, operador e encarregado')) {
+      privacy.content += `<h2>Controlador, operador e encarregado</h2><p>Na contratação SaaS, a empresa cliente é responsável pelas finalidades e decisões relativas aos dados que insere na plataforma, atuando o Atendo One como operador na execução das instruções legítimas do serviço. Para dados administrados diretamente pelo Atendo One, o controlador é a organização responsável pela plataforma, identificada no cadastro e no canal de privacidade informado. O canal para solicitações de privacidade é ${this.saasGlobalConfig.supportEmail || 'o e-mail de suporte informado na plataforma'}; a identificação nominal e o contato do encarregado devem ser mantidos atualizados pelo responsável antes da publicação comercial.</p><h2>Cookies e tecnologias semelhantes</h2><p>O serviço pode usar armazenamento local, cookies estritamente necessários, sessão, segurança, preferências e fila offline. Analytics não essencial deve respeitar a configuração de privacidade aplicável e não deve ser usado para criar perfil individual sem base legal adequada.</p><h2>Incidentes e reclamações</h2><p>Incidentes relevantes serão tratados conforme o plano de resposta e comunicados aos afetados e à autoridade competente quando houver obrigação legal. O titular pode procurar o canal de privacidade e, quando aplicável, a Autoridade Nacional de Proteção de Dados (ANPD).</p><h2>Crianças e adolescentes</h2><p>O serviço não é destinado a crianças. Cadastros de adolescentes somente devem ocorrer quando juridicamente permitidos e com as autorizações exigidas para a finalidade específica.</p>`;
+      privacy.contentVersion = '2026-09-07.1'; privacy.updatedAt = now;
+    }
+    if (terms && !terms.content.includes('Suspensão, encerramento e portabilidade')) {
+      terms.content += '<h2>Suspensão, encerramento e portabilidade</h2><p>A conta pode ser suspensa para proteção da plataforma, cumprimento legal, inadimplência ou violação destes Termos, com preservação dos registros necessários. Quando a funcionalidade estiver disponível, a empresa poderá exportar seus dados em formato estruturado antes do encerramento, observadas obrigações legais, dados de terceiros e prazos de retenção.</p><h2>Foro e legislação aplicável</h2><p>Estes Termos devem indicar a legislação aplicável e o foro eleito pela entidade contratante no instrumento comercial ou cadastro jurídico vigente. Na ausência de disposição específica válida, aplicam-se as normas brasileiras pertinentes à relação contratual e à proteção de dados.</p>';
+      terms.contentVersion = '2026-09-07.1'; terms.updatedAt = now;
+    }
   }
   private ensurePublicSeoContent(): void {
     const now = new Date().toISOString();
@@ -568,6 +603,11 @@ class DatabaseStore {
       driverCompanyLinks: this.driverCompanyLinks,
       freightInterests: this.freightInterests,
       companyVehicles: this.companyVehicles,
+      companyStops: this.companyStops,
+      lodgingPartners: this.lodgingPartners,
+      clients: this.clients,
+      budgets: this.budgets,
+      tenantBudgetForms: this.tenantBudgetForms,
       pages: this.pages,
       posts: this.posts,
       asaasPayments: this.asaasPayments,
@@ -589,12 +629,13 @@ class DatabaseStore {
       const state = result.rows[0]?.state;
       if (!state) {
         await this.hydrateSecureWhatsAppConfig();
+        await this.hydrateSecureMapboxConfig();
         await this.hydrateSecureEmailConfig();
         await this.hydrateSecureAsaasConfig();
         this.ensureSystemContent();
         return;
       }
-      for (const key of ['tenants', 'users', 'drivers', 'vehicles', 'freights', 'tripExpenses', 'notifications', 'notificationDeliveries', 'pushSubscriptions', 'forms', 'formResponses', 'auditLogs', 'errorLogs', 'visitAnalytics', 'driverCompanyLinks', 'freightInterests', 'companyVehicles', 'pages', 'posts', 'asaasPayments', 'asaasSubscriptions', 'helpPages', 'legalDocumentVersions']) {
+    for (const key of ['tenants', 'users', 'drivers', 'vehicles', 'freights', 'freightLocations', 'tripExpenses', 'notifications', 'notificationDeliveries', 'pushSubscriptions', 'forms', 'formResponses', 'auditLogs', 'errorLogs', 'visitAnalytics', 'driverCompanyLinks', 'freightInterests', 'companyVehicles', 'companyStops', 'lodgingPartners', 'clients', 'budgets', 'tenantBudgetForms', 'pages', 'posts', 'asaasPayments', 'asaasSubscriptions', 'helpPages', 'legalDocumentVersions']) {
         if (Array.isArray(state[key])) (this as any)[key] = state[key];
       }
       if (state.whatsappConfigs && typeof state.whatsappConfigs === 'object') {
@@ -640,6 +681,7 @@ class DatabaseStore {
         };
       }
       await this.hydrateSecureWhatsAppConfig();
+      await this.hydrateSecureMapboxConfig();
       if (state.saasGlobalConfig) {
         const persisted = state.saasGlobalConfig;
         const runtime = this.saasGlobalConfig;
@@ -666,10 +708,23 @@ class DatabaseStore {
             ? { ...runtime.asaasConfig, ...persisted.asaasConfig, apiKey: runtime.asaasConfig?.apiKey || '', webhookToken: runtime.asaasConfig?.webhookToken || '' }
             : runtime.asaasConfig
         };
+        const layout: any = this.saasGlobalConfig.layout || {};
+        const legacyBranding: Record<string, [string, string]> = {
+          logoText: ['ELO LOG', 'ATENDO ONE'],
+          homeBadgeText: ['Solução Completa Multi-Tenant de Carga', 'Gestão completa para sua operação de transporte'],
+          homeSubtitle: ['O Elo Log conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.', 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.'],
+          footerText: ['Elo Log • Gestão Logística Integrada © 2026', 'Atendo One • Gestão Logística Integrada © 2026']
+        };
+        let brandingChanged = false;
+        for (const [key, [legacy, current]] of Object.entries(legacyBranding)) {
+          if (layout[key] === legacy) { layout[key] = current; brandingChanged = true; }
+        }
+        if (brandingChanged) { this.saasGlobalConfig.layout = layout; await this.persistNow(); }
       }
       await this.hydrateSecureEmailConfig();
       await this.hydrateSecureAsaasConfig();
       this.ensureSystemContent();
+      if (process.env.DISABLE_RETENTION_CLEANUP !== 'true') await this.pruneOperationalData();
     } catch (error: any) {
       if (!String(error?.message || '').includes('relation "app_state" does not exist')) {
         console.warn('PostgreSQL state hydration skipped:', error?.message || error);
@@ -736,6 +791,39 @@ class DatabaseStore {
         console.warn('Secure tenant WhatsApp configuration hydration skipped:', error?.message || error);
       }
     }
+  }
+
+  private async hydrateSecureMapboxConfig(): Promise<void> {
+    if (!sqlAdapter.isEnabled() || !getConfigEncryptionKey()) return;
+    const runtimeConfig: any = this.saasGlobalConfig.mapboxConfig || {};
+    try {
+      const result = await sqlAdapter.query<{ ciphertext: string }>('SELECT ciphertext FROM app_secrets WHERE id = $1', [MAPBOX_SECRET_ID]);
+      const secret: any = result.rows[0]?.ciphertext ? decryptConfigSecret(result.rows[0].ciphertext) : null;
+      if (secret?.apiKey) {
+        this.saasGlobalConfig.mapboxConfig = { ...runtimeConfig, ...secret, apiKey: String(secret.apiKey) };
+      } else if (runtimeConfig.apiKey || process.env.MAPBOX_ACCESS_TOKEN) {
+        await this.persistMapboxSecret(String(runtimeConfig.apiKey || process.env.MAPBOX_ACCESS_TOKEN));
+      }
+    } catch (error: any) {
+      if (String(error?.message || '').includes('relation "app_secrets" does not exist')) {
+        await sqlAdapter.query(`CREATE TABLE IF NOT EXISTS app_secrets (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+      } else {
+        console.warn('Secure Mapbox configuration hydration skipped:', error?.message || error);
+      }
+    }
+  }
+
+  async persistMapboxSecret(apiKey: string): Promise<void> {
+    const normalized = String(apiKey || '').trim();
+    if (!normalized || normalized === '********') throw new Error('Token Mapbox inválido ou vazio.');
+    if (!sqlAdapter.isEnabled()) throw new Error('A persistência PostgreSQL precisa estar habilitada para salvar a configuração com segurança.');
+    const ciphertext = encryptConfigSecret({ apiKey: normalized });
+    await sqlAdapter.query(`CREATE TABLE IF NOT EXISTS app_secrets (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+    await sqlAdapter.query(
+      `INSERT INTO app_secrets (id, ciphertext, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = CURRENT_TIMESTAMP`,
+      [MAPBOX_SECRET_ID, ciphertext]
+    );
   }
 
   private async hydrateSecureAtendoCrmConfig(): Promise<void> {
@@ -947,6 +1035,20 @@ class DatabaseStore {
     );
   }
 
+  async pruneOperationalData(): Promise<{ auditRemoved: number; notificationsRemoved: number; gpsRemoved: number }> {
+    const now = Date.now();
+    const cutoff = (env: string, fallbackDays: number) => now - Math.max(1, Number(process.env[env] || fallbackDays)) * 86400000;
+    const auditCutoff = cutoff('AUDIT_RETENTION_DAYS', 365);
+    const notificationCutoff = cutoff('NOTIFICATION_RETENTION_DAYS', 90);
+    const gpsCutoff = cutoff('GPS_RETENTION_DAYS', 30);
+    const beforeAudit = this.auditLogs.length; this.auditLogs = this.auditLogs.filter(item => Date.parse(item.createdAt || '') >= auditCutoff);
+    const beforeNotifications = this.notifications.length; this.notifications = this.notifications.filter(item => Date.parse(item.createdAt || '') >= notificationCutoff);
+    const beforeGps = this.freightLocations.length; this.freightLocations = this.freightLocations.filter(item => Date.parse((item as any).recordedAt || '') >= gpsCutoff);
+    const result = { auditRemoved: beforeAudit - this.auditLogs.length, notificationsRemoved: beforeNotifications - this.notifications.length, gpsRemoved: beforeGps - this.freightLocations.length };
+    if (result.auditRemoved || result.notificationsRemoved || result.gpsRemoved) await this.persistNow();
+    return result;
+  }
+
   async persistNow(): Promise<void> {
     if (!sqlAdapter.isEnabled()) return;
     this.persistenceQueue = this.persistenceQueue.then(async () => {
@@ -1142,6 +1244,28 @@ class DatabaseStore {
   // Auth token persistence methods
   saveAuthToken(token: string, userId: string, expiresAt: Date) {
     this.authTokens.set(token, { userId, expiresAt });
+  }
+
+  revokeAuthToken(token: string): void {
+    this.authTokens.delete(token);
+  }
+
+  saveRefreshToken(tokenId: string, userId: string, familyId: string, expiresAt: Date): void {
+    this.refreshTokens.set(tokenId, { userId, familyId, expiresAt });
+  }
+
+  consumeRefreshToken(tokenId: string): { userId: string; familyId: string } | null {
+    const token = this.refreshTokens.get(tokenId);
+    if (!token || token.expiresAt <= new Date()) {
+      this.refreshTokens.delete(tokenId);
+      return null;
+    }
+    this.refreshTokens.delete(tokenId);
+    return { userId: token.userId, familyId: token.familyId };
+  }
+
+  revokeRefreshFamily(familyId: string): void {
+    for (const [tokenId, token] of this.refreshTokens) if (token.familyId === familyId) this.refreshTokens.delete(tokenId);
   }
 
   getUserIdFromToken(token: string): string | null {

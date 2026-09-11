@@ -64,6 +64,16 @@ export const SaaSProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (cfg.layout.browserTabTitle && cfg.layout.browserTabTitle.trim()) {
       document.title = cfg.layout.browserTabTitle.trim();
     }
+    if (cfg.layout.faviconUrl) {
+      let favicon = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null;
+      if (!favicon) { favicon = document.createElement('link'); favicon.rel = 'icon'; document.head.appendChild(favicon); }
+      favicon.href = cfg.layout.faviconUrl;
+    }
+    if (cfg.layout.appIconUrl) {
+      let appIcon = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement | null;
+      if (!appIcon) { appIcon = document.createElement('link'); appIcon.rel = 'apple-touch-icon'; document.head.appendChild(appIcon); }
+      appIcon.href = cfg.layout.appIconUrl;
+    }
     const { primaryColor, borderRadius, fontFamily, navbarStyle, systemBackground } = cfg.layout;
 
     let styleEl = document.getElementById('saas-custom-branding') as HTMLStyleElement;

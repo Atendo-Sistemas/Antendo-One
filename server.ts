@@ -16,6 +16,18 @@ async function startServer() {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
+  const requireHttps = process.env.REQUIRE_HTTPS === 'true' || (process.env.NODE_ENV === 'production' && String(process.env.APP_URL || '').startsWith('https://'));
+  app.use((req, res, next) => {
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    const isHttps = forwardedProto === 'https' || req.secure;
+    if (requireHttps && !isHttps && req.path !== '/api/health') {
+      const host = String(req.headers.host || '').split(',')[0].trim();
+      if (!host) return res.status(400).json({ error: 'Host inválido.' });
+      return res.redirect(308, `https://${host}${req.originalUrl}`);
+    }
+    next();
+  });
+
   const allowedOrigins = new Set(
     (process.env.CORS_ALLOWED_ORIGINS || process.env.APP_URL || 'https://gestor.atendo.log.br')
       .split(',')
@@ -38,7 +50,7 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
     res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self' 'sha256-b7b03057e94fe25acc9a10366b6cc21263896dd2ad2eac92946794b1306f9f6e' https://off.atendo.log.br; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https: wss:; frame-src 'self' https://off.atendo.log.br; worker-src 'self' blob:; form-action 'self'");
@@ -47,21 +59,26 @@ async function startServer() {
     next();
   });
 
-  type RateBucket = { count: number; resetAt: number };
+  type RateBucket = { count: number; resetAt: number; failures: number; blockedUntil: number };
   const rateBuckets = new Map<string, RateBucket>();
   const rateWindowMs = 60 * 1000;
-  const getRateKey = (req: express.Request) => `${req.ip}:${req.path.startsWith('/api/auth/') ? 'auth' : req.path === '/api/webhooks/asaas' ? 'webhook' : 'api'}`;
+  const authOperation = (path: string) => path.includes('/login') ? 'login' : path.includes('/request-otp') ? 'otp-request' : path.includes('/verify-otp') ? 'otp-verify' : path.includes('register') ? 'register' : path.includes('password') || path.includes('recovery') ? 'recovery' : 'auth';
+  const getRateKey = (req: express.Request) => `${req.ip}:${req.path.startsWith('/api/auth/') ? authOperation(req.path) : req.path === '/api/webhooks/asaas' ? 'webhook' : 'api'}`;
   const rateLimit = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const now = Date.now();
     const key = getRateKey(req);
-    const isAuth = key.endsWith(':auth');
+    const isAuth = key.includes(':login') || key.includes(':otp-') || key.includes(':register') || key.includes(':recovery') || key.endsWith(':auth');
     const isWebhook = key.endsWith(':webhook');
-    const limit = isAuth ? 20 : isWebhook ? 180 : 240;
+    const limit = isAuth ? 10 : isWebhook ? 180 : 240;
     const windowMs = isAuth ? 15 * 60 * 1000 : rateWindowMs;
     const current = rateBuckets.get(key);
-    if (!current || current.resetAt <= now) rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    if (!current || current.resetAt <= now) rateBuckets.set(key, { count: 1, resetAt: now + windowMs, failures: current?.failures || 0, blockedUntil: current?.blockedUntil || 0 });
     else current.count += 1;
     const bucket = rateBuckets.get(key)!;
+    if (bucket.blockedUntil > now) {
+      res.setHeader('Retry-After', String(Math.ceil((bucket.blockedUntil - now) / 1000)));
+      return res.status(429).json({ error: 'Acesso temporariamente bloqueado após tentativas consecutivas. Aguarde antes de tentar novamente.' });
+    }
     res.setHeader('X-RateLimit-Limit', String(limit));
     res.setHeader('X-RateLimit-Remaining', String(Math.max(0, limit - bucket.count)));
     res.setHeader('X-RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
@@ -69,6 +86,17 @@ async function startServer() {
       res.setHeader('Retry-After', String(Math.max(1, Math.ceil((bucket.resetAt - now) / 1000))));
       return res.status(429).json({ error: 'Muitas requisições. Aguarde antes de tentar novamente.' });
     }
+    res.once('finish', () => {
+      if (!isAuth) return;
+      if ([401, 403, 429].includes(res.statusCode)) {
+        bucket.failures += 1;
+        const backoffMinutes = Math.min(60, Math.max(1, 2 ** Math.min(bucket.failures - 1, 6)));
+        bucket.blockedUntil = Date.now() + backoffMinutes * 60 * 1000;
+      } else if (res.statusCode >= 200 && res.statusCode < 300) {
+        bucket.failures = 0;
+        bucket.blockedUntil = 0;
+      }
+    });
     next();
   };
   const rateCleanup = setInterval(() => {
@@ -99,6 +127,7 @@ async function startServer() {
 
   // Health check
     app.get('/api/health', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     res.json({ 
       status: 'ok', 
       service: 'Portal de Fretes e Motoristas SaaS API',

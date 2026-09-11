@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const audit = fs.readFileSync(path.resolve(__dirname, '../src/components/audit/AuditLogViewer.tsx'), 'utf8');
+const api = fs.readFileSync(path.resolve(__dirname, '../server/api.ts'), 'utf8');
+const guest = fs.readFileSync(path.resolve(__dirname, '../src/components/common/GuestInstitutionalPage.tsx'), 'utf8');
+const app = fs.readFileSync(path.resolve(__dirname, '../src/App.tsx'), 'utf8');
+assert.match(audit, /createdAt/); assert.match(audit, /IP não registrado/);
+assert.match(api, /requestIp/); assert.match(api, /x-forwarded-for/);
+assert.match(guest, /aria-label="Ver fretes disponíveis"/);
+assert.match(app, /if \(publicSlug\) return <PublicContentPage/);
+console.log('NAVIGATION_AUDIT_INVARIANTS_OK');

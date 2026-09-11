@@ -40,5 +40,5 @@ assert.match(index, /rel="icon" type="image\/svg\+xml" href="\/favicon\.svg"/, '
 assert.match(index, /defer src="https:\/\/off\.atendo\.log\.br\/webchat\/public\/widget\.js"/, 'Widget externo deve ser carregado de forma não bloqueante.');
 assert.match(manifest, /"src": "\/icons\/atendo-one-192\.png"/, 'Manifesto deve usar o ícone PNG oficial do Atendo One.');
 assert.match(manifest, /"src": "\/icons\/atendo-one-512\.png"/, 'Manifesto deve declarar o ícone grande do Atendo One.');
-assert.match(version, /APP_VERSION = 'v1\.7\.\d+'/, 'Interface deve exibir a versão da release atual.');
+assert.match(version, /APP_VERSION = 'v\d+\.\d+\.\d+'/, 'Interface deve exibir a versão da release atual.');
 console.log('SEO_INVARIANTS=PASS');

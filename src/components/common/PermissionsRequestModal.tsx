@@ -131,7 +131,7 @@ export const PermissionsRequestModal: React.FC = () => {
         {/* Content Body */}
         <div className="p-6 space-y-4">
           <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            Para garantir a segurança do frete, validação de checklists com foto e rastreamento em tempo real, o <strong>Elo Log</strong> precisa de acesso à sua <strong>câmera</strong> e <strong>localização GPS</strong>.
+            Para garantir a segurança do frete, validação de checklists com foto e rastreamento em tempo real, o <strong>Atendo One</strong> precisa de acesso à sua <strong>câmera</strong> e <strong>localização GPS</strong>.
           </p>
 
           <div className="space-y-3 pt-1">

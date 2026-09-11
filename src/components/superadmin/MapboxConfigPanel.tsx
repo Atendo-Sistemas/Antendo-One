@@ -48,7 +48,10 @@ export const MapboxConfigPanel: React.FC<MapboxConfigPanelProps> = ({
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const handleTestToken = async () => {
-    if (!mapboxForm.apiKey || mapboxForm.apiKey.trim().length < 10) {
+    const tokenToTest = mapboxForm.apiKey.includes('•') || mapboxForm.apiKey.includes('*')
+      ? (config.mapboxConfig?.apiKey || '')
+      : mapboxForm.apiKey;
+    if (!tokenToTest || tokenToTest.trim().length < 10) {
       setTestResult({ success: false, message: 'Insira um token da API do Mapbox válido (ex: pk.eyJ1...)' });
       return;
     }
@@ -57,7 +60,7 @@ export const MapboxConfigPanel: React.FC<MapboxConfigPanelProps> = ({
     setTestResult(null);
 
     try {
-      const res = await fetch(`https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${mapboxForm.apiKey.trim()}`);
+      const res = await fetch(`https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${encodeURIComponent(tokenToTest.trim())}`);
       if (res.ok) {
         setTestResult({ success: true, message: 'Token do Mapbox verificado com sucesso! Conexão estabelecida.' });
       } else if (res.status === 401) {

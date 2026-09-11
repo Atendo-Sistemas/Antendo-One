@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Freight } from '../../types';
+import { api, budgetApi } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { InteractiveLeafletMap } from './InteractiveLeafletMap';
-import { InteractiveMapboxView } from './InteractiveMapboxView';
+const InteractiveMapboxView = lazy(() => import('./InteractiveMapboxView').then(module => ({ default: module.InteractiveMapboxView })));
 import { 
   X, 
   MapPin, 
@@ -30,10 +31,38 @@ interface LiveRouteTrackingModalProps {
 export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ freight, onClose }) => {
   const { config } = useSaaS();
   const mapboxConfig = config?.mapboxConfig;
-  const isMapboxActive = mapboxConfig?.enabled && mapboxConfig?.apiKey;
+  const [mapboxRuntime, setMapboxRuntime] = useState<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number } | null>(null);
+  const isMapboxActive = Boolean(mapboxRuntime?.enabled && mapboxRuntime.apiKey);
   const [copied, setCopied] = useState(false);
-  const [gpsActive, setGpsActive] = useState(false);
-  const [driverCoords, setDriverCoords] = useState<{ lat: number; lng: number; speed: number; accuracy: number } | null>(null);
+  const [geocodedRoute, setGeocodedRoute] = useState<{ origin: { lat: number; lng: number }; destination: { lat: number; lng: number } } | null>(null);
+  const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
+  useEffect(() => { let cancelled = false; budgetApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
+  useEffect(() => {
+    if (!mapboxRuntime?.apiKey) return;
+    const controller = new AbortController();
+    const geocode = async (address: typeof freight.origin) => {
+      const query = encodeURIComponent(`${address.address || ''}, ${address.number || ''}, ${address.city}, ${address.state}, Brasil`);
+      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?access_token=${encodeURIComponent(mapboxRuntime.apiKey)}&limit=1&country=br`, { signal: controller.signal });
+      const data = await response.json();
+      const coordinates = data.features?.[0]?.center;
+      return Array.isArray(coordinates) ? { lng: Number(coordinates[0]), lat: Number(coordinates[1]) } : null;
+    };
+    Promise.all([geocode(freight.origin), geocode(freight.destination)]).then(([origin, destination]) => {
+      if (origin && destination) setGeocodedRoute({ origin, destination });
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [mapboxRuntime?.apiKey, freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state]);
+  const trackingToken = freight.publicTrackingToken || new URLSearchParams(window.location.search).get('rastreio') || '';
+  useEffect(() => {
+    if (!trackingToken || typeof EventSource === 'undefined') return;
+    return api.subscribePublicTracking(trackingToken, update => setLiveLocation(update.currentLocation));
+  }, [trackingToken]);
+  const driverCoords = liveLocation ? {
+    lat: liveLocation.lat,
+    lng: liveLocation.lng,
+    speed: liveLocation.speedKmh || 0,
+    accuracy: liveLocation.accuracyMeters || 0
+  } : null;
   const [progressPercent, setProgressPercent] = useState<number>(() => {
     if (freight.status === 'ENTREGUE' || freight.status === 'FINALIZADO') return 100;
     if (freight.status === 'EM_TRANSITO') return 48;
@@ -49,35 +78,8 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const kmRemaining = Math.max(0, totalKm - kmTraveled);
   const etaMinutes = Math.round((kmRemaining / 70) * 60); // Assuming 70km/h avg
   const etaFormatted = `${Math.floor(etaMinutes / 60)}h ${etaMinutes % 60}m`;
-
-  useEffect(() => {
-    // Attempt real GPS if driver role or browser geolocation available
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setDriverCoords({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            speed: Math.round((pos.coords.speed || 0) * 3.6),
-            accuracy: Math.round(pos.coords.accuracy)
-          });
-          setGpsActive(true);
-        },
-        () => {
-          // Fallback coordinates
-          setDriverCoords({
-            lat: -23.5505,
-            lng: -46.6333,
-            speed: 68,
-            accuracy: 12
-          });
-        }
-      );
-    }
-  }, []);
-
   const handleCopyLink = () => {
-    const trackingUrl = `${window.location.origin}/?rastreio=${freight.code}`;
+    const trackingUrl = `${window.location.origin}/?rastreio=${encodeURIComponent(trackingToken)}`;
     navigator.clipboard.writeText(trackingUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
@@ -103,7 +105,7 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
       `🚛 *Veículo:* ${freight.assignedVehiclePlate || 'N/I'} (${freight.assignedDriverName || 'Motorista'})\n` +
       `📊 *Progresso da Viagem:* ${progressPercent}%\n` +
       `⏱️ *Previsão Restante:* ~${etaFormatted} (${kmRemaining} km restantes)\n\n` +
-      `🔗 *Acompanhe ao vivo:* ${window.location.origin}/?rastreio=${freight.code}`;
+      `🔗 *Acompanhe ao vivo:* ${window.location.origin}/?rastreio=${encodeURIComponent(trackingToken)}`;
     
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
   };
@@ -147,18 +149,19 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
           <div className="relative rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 flex flex-col justify-between shadow-inner">
             
             {isMapboxActive ? (
+              <Suspense fallback={<div className="w-full h-[320px] sm:h-[380px] rounded-2xl bg-slate-950 border border-slate-700 flex items-center justify-center text-xs font-bold text-sky-400">Carregando módulo de mapa…</div>}>
               <InteractiveMapboxView
-                apiKey={mapboxConfig.apiKey}
-                defaultStyle={mapboxConfig.defaultStyle || 'streets-v12'}
-                defaultZoom={mapboxConfig.defaultZoom || 12}
+                apiKey={mapboxRuntime?.apiKey || ''}
+                defaultStyle={mapboxRuntime?.defaultStyle || mapboxConfig?.defaultStyle || 'streets-v12'}
+                defaultZoom={mapboxRuntime?.defaultZoom || mapboxConfig?.defaultZoom || 12}
                 originCoords={{
-                  lat: freight.origin.lat || -23.5505,
-                  lng: freight.origin.lng || -46.6333,
+                  lat: geocodedRoute?.origin.lat || freight.origin.lat || -23.5505,
+                  lng: geocodedRoute?.origin.lng || freight.origin.lng || -46.6333,
                   name: freight.origin.city || 'Origem'
                 }}
                 destCoords={{
-                  lat: freight.destination.lat || -22.9068,
-                  lng: freight.destination.lng || -43.1729,
+                  lat: geocodedRoute?.destination.lat || freight.destination.lat || -22.9068,
+                  lng: geocodedRoute?.destination.lng || freight.destination.lng || -43.1729,
                   name: freight.destination.city || 'Destino'
                 }}
                 currentCoords={{
@@ -168,7 +171,8 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
                 }}
                 vehiclePlate={freight.assignedVehiclePlate || 'ABC-1234'}
                 driverName={freight.assignedDriverName || 'Motorista'}
-              />
+                />
+              </Suspense>
             ) : (
               <InteractiveLeafletMap
                 originCoords={{
@@ -210,9 +214,7 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
             <div className="p-3.5 bg-slate-950/60 rounded-2xl border border-slate-800">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Motorista Vinculado</span>
               <p className="text-sm font-bold text-white mt-0.5 truncate">{freight.assignedDriverName || 'Motorista'}</p>
-              <p className="text-[11px] text-emerald-400 flex items-center gap-1">
-                <Phone className="w-3 h-3" /> {freight.assignedDriverPhone || 'Não informado'}
-              </p>
+              <p className="text-[11px] text-emerald-400 flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Dados protegidos</p>
             </div>
 
             <div className="p-3.5 bg-slate-950/60 rounded-2xl border border-slate-800">

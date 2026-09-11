@@ -110,6 +110,28 @@ export interface TenantPlanLimits {
   prioritySupport: boolean;
 }
 
+export interface Client {
+  id: string;
+  tenantId: string;
+  cnpj: string;
+  legalName: string;
+  tradeName?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  number?: string;
+  complement?: string;
+  neighborhood?: string;
+  zipCode?: string;
+  city?: string;
+  state?: string;
+  status?: string;
+  source: 'CNPJ_WS' | 'MANUAL';
+  cnpjData?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -124,6 +146,7 @@ export interface Tenant {
   city: string;
   state: string;
   status: TenantStatus;
+  publicTracking?: PublicTrackingConfig;
   plan: 'BASICO' | 'PROFISSIONAL' | 'EMPRESARIAL';
   planLimits: TenantPlanLimits;
   allowedOperations?: OperationType[];
@@ -329,6 +352,9 @@ export interface FreightLocation {
   timeWindow?: string;
   contactName?: string;
   contactPhone?: string;
+  lat?: number;
+  lng?: number;
+  mapboxPlaceId?: string;
 }
 
 export interface FreightCargo {
@@ -380,6 +406,59 @@ export interface FreightStatusHistoryEntry {
   location?: string;
 }
 
+export interface FreightTrackingLocation {
+  lat: number;
+  lng: number;
+  speedKmh?: number;
+  accuracyMeters?: number;
+  recordedAt: string;
+  label?: string;
+}
+
+export interface FreightLocationHistoryEntry extends FreightTrackingLocation {
+  freightId: string;
+  tenantId: string;
+}
+
+export interface FreightTrackingStop {
+  id: string;
+  type: 'ORIGEM' | 'PARADA' | 'DESTINO';
+  city: string;
+  state: string;
+  status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA';
+  completedAt?: string;
+}
+
+export interface CompanyStop {
+  id: string;
+  tenantId: string;
+  name: string;
+  type: 'PARADA' | 'POSTO' | 'RESTAURANTE' | 'OFICINA' | 'OUTRO';
+  address: string;
+  city: string;
+  state: string;
+  phone?: string;
+  notes?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LodgingPartner {
+  id: string;
+  tenantId: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  phone?: string;
+  discount?: string;
+  rules?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Freight {
   id: string;
   code: string;
@@ -419,6 +498,14 @@ export interface Freight {
   publicPriceVisibleToRegistered?: boolean;
   publicInterestEnabled?: boolean;
   publicPublishedAt?: string;
+  publicTrackingEnabled?: boolean;
+  /** Token aleatório usado exclusivamente nos links públicos de rastreamento. */
+  publicTrackingToken?: string;
+  publicTrackingExpiresAt?: string;
+  publicTrackingRevokedAt?: string;
+  currentLocation?: FreightTrackingLocation;
+  locationHistory?: FreightTrackingLocation[];
+  trackingStops?: FreightTrackingStop[];
 }
 
 export type NotificationType = 
@@ -441,6 +528,9 @@ export interface AppNotification {
   tenantId: string | null;
   userId: string;
   freightId?: string;
+  entity?: string;
+  entityId?: string;
+  targetPath?: string;
   type: NotificationType;
   title: string;
   message: string;
@@ -718,6 +808,10 @@ export interface SaaSLayoutConfig {
   fontFamily: 'sans' | 'serif' | 'mono' | 'display';
   navbarStyle: 'dark' | 'light' | 'colored';
   logoText?: string;
+  logoImageUrl?: string;
+  faviconUrl?: string;
+  appIconUrl?: string;
+  homeHeroImageUrl?: string;
   browserTabTitle?: string;
   footerText?: string;
   systemBackground: 'minimal' | 'warm' | 'slate';
@@ -785,6 +879,12 @@ export interface MapboxConfig {
   defaultStyle: 'streets-v12' | 'satellite-streets-v12' | 'dark-v11' | 'light-v11' | 'navigation-night-v1';
   enableLiveTracking: boolean;
   updateIntervalSeconds: number;
+}
+
+export interface PublicTrackingConfig {
+  enabled: boolean;
+  precision: 'EXACT' | 'APPROXIMATE';
+  allowedFields: Array<'route' | 'status' | 'vehicle' | 'driver' | 'location' | 'stops'>;
 }
 
 export interface AsaasConfig {
@@ -858,6 +958,7 @@ export interface SaaSGlobalConfig {
   databaseConfig?: SqlDatabaseConfig;
   imageCompression?: ImageCompressionConfig;
   mapboxConfig?: MapboxConfig;
+  publicTracking?: PublicTrackingConfig;
   asaasConfig?: AsaasConfig;
   notificationModule?: NotificationModuleConfig;
   backupNotifications?: BackupNotificationConfig;
@@ -959,3 +1060,4 @@ export interface TripExpenseReport {
   archivedAt?: string;
 }
 
+export * from './budgets';

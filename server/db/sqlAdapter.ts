@@ -5,6 +5,10 @@ import { SqlDatabaseConfig } from '../../src/types';
 
 export class SqlAdapter {
   private pool: Pool | null = null;
+  private quoteIdentifier(value: string): string {
+    if (!/^[a-z_][a-z0-9_]*$/i.test(value)) throw new Error('Identificador SQL inválido.');
+    return `"${value.replace(/"/g, '""')}"`;
+  }
   private currentConfig: SqlDatabaseConfig = {
     enabled: !!process.env.DATABASE_URL || !!process.env.DB_HOST,
     dbType: 'postgres',
@@ -63,7 +67,7 @@ export class SqlAdapter {
       const poolConfig: PoolConfig = process.env.DATABASE_URL
         ? {
             connectionString: process.env.DATABASE_URL,
-            ssl: this.currentConfig.ssl ? { rejectUnauthorized: false } : false
+            ssl: this.currentConfig.ssl ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' } : false
           }
         : {
             host: this.currentConfig.host,
@@ -71,7 +75,7 @@ export class SqlAdapter {
             database: this.currentConfig.database,
             user: this.currentConfig.username,
             password: this.currentConfig.password,
-            ssl: this.currentConfig.ssl ? { rejectUnauthorized: false } : false,
+            ssl: this.currentConfig.ssl ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' } : false,
             max: this.currentConfig.poolMax || 10,
             idleTimeoutMillis: 30000,
             connectionTimeoutMillis: 5000
@@ -117,7 +121,7 @@ export class SqlAdapter {
         database: configToTest.database,
         user: configToTest.username,
         password: configToTest.password,
-        ssl: configToTest.ssl ? { rejectUnauthorized: false } : false,
+        ssl: configToTest.ssl ? { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false' } : false,
         connectionTimeoutMillis: 6000
       };
 
@@ -272,7 +276,7 @@ export class SqlAdapter {
             const tableName = row.table_name;
             tables.push(tableName);
             try {
-              const countRes = await client.query(`SELECT count(*)::int as c FROM "${tableName}";`);
+              const countRes = await client.query(`SELECT count(*)::int as c FROM ${this.quoteIdentifier(tableName)};`);
               recordsCount[tableName] = countRes.rows[0]?.c || 0;
             } catch {
               recordsCount[tableName] = 0;

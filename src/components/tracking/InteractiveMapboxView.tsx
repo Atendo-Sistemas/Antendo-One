@@ -55,7 +55,7 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
 
       mapInstanceRef.current = map;
 
-      map.on('load', () => {
+      map.on('load', async () => {
         setMapLoaded(true);
 
         // Add Navigation controls (+ / - zoom / compass)
@@ -137,6 +137,17 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
               'line-dasharray': [1, 2]
             }
           });
+
+          // Substitui a linha estimada pela rota viária real do Mapbox.
+          const coords = `${originCoords.lng},${originCoords.lat};${destCoords.lng},${destCoords.lat}`;
+          const directions = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${encodeURIComponent(apiKey)}`);
+          if (directions.ok) {
+            const data = await directions.json() as { routes?: Array<{ geometry?: GeoJSON.Geometry }> };
+            const geometry = data.routes?.[0]?.geometry;
+            if (geometry && map.getSource('route-line')) {
+              (map.getSource('route-line') as mapboxgl.GeoJSONSource).setData({ type: 'Feature', properties: { realRoute: true }, geometry });
+            }
+          }
         } catch (err) {
           console.error('Error drawing route line:', err);
         }
@@ -144,12 +155,12 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
 
       map.on('error', (e) => {
         console.error('Mapbox error event:', e);
-        setMapError('Erro ao carregar renderizador Mapbox. Verifique se o token é válido.');
+        setMapError('Não foi possível carregar o mapa. Verifique a configuração no painel administrativo.');
       });
 
     } catch (err: any) {
       console.error('Initialization error for Mapbox:', err);
-      setMapError('Erro ao inicializar Mapbox: ' + (err.message || 'Erro desconhecido'));
+      setMapError('Não foi possível inicializar o mapa: ' + (err.message || 'Erro desconhecido'));
     }
 
     return () => {
@@ -158,7 +169,7 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
         mapInstanceRef.current = null;
       }
     };
-  }, [apiKey, defaultStyle, defaultZoom]);
+  }, [apiKey, defaultStyle, defaultZoom, originCoords.lat, originCoords.lng, destCoords.lat, destCoords.lng]);
 
   // Update marker position when coords change
   useEffect(() => {
@@ -179,9 +190,9 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
         <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-3 border border-amber-500/30">
           <AlertCircle className="w-6 h-6" />
         </div>
-        <h4 className="text-sm font-bold text-white mb-1">Aviso do Mapa Mapbox</h4>
+        <h4 className="text-sm font-bold text-white mb-1">Aviso do mapa</h4>
         <p className="text-xs text-slate-400 max-w-md leading-relaxed mb-4">
-          {mapError}. Configure um token válido na aba <strong>Mapbox API & Rastreio</strong> no painel de Super Admin ou utilize o modo simulado abaixo.
+          {mapError}. Verifique a configuração do mapa no painel administrativo no painel de Super Admin ou utilize o modo simulado abaixo.
         </p>
         <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20">
           <Navigation className="w-4 h-4 animate-spin" />
@@ -197,7 +208,7 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
       {!mapLoaded && (
         <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center gap-2 text-xs font-bold text-sky-400">
           <Navigation className="w-4 h-4 animate-spin text-sky-400" />
-          <span>Carregando Satélite Mapbox GL...</span>
+          <span>Carregando mapa...</span>
         </div>
       )}
     </div>

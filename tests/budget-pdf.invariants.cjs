@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const source = fs.readFileSync(require('node:path').resolve(__dirname, '../src/utils/budgetPdfGenerator.ts'), 'utf8');
+const manager = fs.readFileSync(require('node:path').resolve(__dirname, '../src/components/budgets/BudgetManager.tsx'), 'utf8');
+assert.match(source, /generateBudgetPdf/);
+assert.match(source, /pricePerKm/);
+assert.match(source, /totalFreight/);
+assert.match(source, /jsPDF/);
+assert.match(manager, /output\('blob'\)/);
+assert.match(manager, /URL\.createObjectURL/);
+assert.match(manager, /anchor\.download/);
+console.log('BUDGET_PDF_INVARIANTS_OK');

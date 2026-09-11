@@ -108,7 +108,7 @@ assert.match(authContext, /clearAuthToken\(\)/, 'AuthContext deve limpar a sess�
 assert.match(saasPanel, /user\?\.accountType === 'TEST'/, 'Painel deve classificar teste por metadado explícito.');
 assert.ok(!saasPanel.includes("user?.id?.startsWith('user-')"), 'Painel não pode marcar todo usuário user-* como teste.');
 assert.match(api, /user\.accountType === 'REAL' && user\.readOnly !== true/, 'Backend deve preservar permissões de contas REAL.');
-assert.match(version, /APP_VERSION = 'v1\.7\.\d+'/, 'Correção deve ter versão visível incrementada.');
+assert.match(version, /APP_VERSION = 'v\d+\.\d+\.\d+'/, 'Correção deve ter versão visível incrementada.');
 
 assert.ok(!pushClient.includes('portal_user_id') && !pushClient.includes('user-admin-1'), 'Web Push não pode usar identificador fake como Bearer token.');
 assert.match(pushClient, /getAuthToken\(\)/, 'Web Push deve exigir o JWT real da sessão.');

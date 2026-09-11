@@ -29,6 +29,7 @@ function normalizeBaseUrl(baseUrl: string): string {
   return String(baseUrl || '').trim().replace(/\/+$/, '');
 }
 
+// Plan 18 is the plan configured for automatic provisioning in this Atendo One environment.
 const ATENDO_CRM_DEFAULT_PLAN_ID = '18';
 
 function planToAtendoId(_plan: Tenant['plan']): string {
@@ -76,13 +77,19 @@ export function buildAtendoCrmCreateTenantRequest(
 }
 
 export function externalTenantIdFromResponse(data: any): string | undefined {
-  const candidates = [
-    data?.tenantId,
-    data?.tenant?.id,
-    data?.data?.tenantId,
-    data?.data?.tenant?.id,
-    data?.id
-  ];
-  const value = candidates.find(candidate => typeof candidate === 'string' || typeof candidate === 'number');
-  return value === undefined ? undefined : String(value);
+  const keys = new Set(['tenantid', 'tenant_id', 'tenantidexternal', 'externaltenantid', 'id']);
+  const visited = new Set<any>();
+  const queue: any[] = [data];
+  let inspected = 0;
+  while (queue.length && inspected < 500) {
+    const current = queue.shift();
+    inspected += 1;
+    if (!current || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+    for (const [key, value] of Object.entries(current)) {
+      if (keys.has(key.toLowerCase()) && (typeof value === 'string' || typeof value === 'number') && String(value).trim()) return String(value);
+      if (value && typeof value === 'object') queue.push(value);
+    }
+  }
+  return undefined;
 }

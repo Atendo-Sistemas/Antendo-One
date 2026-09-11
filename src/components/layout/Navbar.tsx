@@ -32,18 +32,21 @@ interface NavbarProps {
   setActiveTab: (tab: string) => void;
   onOpenCreateFreight?: () => void;
   onOpenRegisterDriver?: () => void;
+  onOpenNotification?: (notification: { type: string; freightId?: string; message: string; title: string }) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ 
   activeTab, 
   setActiveTab, 
   onOpenCreateFreight,
-  onOpenRegisterDriver
+  onOpenRegisterDriver,
+  onOpenNotification
 }) => {
   const { user, tenant, driver, notifications, unreadCount, markNotificationAsRead, markAllNotificationsAsRead, logout, supportSession, endSupportSession } = useAuth();
   const { config } = useSaaS();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [pushStatus, setPushStatus] = useState<string | null>(null);
   const [pushLoading, setPushLoading] = useState(false);
@@ -95,13 +98,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={() => setActiveTab(isDriver ? 'driver-portal' : 'freights')}
               className="flex items-center gap-2 text-left group cursor-pointer focus:outline-none min-w-0"
             >
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform shrink-0">
-                <Truck className="w-5 h-5" />
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform shrink-0 overflow-hidden">
+                {config?.layout?.logoImageUrl ? <img src={config.layout.logoImageUrl} alt="" className="h-full w-full object-contain bg-white" /> : <Truck className="w-5 h-5" />}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1">
                   <span className="text-sm sm:text-base font-black tracking-tight text-slate-900 dark:text-white block leading-tight uppercase truncate">
-                    {config?.layout?.logoText || config?.systemName || 'ELO LOG'}
+                    {config?.layout?.logoText || config?.systemName || 'ATENDO ONE'}
                   </span>
                   <span className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[9px] bg-emerald-50 dark:bg-emerald-950/40 px-1 py-0.5 rounded border border-emerald-200/50 dark:border-emerald-800/50 shrink-0">
                     SaaS
@@ -224,7 +227,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         notifications.slice(0, 10).map((n) => (
                           <div
                             key={n.id}
-                            onClick={() => markNotificationAsRead(n.id)}
+                            onClick={() => { markNotificationAsRead(n.id); if (n.targetPath) setActiveTab(n.targetPath); onOpenNotification?.(n); setShowNotifications(false); }}
                             className={`p-3.5 transition-colors cursor-pointer ${
                               n.read 
                                 ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50' 
@@ -328,7 +331,12 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Secondary Row for Navigation Menu - Placed below the main header row */}
       <div className="hidden md:block border-t border-slate-200/50 dark:border-slate-800/50 bg-slate-50/80 dark:bg-slate-900/40 transition-colors">
         <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
-          <nav className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          <nav className={`flex items-center gap-1.5 no-scrollbar ${isSuperAdmin ? 'overflow-visible' : 'overflow-x-auto'}`} aria-label="Navegação principal">
+            <div className="flex items-center gap-1.5 pr-2 mr-1 border-r border-slate-200 dark:border-slate-700 shrink-0">
+              <button type="button" onClick={() => setActiveTab(isDriver ? 'driver-portal' : isSuperAdmin ? 'saas-tenants' : 'freights')} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black shadow-sm hover:bg-emerald-700 transition-colors">Início</button>
+              {!isDriver && <button type="button" onClick={() => setActiveTab('operations')} className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors ${activeTab === 'operations' ? 'bg-indigo-600 text-white' : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-300'}`}>Central</button>}
+            </div>
+            <span className="hidden xl:inline text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">Mais opções</span>
             {isDriver ? (
               <>
                 <button
@@ -371,6 +379,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   💰 Prestação de Contas
                 </button>
+                <button onClick={() => setActiveTab('operations')} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 hover:bg-slate-200">Central</button>
+                <button onClick={() => setActiveTab('clients')} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 hover:bg-slate-200">Clientes</button>
+                <button onClick={() => setActiveTab('budgets')} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 hover:bg-slate-200">Orçamentos</button>
                 <button
                   onClick={() => setActiveTab('notification-preferences')}
                   className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'notification-preferences' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
@@ -390,110 +401,28 @@ export const Navbar: React.FC<NavbarProps> = ({
               </>
             ) : isSuperAdmin ? (
               <>
-                <button
-                  onClick={() => setActiveTab('saas-tenants')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'saas-tenants'
-                      ? 'bg-purple-600 text-white font-bold shadow-xs'
-                      : 'text-purple-700 dark:text-purple-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  👑 Empresas SaaS
-                </button>
-                <button
-                  onClick={() => setActiveTab('content-management')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'content-management' ? 'bg-blue-600 text-white font-bold shadow-xs' : 'text-blue-700 dark:text-blue-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Conteúdos
-                </button>
-                <button
-                  onClick={() => setActiveTab('saas-config')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'saas-config'
-                      ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                      : 'text-emerald-700 dark:text-emerald-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  ⚙️ Configurações
-                </button>
-                <button
-                  onClick={() => setActiveTab('freights')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-medium whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'freights'
-                      ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Fretes
-                </button>
-                <button
-                  onClick={() => setActiveTab('drivers')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-medium whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'drivers'
-                      ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Motoristas
-                </button>
-                <button
-                  onClick={() => setActiveTab('expenses')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'expenses'
-                      ? 'bg-emerald-600 text-white font-bold shadow-xs'
-                      : 'text-emerald-700 dark:text-emerald-400 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  💰 Contas
-                </button>
-                <button
-                  onClick={() => setActiveTab('forms')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-medium whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'forms'
-                      ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Formulários
-                </button>
-                <button
-                  onClick={() => setActiveTab('users')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-medium whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'users'
-                      ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Usuários
-                </button>
-                <button
-                  onClick={() => setActiveTab('audit')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-medium whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'audit'
-                      ? 'bg-slate-800 dark:bg-slate-100 text-white dark:text-slate-900 font-semibold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Auditoria
-                </button>
-                <button
-                  onClick={() => setActiveTab('notification-preferences')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'notification-preferences' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}
-                >
-                  Preferências
-                </button>
-                <button
-                  onClick={() => setActiveTab('help')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'help'
-                      ? 'bg-amber-500 text-white font-semibold shadow-xs'
-                      : 'text-amber-700 dark:text-amber-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  📖 Ajuda
-                </button>
+                {[
+                  { key: 'saas', label: '👑 SaaS', color: 'purple', items: [['saas-tenants', 'Empresas'], ['content-management', 'Conteúdos']] },
+                  { key: 'operacao', label: 'Operação', color: 'indigo', items: [['freights', 'Fretes'], ['clients', 'Clientes'], ['budgets', 'Orçamentos'], ['drivers', 'Motoristas']] },
+                  { key: 'controle', label: 'Controle', color: 'slate', items: [['expenses', 'Contas'], ['forms', 'Formulários'], ['users', 'Usuários'], ['audit', 'Auditoria']] },
+                  { key: 'sistema', label: 'Configurações', color: 'emerald', items: [['saas-config', 'SaaS'], ['notification-preferences', 'Notificações'], ['help', 'Ajuda']] }
+                ].map((group) => {
+                  const active = group.items.some(([tab]) => tab === activeTab);
+                  return (
+                    <div key={group.key} className="relative shrink-0">
+                      <button type="button" onClick={() => setOpenNavGroup(openNavGroup === group.key ? null : group.key)} className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs lg:text-sm font-bold whitespace-nowrap transition-colors ${active ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800'}`} aria-expanded={openNavGroup === group.key}>
+                        {group.label}<ChevronDown className={`w-3.5 h-3.5 transition-transform ${openNavGroup === group.key ? 'rotate-180' : ''}`} />
+                      </button>
+                      {openNavGroup === group.key && (
+                        <div className="absolute left-0 top-full mt-1 z-50 min-w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                          {group.items.map(([tab, label]) => (
+                            <button key={tab} type="button" onClick={() => { setActiveTab(tab); setOpenNavGroup(null); }} className={`block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold whitespace-nowrap ${activeTab === tab ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'}`}>{label}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </>
             ) : isDemo ? (
               <>
@@ -619,6 +548,10 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Mobile navigation drawer */}
       {showMobileMenu && (
         <div className="md:hidden border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 pt-2 pb-4 space-y-1">
+          <button onClick={() => { setActiveTab(isDriver ? 'driver-portal' : isSuperAdmin ? 'saas-tenants' : 'freights'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-black text-white bg-emerald-600 hover:bg-emerald-700">Início</button>
+          {!isDriver && <button onClick={() => { setActiveTab('operations'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-black text-indigo-700 bg-indigo-50 dark:bg-indigo-950/30 dark:text-indigo-300">Central de Operação</button>}
+          <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
+          <div className="px-3 pt-1 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">Demais opções</div>
           {isDriver ? (
             <>
               <button
@@ -702,6 +635,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 📝 Formulários & Checklists
               </button>
+              <button onClick={() => { setActiveTab("clients"); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-slate-100 dark:hover:bg-slate-800">👥 Clientes</button>
+              <button onClick={() => { setActiveTab("company-stops"); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">📍 Paradas e hospedagens</button>
               <button
                 onClick={() => { setActiveTab('users'); setShowMobileMenu(false); }}
                 className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"

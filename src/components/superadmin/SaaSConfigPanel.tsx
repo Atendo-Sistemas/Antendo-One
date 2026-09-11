@@ -91,6 +91,11 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
   useEffect(() => {
     loadAllConfigs();
   }, []);
+  useEffect(() => {
+    if (!message) return;
+    const timer = window.setTimeout(() => setMessage(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   const loadAllConfigs = async () => {
     setLoading(true);
@@ -114,18 +119,18 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
           borderRadius: 'xl',
           fontFamily: 'sans',
           navbarStyle: 'dark',
-          logoText: 'ELO LOG',
+          logoText: 'ATENDO ONE',
           systemBackground: 'minimal',
-          homeBadgeText: 'Solução Completa Multi-Tenant de Carga',
+          homeBadgeText: 'Gestão completa para sua operação de transporte',
           homeTitle: 'Gestão e Publicação de Fretes em',
           homeTitleAccent: 'Tempo Real',
-          homeSubtitle: 'O Elo Log conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.'
+          homeSubtitle: 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.'
         };
       } else {
-        if (!saasData.layout.homeBadgeText) saasData.layout.homeBadgeText = 'Solução Completa Multi-Tenant de Carga';
+        if (!saasData.layout.homeBadgeText) saasData.layout.homeBadgeText = 'Gestão completa para sua operação de transporte';
         if (!saasData.layout.homeTitle) saasData.layout.homeTitle = 'Gestão e Publicação de Fretes em';
         if (!saasData.layout.homeTitleAccent) saasData.layout.homeTitleAccent = 'Tempo Real';
-        if (!saasData.layout.homeSubtitle) saasData.layout.homeSubtitle = 'O Elo Log conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.';
+        if (!saasData.layout.homeSubtitle) saasData.layout.homeSubtitle = 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.';
       }
 
       saasData.notificationModule = {
@@ -343,7 +348,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
       </div>
 
       {message && (
-        <div className={`p-4 rounded-xl flex items-start gap-3 border ${
+        <div role="status" aria-live="polite" className={`fixed right-5 top-5 z-[100] max-w-sm p-4 rounded-2xl flex items-start gap-3 border shadow-2xl animate-in slide-in-from-right-4 ${
           message.type === 'success' 
             ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
             : 'bg-rose-50 border-rose-200 text-rose-800'
@@ -353,7 +358,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
           ) : (
             <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
           )}
-          <div className="text-xs font-semibold">{message.text}</div>
+          <div className="text-xs font-semibold flex-1">{message.text}</div><button type="button" onClick={() => setMessage(null)} className="text-xs font-black opacity-60 hover:opacity-100" aria-label="Fechar notificação">×</button>
         </div>
       )}
 
@@ -362,7 +367,8 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
         
         {/* Navigation Sub-Menu */}
         <div className="space-y-2 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 h-fit shadow-xs">
-          <p className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-3 px-3">Ambientes de Ajuste</p>
+          <p className="text-[10px] uppercase tracking-wider font-extrabold text-slate-400 mb-3 px-3">Configuração SaaS</p>
+          <p className="px-3 pt-1 pb-1 text-[9px] font-black uppercase tracking-widest text-emerald-600">Prioridade e aquisição</p>
           <button
             onClick={() => setActiveSubTab('overview')}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
@@ -375,6 +381,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
               activeSubTab === 'analytics' ? 'bg-teal-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
             }`}
           ><BarChart3 className="w-4 h-4 shrink-0" /> Visitas e origem</button>
+          <p className="px-3 pt-3 pb-1 text-[9px] font-black uppercase tracking-widest text-indigo-600">Marca e comercial</p>
           <button
             onClick={() => setActiveSubTab('branding')}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
@@ -418,6 +425,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
             <ShieldAlert className="w-4 h-4 shrink-0" /> Regras de Operação & Segurança
           </button>
 
+          <p className="px-3 pt-3 pb-1 text-[9px] font-black uppercase tracking-widest text-slate-500">Operação e integrações</p>
           <button
             onClick={() => setActiveSubTab('gateway')}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
@@ -475,6 +483,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
             }`}
           ><MessageSquare className="w-4 h-4 shrink-0" /> Mensagens e Notificações</button>
 
+          <p className="px-3 pt-3 pb-1 text-[9px] font-black uppercase tracking-widest text-slate-500">Comunicação e manutenção</p>
           <button
             onClick={() => setActiveSubTab('backups')}
             className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${
@@ -1198,7 +1207,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Presets de Marca Sugeridos</span>
                     <div className="flex flex-wrap gap-2 pt-1">
                       {[
-                        { name: 'Elo Log Green', value: '#059669' },
+                        { name: 'Atendo One Green', value: '#059669' },
                         { name: 'Safira Blue', value: '#2563eb' },
                         { name: 'Esmeralda', value: '#10b981' },
                         { name: 'Obsidiana', value: '#334155' },
@@ -1239,11 +1248,21 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
                       layout: { ...config.layout!, logoText: e.target.value }
                     })}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                    placeholder="Ex: ELO LOG"
+                    placeholder="Ex: ATENDO ONE"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Nome de exibição em destaque no cabeçalho e na tela de login.</p>
                 </div>
 
+                {/* Imagens públicas da marca */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/40 dark:bg-indigo-950/20 p-4">
+                  <div className="sm:col-span-2"><h4 className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Imagens do site e do aplicativo</h4><p className="text-[10px] text-slate-500 mt-1">Informe URLs HTTPS de imagens hospedadas. As alterações são persistidas ao salvar o layout.</p></div>
+                  {([
+                    ['logoImageUrl', 'Logo em imagem (PNG/SVG/WebP)'],
+                    ['faviconUrl', 'Favicon do navegador'],
+                    ['appIconUrl', 'Ícone do aplicativo/PWA'],
+                    ['homeHeroImageUrl', 'Imagem principal da página inicial']
+                  ] as const).map(([key, label]) => <label key={key} className="text-xs font-bold text-slate-700 dark:text-slate-300">{label}<input type="url" value={(config.layout as any)[key] || ''} onChange={e => setConfig({ ...config, layout: { ...config.layout!, [key]: e.target.value } })} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="https://..." /></label>)}
+                </div>
                 {/* Nome da Aba do Navegador */}
                 <div>
                   <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Nome da Aba do Navegador (Browser Tab Title)</label>
@@ -1255,7 +1274,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
                       layout: { ...config.layout!, browserTabTitle: e.target.value }
                     })}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                    placeholder="Ex: Elo Log - Gestão e Publicação de Fretes"
+                    placeholder="Ex: Atendo One - Gestão e Publicação de Fretes"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Título exibido na aba superior do navegador (document.title).</p>
                 </div>
@@ -1271,7 +1290,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
                       layout: { ...config.layout!, footerText: e.target.value }
                     })}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                    placeholder="Ex: Elo Log • Gestão Logística Integrada © 2026"
+                    placeholder="Ex: Atendo One • Gestão Logística Integrada © 2026"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Texto exibido no rodapé das páginas públicas e autenticadas.</p>
                 </div>

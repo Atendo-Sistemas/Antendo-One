@@ -16,7 +16,9 @@ import {
   Sparkles,
   Eye,
   CheckCircle2,
-  X
+  X,
+  Copy,
+  Pencil
 } from 'lucide-react';
 
 export const FormBuilder: React.FC = () => {
@@ -25,6 +27,7 @@ export const FormBuilder: React.FC = () => {
   const [forms, setForms] = useState<FormDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const [editingForm, setEditingForm] = useState<FormDefinition | null>(null);
   const [previewForm, setPreviewForm] = useState<FormDefinition | null>(null);
 
   // New Form State
@@ -90,20 +93,42 @@ export const FormBuilder: React.FC = () => {
     if (!title) return alert('Informe o título do formulário');
 
     try {
-      const saved = await api.createForm({
+      const payload = {
         title,
         description,
         category,
         triggerEvent,
         fields
-      });
-      setForms([...forms, saved]);
+      };
+      const saved = editingForm ? await api.updateForm(editingForm.id, payload) : await api.createForm(payload);
+      setForms(prev => editingForm ? prev.map(form => form.id === saved.id ? saved : form) : [...prev, saved]);
       setIsCreating(false);
+      setEditingForm(null);
       setTitle('');
       setDescription('');
     } catch (err: any) {
       alert(err.message || 'Erro ao salvar formulário');
     }
+  };
+
+  const handleCopyOfficialTemplate = async () => {
+    try {
+      const copied = await api.copyForm('form-checklist-elolog');
+      setForms(prev => [...prev, copied]);
+      alert('Modelo copiado para esta empresa. Agora você pode editá-lo.');
+    } catch (err: any) {
+      alert(err.message || 'Não foi possível copiar o modelo oficial.');
+    }
+  };
+
+  const handleEditForm = (form: FormDefinition) => {
+    setEditingForm(form);
+    setTitle(form.title);
+    setDescription(form.description);
+    setCategory(form.category);
+    setTriggerEvent(form.triggerEvent);
+    setFields(form.fields.map(field => ({ ...field })));
+    setIsCreating(true);
   };
 
   const handleDeleteForm = async (id: string, title: string) => {
@@ -143,7 +168,7 @@ export const FormBuilder: React.FC = () => {
         </button>
       </div>
 
-      {/* Featured Template Banner: Elo Log Official Checklist */}
+      {/* Featured Template Banner: Atendo One Official Checklist */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-950 p-5 rounded-2xl text-white shadow-lg border border-slate-700 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center font-black text-emerald-400 text-lg shrink-0">
@@ -165,6 +190,14 @@ export const FormBuilder: React.FC = () => {
           </div>
         </div>
 
+        <div className="flex items-center gap-2 shrink-0">
+        <button
+          onClick={handleCopyOfficialTemplate}
+          className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
+        >
+          <Copy className="w-4 h-4" />
+          <span>Copiar para minha empresa</span>
+        </button>
         <button
           onClick={() => {
             const eloForm = forms.find(f => f.id === 'form-checklist-elolog') || {
@@ -185,6 +218,7 @@ export const FormBuilder: React.FC = () => {
           <Eye className="w-4 h-4" />
               <span>Abrir & Testar Vistoria {systemName}</span>
         </button>
+        </div>
       </div>
 
       {/* Forms Grid */}
@@ -232,6 +266,13 @@ export const FormBuilder: React.FC = () => {
                   <span>Testar</span>
                 </button>
                 <button
+                  onClick={() => handleEditForm(form)}
+                  className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 transition-colors cursor-pointer"
+                  title="Editar formulário"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
                   onClick={() => handleDeleteForm(form.id, form.title)}
                   className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors cursor-pointer"
                   title="Excluir formulário"
@@ -250,7 +291,7 @@ export const FormBuilder: React.FC = () => {
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-6">
             
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Construtor de Formulário Personalizado</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">{editingForm ? 'Editar Formulário' : 'Construtor de Formulário Personalizado'}</h2>
               <button onClick={() => setIsCreating(false)} className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
@@ -378,7 +419,7 @@ export const FormBuilder: React.FC = () => {
                   type="submit"
                   className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer"
                 >
-                  Salvar e Publicar Formulário
+                  {editingForm ? 'Salvar Alterações' : 'Salvar e Publicar Formulário'}
                 </button>
               </div>
 
