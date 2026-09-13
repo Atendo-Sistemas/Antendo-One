@@ -1328,6 +1328,7 @@ const getBillingTenant = (req: AuthenticatedRequest, rawTenantId?: unknown): Ten
 };
 const canManageNotificationBilling = (req: AuthenticatedRequest, tenant: Tenant | undefined): boolean => {
   if (!req.user || !tenant) return false;
+  if (isTestOrDemoUser(req.user)) return false;
   if (req.user.role === 'SUPER_ADMIN') return true;
   return ['ADMIN', 'EMPRESA_SUPER_ADMIN'].includes(req.user.role) && req.user.tenantId === tenant.id;
 };
@@ -1383,7 +1384,7 @@ async function ensureAsaasCustomer(tenant: Tenant): Promise<{ id?: string; error
 }
 
 apiRouter.post('/billing/asaas/test', async (req: AuthenticatedRequest, res: Response) => {
-  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Apenas o Super Admin pode testar o Asaas.' });
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas o Super Admin real pode testar o Asaas.' });
   if (!asaasEnabled()) return res.status(400).json({ error: 'Asaas está desativado ou sem API Key.' });
   try {
     const response = await fetch(`${getAsaasBaseUrl()}/myAccount`, { headers: getAsaasHeaders() });
@@ -1396,7 +1397,7 @@ apiRouter.post('/billing/asaas/test', async (req: AuthenticatedRequest, res: Res
 });
 
 apiRouter.post('/billing/asaas/checkout', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) return res.status(403).json({ error: 'Permissão insuficiente para contratar plano.' });
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem contratar plano.' });
   if (!asaasEnabled()) return res.status(400).json({ error: 'Asaas está desativado ou sem API Key.' });
   const requestedTenantId = req.user.role === 'SUPER_ADMIN' ? req.body?.tenantId : req.user.tenantId;
   const tenant = db.tenants.find(t => t.id === requestedTenantId);
@@ -1432,7 +1433,7 @@ apiRouter.post('/billing/asaas/checkout', async (req: AuthenticatedRequest, res:
 });
 
 apiRouter.post('/billing/asaas/subscribe', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) return res.status(403).json({ error: 'Permissão insuficiente para contratar plano.' });
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem contratar plano.' });
   if (!asaasEnabled()) return res.status(400).json({ error: 'Asaas está desativado ou sem API Key.' });
   const requestedTenantId = req.user.role === 'SUPER_ADMIN' ? req.body?.tenantId : req.user.tenantId;
   const tenant = db.tenants.find(item => item.id === requestedTenantId);
@@ -1499,7 +1500,7 @@ apiRouter.post('/billing/asaas/subscribe', async (req: AuthenticatedRequest, res
 });
 
 apiRouter.post('/billing/asaas/subscription/cancel', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) return res.status(403).json({ error: 'Permissão insuficiente para cancelar assinatura.' });
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem cancelar assinatura.' });
   if (!asaasEnabled()) return res.status(400).json({ error: 'Asaas está desativado ou sem API Key.' });
   const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : String(req.user.tenantId || '');
   const tenant = db.tenants.find(item => item.id === tenantId);
@@ -1524,7 +1525,7 @@ apiRouter.post('/billing/asaas/subscription/cancel', async (req: AuthenticatedRe
 });
 
 apiRouter.post('/billing/asaas/subscription/change-plan', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) return res.status(403).json({ error: 'Permissão insuficiente para trocar de plano.' });
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem trocar de plano.' });
   if (!asaasEnabled()) return res.status(400).json({ error: 'Asaas está desativado ou sem API Key.' });
   const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : String(req.user.tenantId || '');
   const tenant = db.tenants.find(item => item.id === tenantId);
@@ -5381,14 +5382,18 @@ apiRouter.put('/saas/notification-templates/:id', async (req: AuthenticatedReque
   res.json(template);
 });
 
-const getTenantReportOwner = (req: AuthenticatedRequest): Tenant | undefined => {
-  if (!req.user?.tenantId) return undefined;
-  return db.tenants.find(item => item.id === req.user!.tenantId);
+const getTenantReportOwner = (req: AuthenticatedRequest, rawTenantId?: unknown): Tenant | undefined => {
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) return undefined;
+  const tenantId = req.user?.role === 'SUPER_ADMIN'
+    ? String(rawTenantId || req.user?.tenantId || '').trim()
+    : String(req.user?.tenantId || '').trim();
+  if (!tenantId) return undefined;
+  return db.tenants.find(item => item.id === tenantId);
 };
 
-const getEditableTenantReportOwner = (req: AuthenticatedRequest): Tenant | undefined => {
-  if (!req.user || !['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) return undefined;
-  return getTenantReportOwner(req);
+const getEditableTenantReportOwner = (req: AuthenticatedRequest, rawTenantId?: unknown): Tenant | undefined => {
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) return undefined;
+  return getTenantReportOwner(req, rawTenantId);
 };
 
 const reportTemplateText = (value: unknown, fallback: string, maxLength: number, allowEmpty = false): string => {
@@ -5400,14 +5405,14 @@ const reportTemplateText = (value: unknown, fallback: string, maxLength: number,
 const reportTemplateTypes = new Set<ReportTemplateType>(['EXPENSE', 'CHECKLIST']);
 
 apiRouter.get('/tenant/report-templates', (req: AuthenticatedRequest, res: Response) => {
-  const tenant = getTenantReportOwner(req);
-  if (!tenant) return res.status(403).json({ error: 'A edição dos modelos exige perfil administrador da empresa.' });
+  const tenant = getTenantReportOwner(req, req.query.tenantId);
+  if (!tenant) return res.status(403).json({ error: 'O acesso aos modelos exige perfil administrador da empresa.' });
   if (isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Contas de teste não podem acessar a edição de modelos.' });
   return res.json(db.getTenantReportTemplates(tenant.id));
 });
 
 apiRouter.put('/tenant/report-templates/:type', async (req: AuthenticatedRequest, res: Response) => {
-  const tenant = getEditableTenantReportOwner(req);
+  const tenant = getEditableTenantReportOwner(req, req.body?.tenantId);
   if (!tenant) return res.status(403).json({ error: 'A edição dos modelos exige perfil administrador da empresa.' });
   if (isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Contas de teste não podem alterar modelos de relatório.' });
 
@@ -6280,6 +6285,18 @@ const budgetActor = (req: AuthenticatedRequest) => req.user && (req.user.role ==
 const budgetTenantId = (req: AuthenticatedRequest) => req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || req.query?.tenantId || '') : String(req.user?.tenantId || '');
 const budgetForRequest = (req: AuthenticatedRequest, id: string) => db.budgets.find(item => item.id === id && (req.user?.role === 'SUPER_ADMIN' || item.tenantId === req.user?.tenantId));
 const validBudgetTransition: Record<string, string[]> = { RASCUNHO: ['EM_ANALISE', 'CANCELADO'], EM_ANALISE: ['APROVADO', 'REPROVADO', 'CANCELADO'], APROVADO: ['CONVERTIDO', 'CANCELADO'], REPROVADO: ['EM_ANALISE', 'CANCELADO'], CANCELADO: [], CONVERTIDO: [] };
+const budgetFreightRequiredFields = (budget: any) => ([
+  !String(budget?.origin?.address || '').trim() ? 'origem.endereço' : '',
+  !String(budget?.origin?.city || '').trim() ? 'origem.cidade' : '',
+  !String(budget?.origin?.state || '').trim() ? 'origem.uf' : '',
+  !String(budget?.destination?.address || '').trim() ? 'destino.endereço' : '',
+  !String(budget?.destination?.city || '').trim() ? 'destino.cidade' : '',
+  !String(budget?.destination?.state || '').trim() ? 'destino.uf' : '',
+  !String(budget?.cargoType || '').trim() ? 'tipo de carga' : '',
+  Number(budget?.weightKg) <= 0 ? 'peso da carga' : '',
+  Number(budget?.quantity) <= 0 ? 'quantidade' : '',
+  Number(budget?.financials?.totalFreight) <= 0 ? 'valor total do frete' : ''
+].filter(Boolean));
 
 const clientTenantId = (req: AuthenticatedRequest) => req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || req.query?.tenantId || '') : String(req.user?.tenantId || '');
 const clientForRequest = (req: AuthenticatedRequest, id: string) => db.clients.find(client => client.id === id && (req.user?.role === 'SUPER_ADMIN' || client.tenantId === req.user?.tenantId));
@@ -6349,5 +6366,43 @@ apiRouter.put('/budgets/:id', async (req: AuthenticatedRequest, res: Response) =
 });
 apiRouter.post('/budgets/:id/status', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const status = String(req.body?.status || ''); if (!validBudgetTransition[budget.status]?.includes(status)) return res.status(409).json({ error: `Transição ${budget.status} → ${status} não permitida.` }); budget.status = status; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });
 apiRouter.post('/budgets/:id/duplicate', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const source: any = budgetForRequest(req, req.params.id); if (!source) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const now = new Date().toISOString(); const copy: any = { ...JSON.parse(JSON.stringify(source)), id: randomUUID(), code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, convertedFreightId: undefined, createdAt: now, updatedAt: now, versions: [] }; copy.expenses = copy.expenses.map((item: any, index: number) => ({ ...item, id: randomUUID() })); copy.financials = calculateBudget(copy); copy.versions = [{ id: randomUUID(), budgetId: copy.id, version: 1, snapshot: JSON.parse(JSON.stringify(copy)), createdAt: now, createdByUserId: req.user!.id }]; db.budgets.unshift(copy); await db.persistNow(); res.status(201).json(copy); });
-apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType, type: 'GERAL', weightKg: budget.weightKg, volumeCount: budget.quantity }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: false }, status: 'RASCUNHO', statusHistory: [], createdByUserId: req.user!.id, createdByName: req.user!.name, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
+apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => {
+  if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' });
+  const budget: any = budgetForRequest(req, req.params.id);
+  if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' });
+  if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true });
+  if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' });
+  const missingFields = budgetFreightRequiredFields(budget);
+  if (missingFields.length) {
+    return res.status(409).json({ error: `Preencha os campos obrigatórios antes da conversão: ${missingFields.join(', ')}.` });
+  }
+  const now = new Date().toISOString();
+  const freight: any = {
+    id: randomUUID(),
+    code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`,
+    tenantId: budget.tenantId,
+    tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name,
+    origin: budget.origin,
+    destination: budget.destination,
+    distanceKm: budget.distanceKm,
+    cargo: { description: budget.cargoType, type: 'GERAL', weightKg: budget.weightKg, volumeCount: budget.quantity },
+    requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg },
+    payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: false },
+    status: 'RASCUNHO',
+    statusHistory: [],
+    createdByUserId: req.user!.id,
+    createdByName: req.user!.name,
+    createdAt: now,
+    updatedAt: now,
+    customData: { budgetId: budget.id, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses },
+    publicTrackingEnabled: false,
+    publicTrackingToken: randomBytes(16).toString('hex')
+  };
+  db.freights.unshift(freight);
+  budget.convertedFreightId = freight.id;
+  budget.status = 'CONVERTIDO';
+  budget.updatedAt = now;
+  await db.persistNow();
+  res.status(201).json({ budget, freightId: freight.id, idempotent: false });
+});
 apiRouter.delete('/budgets/:id', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.status === 'CONVERTIDO') return res.status(409).json({ error: 'Orçamento convertido não pode ser apagado.' }); budget.status = 'CANCELADO'; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });

@@ -40,6 +40,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [budgetMessage, setBudgetMessage] = useState<string | null>(null);
 
   // Form State
   const [originCity, setOriginCity] = useState('São José do Rio Preto');
@@ -117,6 +118,11 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
     }
   }, [isOpen, tenant?.id]);
   useEffect(() => {
+    addressCache.current.clear();
+    setAddressSuggestions({ side: 'origin', items: [] });
+    setBudgetMessage(null);
+  }, [tenant?.id]);
+  useEffect(() => {
     if (freightToEdit) {
       setOriginCity(freightToEdit.origin.city);
       setOriginState(freightToEdit.origin.state);
@@ -190,6 +196,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setPublicPriceVisibleToRegistered(true);
       setPublicInterestEnabled(true);
       setSelectedBudgetId('');
+      setBudgetMessage(null);
       setOriginCoordinates({});
       setDestinationCoordinates({});
     }
@@ -248,7 +255,11 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
         const result = await budgetApi.geocode(query);
         addressCache.current.set(query.toLowerCase(), result);
         setAddressSuggestions({ side, items: result });
-      } catch { setAddressSuggestions({ side, items: [] }); }
+        setMapboxMessage('');
+      } catch (err: any) {
+        setAddressSuggestions({ side, items: [] });
+        setMapboxMessage(err?.message || 'Não foi possível consultar o endereço agora.');
+      }
     }, 350);
   };
 
@@ -278,13 +289,39 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   };
 
   const applyBudget = (budget: Budget) => {
+    if (budget.convertedFreightId) {
+      setError(`O orçamento ${budget.code} já foi convertido para o frete ${budget.convertedFreightId}.`);
+      setBudgetMessage(null);
+      return;
+    }
+    const missingFields = [
+      !budget.origin?.address ? 'origem/endereço' : '',
+      !budget.origin?.city ? 'origem/cidade' : '',
+      !budget.origin?.state ? 'origem/UF' : '',
+      !budget.destination?.address ? 'destino/endereço' : '',
+      !budget.destination?.city ? 'destino/cidade' : '',
+      !budget.destination?.state ? 'destino/UF' : '',
+      !budget.cargoType ? 'tipo de carga' : '',
+      Number(budget.weightKg) <= 0 ? 'peso' : '',
+      Number(budget.financials?.totalFreight) <= 0 ? 'valor do frete' : ''
+    ].filter(Boolean);
+    if (missingFields.length) {
+      setError(`O orçamento ${budget.code} precisa dos campos obrigatórios antes do vínculo: ${missingFields.join(', ')}.`);
+      setBudgetMessage(null);
+      return;
+    }
     setSelectedBudgetId(budget.id);
     setOriginCity(budget.origin?.city || ''); setOriginState(budget.origin?.state || ''); setOriginZip(budget.origin?.zipCode || ''); setOriginAddress(budget.origin?.address || '');
     setDestCity(budget.destination?.city || ''); setDestState(budget.destination?.state || ''); setDestZip(budget.destination?.zipCode || ''); setDestAddress(budget.destination?.address || '');
+    setOriginNumber(budget.origin?.number || '');
+    setDestNumber(budget.destination?.number || '');
     setOriginCoordinates({ lat: budget.origin?.lat, lng: budget.origin?.lng, mapboxPlaceId: budget.origin?.mapboxPlaceId });
     setDestinationCoordinates({ lat: budget.destination?.lat, lng: budget.destination?.lng, mapboxPlaceId: budget.destination?.mapboxPlaceId });
+    setAddressSuggestions({ side: 'origin', items: [] });
     setCargoDesc(budget.cargoType || ''); setWeightKg(String(budget.weightKg || '')); setVolumeCount(String(budget.quantity || 1));
     setPrice(String(budget.financials?.totalFreight || 0)); setDriverCost(String(budget.driverPaid || 0)); setRouteDistanceKm(budget.distanceKm || null);
+    setError(null);
+    setBudgetMessage(`Orçamento ${budget.code} vinculado ao frete. Origem, destino, carga e valores foram preenchidos automaticamente.`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -440,12 +477,13 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
         {!freightToEdit && !simulateOnly && (
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900/50 dark:bg-indigo-950/20">
             <label className="block text-xs font-bold uppercase tracking-wider text-indigo-800 dark:text-indigo-300">Usar orçamento existente (opcional)
-              <select value={selectedBudgetId} onChange={e => { const budget = budgets.find(item => item.id === e.target.value); if (budget) applyBudget(budget); else setSelectedBudgetId(''); }} className="mt-2 w-full rounded-lg border border-indigo-200 bg-white p-2 text-sm dark:border-indigo-800 dark:bg-slate-900">
+              <select value={selectedBudgetId} onChange={e => { const budget = budgets.find(item => item.id === e.target.value); if (budget) applyBudget(budget); else { setSelectedBudgetId(''); setBudgetMessage(null); } }} className="mt-2 w-full rounded-lg border border-indigo-200 bg-white p-2 text-sm dark:border-indigo-800 dark:bg-slate-900">
                 <option value="">Cadastrar frete manualmente</option>
                 {budgets.map(budget => <option key={budget.id} value={budget.id}>{budget.code} · {budget.clientName || 'Sem cliente'} · {budget.status}</option>)}
               </select>
             </label>
             <p className="mt-2 text-[11px] text-indigo-700 dark:text-indigo-300">A seleção preenche origem, destino, carga e valores. O orçamento fica registrado no frete.</p>
+            {budgetMessage && <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">{budgetMessage}</div>}
           </div>
         )}
 
