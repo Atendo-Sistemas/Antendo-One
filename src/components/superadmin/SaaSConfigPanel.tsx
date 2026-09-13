@@ -54,6 +54,16 @@ const DEFAULT_NOTIFICATION_MODULE: NonNullable<SaaSGlobalConfig['notificationMod
   extraNumberMonthlyPrice: 29.90
 };
 
+const DEFAULT_EMAIL_CONFIG: EmailConfig = {
+  host: '',
+  port: 587,
+  user: '',
+  password: '',
+  senderEmail: '',
+  testEmail: '',
+  isActive: false
+};
+
 export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentManagement }) => {
   const { user } = useAuth();
   const isTestUser = user?.accountType === 'TEST' || user?.readOnly === true || (user?.accountType !== 'REAL' && Boolean(user?.id && /(?:test|demo)/i.test(user.id)));
@@ -85,6 +95,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
   const [testPhone, setTestPhone] = useState('');
   const [testMessage, setTestMessage] = useState('Teste de integração do Atendo CRM. Configurações globais salvas com sucesso.');
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [showWhatsAppTenantModal, setShowWhatsAppTenantModal] = useState(false);
@@ -138,6 +149,10 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
       saasData.notificationModule = {
         ...DEFAULT_NOTIFICATION_MODULE,
         ...(saasData.notificationModule || {})
+      };
+      saasData.emailConfig = {
+        ...DEFAULT_EMAIL_CONFIG,
+        ...(saasData.emailConfig || {})
       };
 
       // Ensure form field settings are present and initialized
@@ -210,8 +225,8 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
     }
   }, [loading]);
 
-  const handleSaveSaaSConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveSaaSConfig = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!config) return;
 
     if (isTestUser) {
@@ -289,6 +304,47 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
     }
   };
 
+  const updateEmailConfigField = <K extends keyof EmailConfig>(field: K, value: EmailConfig[K]) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      emailConfig: {
+        ...DEFAULT_EMAIL_CONFIG,
+        ...(config.emailConfig || {}),
+        [field]: value
+      }
+    });
+  };
+
+  const handleTestEmail = async () => {
+    if (!config?.emailConfig) return;
+    if (isTestUser) {
+      setMessage({ text: '⚠️ Contas e perfis criados para teste não possuem permissão para testar a conexão SMTP.', type: 'error' });
+      return;
+    }
+
+    const emailConfig = {
+      ...DEFAULT_EMAIL_CONFIG,
+      ...config.emailConfig
+    };
+
+    if (!emailConfig.host || !emailConfig.user || !emailConfig.senderEmail || !emailConfig.testEmail) {
+      setEmailTestResult({ success: false, message: 'Preencha host, usuário SMTP, remetente e e-mail de teste antes de validar.' });
+      return;
+    }
+
+    setTesting(true);
+    setEmailTestResult(null);
+    try {
+      const res = await api.testEmailConnection(emailConfig);
+      setEmailTestResult({ success: res.success, message: res.message || 'Conexão SMTP validada com sucesso.' });
+    } catch (err: any) {
+      setEmailTestResult({ success: false, message: err.message || 'Não foi possível testar a conexão SMTP.' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const updatePlanField = (index: number, field: string, value: any) => {
     if (!config) return;
     const updatedPlans = [...config.plans];
@@ -309,6 +365,17 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
       notificationModule: {
         ...DEFAULT_NOTIFICATION_MODULE,
         ...(config.notificationModule || {}),
+        [field]: value
+      }
+    });
+  };
+
+  const updateLayoutField = (field: keyof NonNullable<SaaSGlobalConfig['layout']>, value: any) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      layout: {
+        ...(config.layout || {}),
         [field]: value
       }
     });
@@ -548,6 +615,69 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
         <div className="md:col-span-3 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs">
           {/* Placeholder for content - The actual content would be here */}
           {activeSubTab === 'overview' && <AdminSeoOverviewPanel onOpenContentManagement={onOpenContentManagement} onOpenSeoConfig={() => setActiveSubTab('seo')} />}
+          {activeSubTab === 'analytics' && <VisitAnalyticsPanel />}
+
+          {activeSubTab === 'branding' && config && (
+            <form onSubmit={handleSaveSaaSConfig} className="space-y-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">Branding visual global</h3>
+                <p className="text-[11px] text-slate-500">Atualize URLs públicas usadas em cabeçalho, favicon, app PWA e imagem principal da home.</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+                <div>
+                  <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">logoImageUrl</label>
+                  <input
+                    type="url"
+                    value={config.layout?.logoImageUrl || ''}
+                    onChange={e => updateLayoutField('logoImageUrl', e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="https://cdn.exemplo.com/logo.png"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">faviconUrl</label>
+                  <input
+                    type="url"
+                    value={config.layout?.faviconUrl || ''}
+                    onChange={e => updateLayoutField('faviconUrl', e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="https://cdn.exemplo.com/favicon.ico"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">appIconUrl</label>
+                  <input
+                    type="url"
+                    value={config.layout?.appIconUrl || ''}
+                    onChange={e => updateLayoutField('appIconUrl', e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="https://cdn.exemplo.com/app-icon.png"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">homeHeroImageUrl</label>
+                  <input
+                    type="url"
+                    value={config.layout?.homeHeroImageUrl || ''}
+                    onChange={e => updateLayoutField('homeHeroImageUrl', e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="https://cdn.exemplo.com/home-hero.jpg"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end border-t border-slate-100 pt-4 dark:border-slate-800">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  {saving ? 'Salvando...' : 'Salvar branding'}
+                </button>
+              </div>
+            </form>
+          )}
           
           {/* TAB 9: MAPBOX API & RASTREIO */}
           {activeSubTab === 'mapbox' && config && (
@@ -559,6 +689,242 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
                 await api.updateSaaSGlobalConfig(newConfig);
                 setMessage({ text: 'Configurações do Mapbox salvas com sucesso!', type: 'success' });
                 setTimeout(() => setMessage(null), 4000);
+              }}
+              saving={saving}
+            />
+          )}
+
+          {activeSubTab === 'email' && config && (
+            <div className="space-y-6">
+              <form
+                onSubmit={handleSaveSaaSConfig}
+                className="space-y-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800"
+              >
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">Configuração SMTP Global</h3>
+                  <p className="text-[11px] text-slate-500">Apenas o Super Admin real pode salvar e validar o provedor de e-mail usado pela plataforma.</p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Host SMTP</label>
+                    <input
+                      type="text"
+                      value={config.emailConfig?.host || ''}
+                      onChange={e => updateEmailConfigField('host', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="smtp.seuprovedor.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Porta</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={config.emailConfig?.port || 587}
+                      onChange={e => updateEmailConfigField('port', Number(e.target.value) || 587)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Usuário SMTP</label>
+                    <input
+                      type="text"
+                      value={config.emailConfig?.user || ''}
+                      onChange={e => updateEmailConfigField('user', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="usuario@dominio.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Senha SMTP</label>
+                    <input
+                      type="password"
+                      value={config.emailConfig?.password || ''}
+                      onChange={e => updateEmailConfigField('password', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="********"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">E-mail remetente</label>
+                    <input
+                      type="email"
+                      value={config.emailConfig?.senderEmail || ''}
+                      onChange={e => updateEmailConfigField('senderEmail', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="naoresponda@empresa.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">E-mail de teste</label>
+                    <input
+                      type="email"
+                      value={config.emailConfig?.testEmail || ''}
+                      onChange={e => updateEmailConfigField('testEmail', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="destino@empresa.com"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={config.emailConfig?.isActive || false}
+                    onChange={e => updateEmailConfigField('isActive', e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  Habilitar integração global de e-mail
+                </label>
+
+                <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={handleTestEmail}
+                    disabled={testing}
+                    className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-50 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300"
+                  >
+                    {testing ? 'Testando SMTP...' : 'Testar conexão SMTP'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                  >
+                    {saving ? 'Salvando...' : 'Salvar configuração global'}
+                  </button>
+                </div>
+              </form>
+
+              {emailTestResult && (
+                <div className={`rounded-2xl border px-4 py-3 text-xs font-semibold ${
+                  emailTestResult.success
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+                    : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
+                }`}>
+                  {emailTestResult.message}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeSubTab === 'notifications' && config && (
+            <div className="space-y-6">
+              <form
+                onSubmit={handleSaveSaaSConfig}
+                className="space-y-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800"
+              >
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">Módulo adicional de notificações</h3>
+                  <p className="text-[11px] text-slate-500">Cadastre o catálogo comercial e a precificação do plano gratuito e do número próprio integrado ao Asaas.</p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Nome do plano gratuito</label>
+                    <input
+                      type="text"
+                      value={config.notificationModule?.freePlanName || ''}
+                      onChange={e => updateNotificationModuleField('freePlanName', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Nome do plano número próprio</label>
+                    <input
+                      type="text"
+                      value={config.notificationModule?.ownNumberPlanName || ''}
+                      onChange={e => updateNotificationModuleField('ownNumberPlanName', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Descrição do plano gratuito</label>
+                    <textarea
+                      value={config.notificationModule?.freePlanDescription || ''}
+                      onChange={e => updateNotificationModuleField('freePlanDescription', e.target.value)}
+                      className="min-h-24 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Descrição do número próprio</label>
+                    <textarea
+                      value={config.notificationModule?.ownNumberPlanDescription || ''}
+                      onChange={e => updateNotificationModuleField('ownNumberPlanDescription', e.target.value)}
+                      className="min-h-24 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Mensalidade número próprio</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={config.notificationModule?.ownNumberMonthlyPrice || 0}
+                      onChange={e => updateNotificationModuleField('ownNumberMonthlyPrice', Number(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Taxa de ativação assistida</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={config.notificationModule?.assistedActivationPrice || 0}
+                      onChange={e => updateNotificationModuleField('assistedActivationPrice', Number(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={config.notificationModule?.enabled ?? true}
+                    onChange={e => updateNotificationModuleField('enabled', e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  Habilitar o módulo de notificações comerciais
+                </label>
+
+                <div className="flex justify-end border-t border-slate-100 pt-4 dark:border-slate-800">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                  >
+                    {saving ? 'Salvando...' : 'Salvar catálogo do módulo'}
+                  </button>
+                </div>
+              </form>
+
+              <NotificationTemplatesPanel />
+            </div>
+          )}
+
+          {activeSubTab === 'seo' && config && (
+            <SeoConfigPanel
+              config={config}
+              onUpdateConfig={async (updated) => {
+                const newConfig = { ...config, ...updated };
+                setConfig(newConfig);
+                await api.updateSaaSGlobalConfig(newConfig);
+              }}
+              saving={saving}
+            />
+          )}
+
+          {activeSubTab === 'backups' && <BackupMonitorPanel />}
+          {activeSubTab === 'error-logs' && <ErrorLogPanel />}
+          {activeSubTab === 'sql-installation' && config && (
+            <SqlAndInstallationConfig
+              config={config}
+              onUpdateConfig={async (updated) => {
+                const newConfig = { ...config, ...updated };
+                setConfig(newConfig);
+                await api.updateSaaSGlobalConfig(newConfig);
               }}
               saving={saving}
             />
