@@ -933,6 +933,11 @@ export const budgetApi = {
   clientConfig: () => request<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number }>('/mapbox/client-config')
 };
 
+export const publicTrackingApi = {
+  geocode: (query: string) => publicRequest<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/public/mapbox/geocode?q=${encodeURIComponent(query)}`),
+  clientConfig: () => publicRequest<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number }>('/public/mapbox/client-config')
+};
+
 export const clientApi = {
   list: (search = '') => request<import('../types').Client[]>(`/clients${search ? `?search=${encodeURIComponent(search)}` : ''}`),
   lookupCnpj: (cnpj: string) => request<{ cnpj: string; data: any }>(`/clients/cnpj/${encodeURIComponent(cnpj)}/lookup`),

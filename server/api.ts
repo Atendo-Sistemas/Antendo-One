@@ -812,8 +812,27 @@ apiRouter.get('/mapbox/directions', async (req: AuthenticatedRequest, res: Respo
   if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
   try { const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${origin.join(',')};${destination.join(',')}?overview=false&access_token=${encodeURIComponent(token)}`); const data: any = await response.json().catch(() => ({})); if (!response.ok || !data.routes?.[0]) return res.status(502).json({ error: 'Não foi possível calcular a rota no Mapbox.' }); const route = data.routes[0]; return res.json({ distanceKm: Number(route.distance || 0) / 1000, estimatedMinutes: Number(route.duration || 0) / 60 }); } catch { return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' }); }
   });
+apiRouter.get('/public/mapbox/geocode', async (req: AuthenticatedRequest, res: Response) => {
+  const query = String(req.query.q || '').trim().slice(0, 180);
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+  if (query.length < 3) return res.json([]);
+  if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
+  try {
+    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
+    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
+    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; context?: Array<{ id: string; text: string }> }> };
+    return res.json((data.features || []).filter(item => item.center).map(item => ({ id: item.id, placeName: item.place_name, address: item.text || item.place_name, city: item.context?.find(c => c.id.startsWith('place'))?.text, state: item.context?.find(c => c.id.startsWith('region'))?.text, lng: item.center![0], lat: item.center![1] })));
+  } catch {
+    return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
+  }
+});
 apiRouter.get('/mapbox/client-config', (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+  const isPublicToken = token.startsWith('pk.');
+  return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : '', defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || 'streets-v12', defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
+});
+apiRouter.get('/public/mapbox/client-config', (_req: AuthenticatedRequest, res: Response) => {
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
   const isPublicToken = token.startsWith('pk.');
   return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : '', defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || 'streets-v12', defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
@@ -3524,8 +3543,8 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     f.tenantId === tenant.id && f.createdAt.startsWith(currentMonth)
   ).length;
 
-  const maxLimit = tenant.planLimits?.maxFreightsMonthly || 0;
-  if (tenantFreightsThisMonth >= maxLimit) {
+  const maxLimit = Number(tenant.planLimits?.maxFreightsMonthly || 0);
+  if (maxLimit > 0 && tenantFreightsThisMonth >= maxLimit) {
     return res.status(403).json({
       error: 'Limite de fretes mensais atingido para o plano atual (' + maxLimit + '). Faça o upgrade para continuar cadastrando.'
     });

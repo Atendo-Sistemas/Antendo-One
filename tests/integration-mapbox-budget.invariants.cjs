@@ -12,7 +12,7 @@ for (const token of ['requestedBudgetId', 'linkedBudget', 'budgetCode', 'mapboxP
 for (const token of ['budgetApi.list()', 'applyBudget', 'Calcular rota', 'searchAddress', 'chooseAddress', 'routeDistanceKm']) {
   if (!freight.includes(token)) throw new Error(`FREIGHT_MAPBOX_BUDGET_UI_MISSING:${token}`);
 }
-for (const token of ['budgetApi.geocode', 'subscribePublicTracking']) {
+for (const token of ['publicTrackingApi.geocode', 'subscribePublicTracking']) {
   if (!liveTracking.includes(token)) throw new Error(`TRACKING_UI_MISSING:${token}`);
 }
 if (!freight.includes("item.status === 'APROVADO'")) throw new Error('FREIGHT_BUDGET_SELECTION_MUST_BE_APPROVED');
@@ -21,5 +21,7 @@ if (interactiveMapbox.includes('api.mapbox.com/directions')) throw new Error('TR
 for (const token of ['MAPBOX_SECRET_ID', 'persistMapboxSecret', 'hydrateSecureMapboxConfig', 'WHATSAPP_SECRET_ID', 'persistWhatsAppSecret']) {
   if (!db.includes(token)) throw new Error(`TOKEN_PERSISTENCE_MISSING:${token}`);
 }
-if (!service.includes("'/mapbox/client-config'")) throw new Error('MAPBOX_RUNTIME_CONFIG_ENDPOINT_MISSING');
+for (const token of ['/mapbox/client-config', '/public/mapbox/client-config', '/public/mapbox/geocode']) {
+  if (!service.includes(token)) throw new Error(`MAPBOX_RUNTIME_CONFIG_ENDPOINT_MISSING:${token}`);
+}
 console.log('INTEGRATION_MAPBOX_BUDGET_INVARIANTS_OK');

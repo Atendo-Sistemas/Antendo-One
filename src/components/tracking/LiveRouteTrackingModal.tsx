@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Freight } from '../../types';
-import { api, budgetApi } from '../../services/api';
+import { api, publicTrackingApi } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { InteractiveLeafletMap } from './InteractiveLeafletMap';
 const InteractiveMapboxView = lazy(() => import('./InteractiveMapboxView').then(module => ({ default: module.InteractiveMapboxView })));
@@ -36,12 +36,12 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const [copied, setCopied] = useState(false);
   const [geocodedRoute, setGeocodedRoute] = useState<{ origin: { lat: number; lng: number }; destination: { lat: number; lng: number } } | null>(null);
   const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
-  useEffect(() => { let cancelled = false; budgetApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
+  useEffect(() => { let cancelled = false; publicTrackingApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
   useEffect(() => {
     const geocode = async (address: typeof freight.origin) => {
       if (address.lat !== undefined && address.lng !== undefined) return { lat: address.lat, lng: address.lng };
       const query = [address.address, address.number, address.city, address.state, 'Brasil'].filter(Boolean).join(', ');
-      const result = await budgetApi.geocode(query);
+      const result = await publicTrackingApi.geocode(query);
       const first = result[0];
       return first ? { lat: first.lat, lng: first.lng } : null;
     };

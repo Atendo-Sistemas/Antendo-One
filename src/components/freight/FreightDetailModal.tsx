@@ -61,18 +61,24 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
   onEdit,
   isAdmin = false
 }) => {
+  const [currentFreight, setCurrentFreight] = useState(freight);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isTrackingOpen, setIsTrackingOpen] = useState(false);
 
-  const nextStatuses = useMemo(() => STATUS_TRANSITIONS[freight.status] || [], [freight.status]);
-  const trackingEnabled = freight.publicTrackingEnabled !== false && !freight.publicTrackingRevokedAt;
+  React.useEffect(() => {
+    setCurrentFreight(freight);
+  }, [freight]);
+
+  const nextStatuses = useMemo(() => STATUS_TRANSITIONS[currentFreight.status] || [], [currentFreight.status]);
+  const trackingEnabled = currentFreight.publicTrackingEnabled !== false && !currentFreight.publicTrackingRevokedAt;
 
   const handleStatusChange = async (newStatus: FreightStatus) => {
     setPendingAction(`status:${newStatus}`);
     setError(null);
     try {
       const updated = await api.updateFreightStatus(freight.id, newStatus);
+      setCurrentFreight(updated);
       onUpdateSuccess?.(updated);
     } catch (err: any) {
       setError(err?.message || 'Não foi possível atualizar o status do frete.');
@@ -88,6 +94,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
     try {
       await api.deleteFreight(freight.id);
       onDeleteSuccess?.(freight.id);
+      onClose();
     } catch (err: any) {
       setError(err?.message || 'Não foi possível cancelar o frete.');
     } finally {
@@ -101,11 +108,13 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
     try {
       const revoked = trackingEnabled;
       await api.setPublicTrackingRevoked(freight.id, revoked);
-      onUpdateSuccess?.({
-        ...freight,
+      const updatedFreight = {
+        ...currentFreight,
         publicTrackingEnabled: !revoked,
         publicTrackingRevokedAt: revoked ? new Date().toISOString() : undefined
-      });
+      };
+      setCurrentFreight(updatedFreight);
+      onUpdateSuccess?.(updatedFreight);
     } catch (err: any) {
       setError(err?.message || 'Não foi possível atualizar o link público de rastreio.');
     } finally {
@@ -121,13 +130,13 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                  {STATUS_LABELS[freight.status]}
+                  {STATUS_LABELS[currentFreight.status]}
                 </span>
-                <span className="text-xs font-mono text-slate-500">#{freight.code}</span>
+                <span className="text-xs font-mono text-slate-500">#{currentFreight.code}</span>
               </div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">{freight.cargo.description}</h2>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">{currentFreight.cargo.description}</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {freight.tenantName || 'Empresa'} • {freight.operationType || 'CARGA_GERAL'}
+                {currentFreight.tenantName || 'Empresa'} • {currentFreight.operationType || 'CARGA_GERAL'}
               </p>
             </div>
             <button
@@ -153,15 +162,15 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
               <div className="space-y-3 text-sm">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Origem</p>
-                  <p className="text-slate-800 dark:text-slate-200">{formatAddress(freight.origin)}</p>
-                  <p className="text-xs text-slate-500">{freight.origin.date} • {freight.origin.timeWindow || 'Horário livre'}</p>
+                  <p className="text-slate-800 dark:text-slate-200">{formatAddress(currentFreight.origin)}</p>
+                  <p className="text-xs text-slate-500">{currentFreight.origin.date} • {currentFreight.origin.timeWindow || 'Horário livre'}</p>
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Destino</p>
-                  <p className="text-slate-800 dark:text-slate-200">{formatAddress(freight.destination)}</p>
-                  <p className="text-xs text-slate-500">{freight.destination.date} • {freight.destination.timeWindow || 'Horário livre'}</p>
+                  <p className="text-slate-800 dark:text-slate-200">{formatAddress(currentFreight.destination)}</p>
+                  <p className="text-xs text-slate-500">{currentFreight.destination.date} • {currentFreight.destination.timeWindow || 'Horário livre'}</p>
                 </div>
-                <p className="text-xs text-slate-500">Distância estimada: {freight.distanceKm || 0} km</p>
+                <p className="text-xs text-slate-500">Distância estimada: {currentFreight.distanceKm || 0} km</p>
               </div>
             </section>
 
@@ -172,24 +181,24 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
               <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Tipo de carga</p>
-                  <p className="text-slate-800 dark:text-slate-200">{freight.cargo.type}</p>
+                  <p className="text-slate-800 dark:text-slate-200">{currentFreight.cargo.type}</p>
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Peso / volumes</p>
-                  <p className="text-slate-800 dark:text-slate-200">{freight.cargo.weightKg} kg • {freight.cargo.volumeCount} volumes</p>
+                  <p className="text-slate-800 dark:text-slate-200">{currentFreight.cargo.weightKg} kg • {currentFreight.cargo.volumeCount} volumes</p>
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Veículo exigido</p>
-                  <p className="text-slate-800 dark:text-slate-200">{freight.requirements.vehicleType}</p>
+                  <p className="text-slate-800 dark:text-slate-200">{currentFreight.requirements.vehicleType}</p>
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Carroceria / capacidade</p>
-                  <p className="text-slate-800 dark:text-slate-200">{freight.requirements.bodyTypeRequired || '—'} • {freight.requirements.minCapacityKg} kg</p>
+                  <p className="text-slate-800 dark:text-slate-200">{currentFreight.requirements.bodyTypeRequired || '—'} • {currentFreight.requirements.minCapacityKg} kg</p>
                 </div>
-                {freight.cargo.notes && (
+                {currentFreight.cargo.notes && (
                   <div className="sm:col-span-2">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Observações</p>
-                    <p className="text-slate-800 dark:text-slate-200">{freight.cargo.notes}</p>
+                    <p className="text-slate-800 dark:text-slate-200">{currentFreight.cargo.notes}</p>
                   </div>
                 )}
               </div>
@@ -202,28 +211,28 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
               <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Valor do frete</p>
-                  <p className="text-slate-800 dark:text-slate-200">{formatCurrency(freight.payment.price)}</p>
+                  <p className="text-slate-800 dark:text-slate-200">{formatCurrency(currentFreight.payment.price)}</p>
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Pagamento</p>
-                  <p className="text-slate-800 dark:text-slate-200">{freight.payment.paymentMethod}</p>
+                  <p className="text-slate-800 dark:text-slate-200">{currentFreight.payment.paymentMethod}</p>
                 </div>
-                {typeof freight.payment.clientRevenue === 'number' && (
+                {typeof currentFreight.payment.clientRevenue === 'number' && (
                   <div>
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Receita cliente</p>
-                    <p className="text-slate-800 dark:text-slate-200">{formatCurrency(freight.payment.clientRevenue)}</p>
+                    <p className="text-slate-800 dark:text-slate-200">{formatCurrency(currentFreight.payment.clientRevenue)}</p>
                   </div>
                 )}
-                {typeof freight.payment.driverCost === 'number' && (
+                {typeof currentFreight.payment.driverCost === 'number' && (
                   <div>
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Repasse motorista</p>
-                    <p className="text-slate-800 dark:text-slate-200">{formatCurrency(freight.payment.driverCost)}</p>
+                    <p className="text-slate-800 dark:text-slate-200">{formatCurrency(currentFreight.payment.driverCost)}</p>
                   </div>
                 )}
-                {freight.payment.notes && (
+                {currentFreight.payment.notes && (
                   <div className="sm:col-span-2">
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Observações financeiras</p>
-                    <p className="text-slate-800 dark:text-slate-200">{freight.payment.notes}</p>
+                    <p className="text-slate-800 dark:text-slate-200">{currentFreight.payment.notes}</p>
                   </div>
                 )}
               </div>
@@ -237,22 +246,22 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Motorista</p>
-                    <p className="text-slate-800 dark:text-slate-200">{freight.assignedDriverName || 'Não atribuído'}</p>
+                    <p className="text-slate-800 dark:text-slate-200">{currentFreight.assignedDriverName || 'Não atribuído'}</p>
                   </div>
                   <div>
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Veículo</p>
-                    <p className="text-slate-800 dark:text-slate-200">{freight.assignedVehiclePlate || freight.assignedVehicleModel || 'Não atribuído'}</p>
+                    <p className="text-slate-800 dark:text-slate-200">{currentFreight.assignedVehiclePlate || currentFreight.assignedVehicleModel || 'Não atribuído'}</p>
                   </div>
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Última posição</p>
                   <p className="text-slate-800 dark:text-slate-200">
-                    {freight.currentLocation
-                      ? `${freight.currentLocation.lat.toFixed(5)}, ${freight.currentLocation.lng.toFixed(5)}`
+                    {currentFreight.currentLocation
+                      ? `${currentFreight.currentLocation.lat.toFixed(5)}, ${currentFreight.currentLocation.lng.toFixed(5)}`
                       : 'Sem posição GPS registrada'}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {freight.currentLocation ? formatDateTime(freight.currentLocation.recordedAt) : '—'}
+                    {currentFreight.currentLocation ? formatDateTime(currentFreight.currentLocation.recordedAt) : '—'}
                   </p>
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -260,10 +269,10 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
                     <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Link público</p>
                     <p className="text-slate-800 dark:text-slate-200">{trackingEnabled ? 'Ativo' : 'Bloqueado'}</p>
                   </div>
-                  {freight.requestedBudgetId && (
+                  {currentFreight.requestedBudgetId && (
                     <div>
                       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Orçamento vinculado</p>
-                      <p className="text-slate-800 dark:text-slate-200">{freight.requestedBudgetId}</p>
+                      <p className="text-slate-800 dark:text-slate-200">{currentFreight.requestedBudgetId}</p>
                     </div>
                   )}
                 </div>
@@ -276,10 +285,10 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
               <Calendar className="h-4 w-4 text-emerald-600" /> Histórico
             </h3>
             <div className="space-y-3">
-              {freight.statusHistory.length === 0 ? (
+              {currentFreight.statusHistory.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma movimentação registrada.</p>
               ) : (
-                freight.statusHistory
+                currentFreight.statusHistory
                   .slice()
                   .reverse()
                   .map((entry, index) => (
@@ -305,10 +314,10 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
               >
                 <Radio className="h-4 w-4" /> Acompanhar rastreio
               </button>
-              {isAdmin && onEdit && freight.status !== 'CANCELADO' && (
+              {isAdmin && onEdit && currentFreight.status !== 'CANCELADO' && (
                 <button
                   type="button"
-                  onClick={() => onEdit(freight)}
+                  onClick={() => onEdit(currentFreight)}
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 dark:border-slate-700 dark:text-slate-200"
                 >
                   <Pencil className="h-4 w-4" /> Editar frete
@@ -325,7 +334,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
                   {trackingEnabled ? 'Bloquear link público' : 'Reativar link público'}
                 </button>
               )}
-              {isAdmin && freight.status !== 'CANCELADO' && (
+              {isAdmin && currentFreight.status !== 'CANCELADO' && (
                 <button
                   type="button"
                   onClick={handleDelete}
@@ -363,7 +372,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
 
       {isTrackingOpen && (
         <LiveRouteTrackingModal
-          freight={freight}
+          freight={currentFreight}
           onClose={() => setIsTrackingOpen(false)}
         />
       )}
