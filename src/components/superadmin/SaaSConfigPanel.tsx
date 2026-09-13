@@ -317,7 +317,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
   };
 
   const handleTestEmail = async () => {
-    if (!config?.emailConfig) return;
+    if (!config) return;
     if (isTestUser) {
       setMessage({ text: '⚠️ Contas e perfis criados para teste não possuem permissão para testar a conexão SMTP.', type: 'error' });
       return;
@@ -325,7 +325,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
 
     const emailConfig = {
       ...DEFAULT_EMAIL_CONFIG,
-      ...config.emailConfig
+      ...(config.emailConfig || {})
     };
 
     if (!emailConfig.host || !emailConfig.user || !emailConfig.senderEmail || !emailConfig.testEmail) {

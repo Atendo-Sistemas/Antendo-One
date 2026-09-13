@@ -38,6 +38,11 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
   useEffect(() => { let cancelled = false; publicTrackingApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
   useEffect(() => {
+    if (!mapboxRuntime?.enabled) {
+      setGeocodedRoute(null);
+      return;
+    }
+    let cancelled = false;
     const geocode = async (address: typeof freight.origin) => {
       if (address.lat !== undefined && address.lng !== undefined) return { lat: address.lat, lng: address.lng };
       const query = [address.address, address.number, address.city, address.state, 'Brasil'].filter(Boolean).join(', ');
@@ -46,9 +51,12 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
       return first ? { lat: first.lat, lng: first.lng } : null;
     };
     Promise.all([geocode(freight.origin), geocode(freight.destination)]).then(([origin, destination]) => {
-      if (origin && destination) setGeocodedRoute({ origin, destination });
+      if (!cancelled) setGeocodedRoute(origin && destination ? { origin, destination } : null);
     }).catch(() => undefined);
-  }, [freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.origin.lat, freight.origin.lng, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state, freight.destination.lat, freight.destination.lng]);
+    return () => {
+      cancelled = true;
+    };
+  }, [mapboxRuntime?.enabled, freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.origin.lat, freight.origin.lng, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state, freight.destination.lat, freight.destination.lng]);
   const trackingToken = freight.publicTrackingToken || new URLSearchParams(window.location.search).get('rastreio') || '';
   useEffect(() => {
     if (!trackingToken || typeof EventSource === 'undefined') return;

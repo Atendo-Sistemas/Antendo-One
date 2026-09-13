@@ -77,7 +77,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
     setPendingAction(`status:${newStatus}`);
     setError(null);
     try {
-      const updated = await api.updateFreightStatus(freight.id, newStatus);
+      const updated = await api.updateFreightStatus(currentFreight.id, newStatus);
       setCurrentFreight(updated);
       onUpdateSuccess?.(updated);
     } catch (err: any) {
@@ -88,12 +88,14 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Cancelar o frete ${freight.code}?`)) return;
+    if (!window.confirm(`Cancelar o frete ${currentFreight.code}?`)) return;
     setPendingAction('delete');
     setError(null);
     try {
-      await api.deleteFreight(freight.id);
-      onDeleteSuccess?.(freight.id);
+      const updated = await api.updateFreightStatus(currentFreight.id, 'CANCELADO');
+      setCurrentFreight(updated);
+      onUpdateSuccess?.(updated);
+      onDeleteSuccess?.(currentFreight.id);
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Não foi possível cancelar o frete.');
@@ -107,7 +109,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
     setError(null);
     try {
       const revoked = trackingEnabled;
-      await api.setPublicTrackingRevoked(freight.id, revoked);
+      await api.setPublicTrackingRevoked(currentFreight.id, revoked);
       const updatedFreight = {
         ...currentFreight,
         publicTrackingEnabled: !revoked,
