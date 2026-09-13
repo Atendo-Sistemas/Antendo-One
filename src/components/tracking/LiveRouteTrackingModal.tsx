@@ -34,24 +34,8 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const [mapboxRuntime, setMapboxRuntime] = useState<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number } | null>(null);
   const isMapboxActive = Boolean(mapboxRuntime?.enabled && mapboxRuntime.apiKey);
   const [copied, setCopied] = useState(false);
-  const [geocodedRoute, setGeocodedRoute] = useState<{ origin: { lat: number; lng: number }; destination: { lat: number; lng: number } } | null>(null);
   const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
   useEffect(() => { let cancelled = false; budgetApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
-  useEffect(() => {
-    if (!mapboxRuntime?.apiKey) return;
-    const controller = new AbortController();
-    const geocode = async (address: typeof freight.origin) => {
-      const query = encodeURIComponent(`${address.address || ''}, ${address.number || ''}, ${address.city}, ${address.state}, Brasil`);
-      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?access_token=${encodeURIComponent(mapboxRuntime.apiKey)}&limit=1&country=br`, { signal: controller.signal });
-      const data = await response.json();
-      const coordinates = data.features?.[0]?.center;
-      return Array.isArray(coordinates) ? { lng: Number(coordinates[0]), lat: Number(coordinates[1]) } : null;
-    };
-    Promise.all([geocode(freight.origin), geocode(freight.destination)]).then(([origin, destination]) => {
-      if (origin && destination) setGeocodedRoute({ origin, destination });
-    }).catch(() => undefined);
-    return () => controller.abort();
-  }, [mapboxRuntime?.apiKey, freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state]);
   const trackingToken = freight.publicTrackingToken || new URLSearchParams(window.location.search).get('rastreio') || '';
   useEffect(() => {
     if (!trackingToken || typeof EventSource === 'undefined') return;
@@ -63,6 +47,24 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
     speed: liveLocation.speedKmh || 0,
     accuracy: liveLocation.accuracyMeters || 0
   } : null;
+  const fixedCoords = (location?: { lat?: number; lng?: number }, name?: string) => Number.isFinite(Number(location?.lat)) && Number.isFinite(Number(location?.lng))
+    ? { lat: Number(location?.lat), lng: Number(location?.lng), name: name || 'Localização' }
+    : null;
+  const originCoords = fixedCoords(freight.origin, freight.origin.city || 'Origem');
+  const destCoords = fixedCoords(freight.destination, freight.destination.city || 'Destino');
+  const currentCoords = driverCoords
+    ? { lat: driverCoords.lat, lng: driverCoords.lng, speed: driverCoords.speed }
+    : originCoords
+      ? { lat: originCoords.lat, lng: originCoords.lng, speed: 0 }
+      : destCoords
+        ? { lat: destCoords.lat, lng: destCoords.lng, speed: 0 }
+        : null;
+  const canRenderTrackingMap = Boolean(originCoords && destCoords && currentCoords);
+  const trackingMapMessage = !canRenderTrackingMap
+    ? 'As coordenadas de origem, destino ou posição atual ainda não foram registradas para este frete.'
+    : !isMapboxActive
+      ? 'Mapbox indisponível no momento. Exibindo o mapa básico com os pontos já persistidos.'
+      : null;
   const [progressPercent, setProgressPercent] = useState<number>(() => {
     if (freight.status === 'ENTREGUE' || freight.status === 'FINALIZADO') return 100;
     if (freight.status === 'EM_TRANSITO') return 48;
@@ -148,26 +150,26 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
           {/* Interactive Map Visualizer Canvas */}
           <div className="relative rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 flex flex-col justify-between shadow-inner">
             
-            {isMapboxActive ? (
+            {canRenderTrackingMap ? (isMapboxActive ? (
               <Suspense fallback={<div className="w-full h-[320px] sm:h-[380px] rounded-2xl bg-slate-950 border border-slate-700 flex items-center justify-center text-xs font-bold text-sky-400">Carregando módulo de mapa…</div>}>
               <InteractiveMapboxView
                 apiKey={mapboxRuntime?.apiKey || ''}
                 defaultStyle={mapboxRuntime?.defaultStyle || mapboxConfig?.defaultStyle || 'streets-v12'}
                 defaultZoom={mapboxRuntime?.defaultZoom || mapboxConfig?.defaultZoom || 12}
                 originCoords={{
-                  lat: geocodedRoute?.origin.lat || freight.origin.lat || -23.5505,
-                  lng: geocodedRoute?.origin.lng || freight.origin.lng || -46.6333,
-                  name: freight.origin.city || 'Origem'
+                  lat: originCoords!.lat,
+                  lng: originCoords!.lng,
+                  name: originCoords!.name
                 }}
                 destCoords={{
-                  lat: geocodedRoute?.destination.lat || freight.destination.lat || -22.9068,
-                  lng: geocodedRoute?.destination.lng || freight.destination.lng || -43.1729,
-                  name: freight.destination.city || 'Destino'
+                  lat: destCoords!.lat,
+                  lng: destCoords!.lng,
+                  name: destCoords!.name
                 }}
                 currentCoords={{
-                  lat: driverCoords?.lat || freight.origin.lat || -23.4500,
-                  lng: driverCoords?.lng || freight.origin.lng || -46.5000,
-                  speed: driverCoords?.speed || 68
+                  lat: currentCoords!.lat,
+                  lng: currentCoords!.lng,
+                  speed: currentCoords!.speed
                 }}
                 vehiclePlate={freight.assignedVehiclePlate || 'ABC-1234'}
                 driverName={freight.assignedDriverName || 'Motorista'}
@@ -176,26 +178,39 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
             ) : (
               <InteractiveLeafletMap
                 originCoords={{
-                  lat: freight.origin.lat || -23.5505,
-                  lng: freight.origin.lng || -46.6333,
-                  name: freight.origin.city || 'Origem'
+                  lat: originCoords!.lat,
+                  lng: originCoords!.lng,
+                  name: originCoords!.name
                 }}
                 destCoords={{
-                  lat: freight.destination.lat || -22.9068,
-                  lng: freight.destination.lng || -43.1729,
-                  name: freight.destination.city || 'Destino'
+                  lat: destCoords!.lat,
+                  lng: destCoords!.lng,
+                  name: destCoords!.name
                 }}
                 currentCoords={{
-                  lat: driverCoords?.lat || freight.origin.lat || -23.4500,
-                  lng: driverCoords?.lng || freight.origin.lng || -46.5000,
-                  speed: driverCoords?.speed || 68
+                  lat: currentCoords!.lat,
+                  lng: currentCoords!.lng,
+                  speed: currentCoords!.speed
                 }}
                 vehiclePlate={freight.assignedVehiclePlate || 'ABC-1234'}
                 driverName={freight.assignedDriverName || 'Motorista'}
               />
+            )) : (
+              <div className="flex h-[320px] sm:h-[380px] items-center justify-center bg-slate-950 px-6 text-center">
+               <div className="max-w-md rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-amber-100">
+                 <AlertTriangle className="mx-auto mb-3 h-6 w-6 text-amber-300" />
+                 <p className="text-sm font-bold">Mapa indisponível para este frete</p>
+                 <p className="mt-2 text-xs leading-relaxed text-amber-100/80">{trackingMapMessage}</p>
+               </div>
+              </div>
             )}
 
           </div>
+          {trackingMapMessage && canRenderTrackingMap && (
+            <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-xs text-sky-100">
+              {trackingMapMessage}
+            </div>
+          )}
 
           {/* Stats Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

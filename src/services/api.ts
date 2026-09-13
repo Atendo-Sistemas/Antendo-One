@@ -316,8 +316,16 @@ export const api = {
   async updateNotificationTemplate(id: string, data: Partial<NotificationTemplate>) { return request<NotificationTemplate>(`/saas/notification-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
   async getTenantNotificationTemplates() { return request<NotificationTemplate[]>('/tenant/notification-templates'); },
   async updateTenantNotificationTemplate(id: string, data: Partial<NotificationTemplate>) { return request<NotificationTemplate>(`/tenant/notification-templates/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async getTenantReportTemplates() { return request<TenantReportTemplate[]>('/tenant/report-templates'); },
-  async updateTenantReportTemplate(type: ReportTemplateType, data: Partial<TenantReportTemplate>) { return request<TenantReportTemplate>(`/tenant/report-templates/${encodeURIComponent(type)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async getTenantReportTemplates(tenantId?: string) {
+    const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
+    return request<TenantReportTemplate[]>(`/tenant/report-templates${query}`);
+  },
+  async updateTenantReportTemplate(type: ReportTemplateType, data: Partial<TenantReportTemplate>, tenantId?: string) {
+    return request<TenantReportTemplate>(`/tenant/report-templates/${encodeURIComponent(type)}`, {
+      method: 'PUT',
+      body: JSON.stringify(tenantId ? { ...data, tenantId } : data)
+    });
+  },
   async getErrorLogs(params?: { limit?: number; event?: string; status?: number }) { const query = new URLSearchParams(); if (params?.limit) query.set('limit', String(params.limit)); if (params?.event) query.set('event', params.event); if (params?.status) query.set('status', String(params.status)); return request<{ items: import('../types').ErrorLogEntry[]; total: number }>(`/error-logs?${query.toString()}`); },
   async getBackupStatus() { return request<BackupStatusResponse>('/admin/backups/status'); },
   async requestManualBackup() { return request<{ success: boolean; requestId: string; status: 'QUEUED'; message: string }>('/admin/backups/run', { method: 'POST', body: JSON.stringify({}) }); },
