@@ -423,8 +423,6 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
                   No modo Logística de Veículos, os valores financeiros são divididos entre a <strong>Nota Fiscal ao Cliente</strong> e o <strong>Repasse ao Motorista</strong>.
                 </p>
               )}
-                </p>
-              )}
             </div>
           )}
           
