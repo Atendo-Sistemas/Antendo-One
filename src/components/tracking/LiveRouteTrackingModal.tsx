@@ -40,16 +40,20 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   useEffect(() => {
     if (!mapboxRuntime?.apiKey) return;
     let cancelled = false;
+    const controller = new AbortController();
     const geocode = async (address: typeof freight.origin) => {
       const query = `${address.address || ''}, ${address.number || ''}, ${address.city}, ${address.state}, Brasil`;
-      const result = await budgetApi.geocode(query);
+      const result = await budgetApi.geocode(query, controller.signal);
       const first = result?.[0];
       return first ? { lng: Number(first.lng), lat: Number(first.lat) } : null;
     };
     Promise.all([geocode(freight.origin), geocode(freight.destination)]).then(([origin, destination]) => {
       if (!cancelled && origin && destination) setGeocodedRoute({ origin, destination });
     }).catch(() => undefined);
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [mapboxRuntime?.apiKey, freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state]);
   const trackingToken = freight.publicTrackingToken || new URLSearchParams(window.location.search).get('rastreio') || '';
   useEffect(() => {

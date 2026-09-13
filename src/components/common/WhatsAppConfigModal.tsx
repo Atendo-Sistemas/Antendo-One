@@ -83,6 +83,18 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({ isOpen
   } | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
 
+  function applySafeConfig(config: SafeWhatsAppConfig) {
+    setBaseUrl(config.baseUrl || '');
+    setToken('');
+    setTokenSaved(Boolean(config.tokenMasked));
+    setDefaultChannelNumber(config.defaultChannelNumber || '');
+    setIsActive(config.isActive !== undefined ? config.isActive : true);
+    setAutoNotifyChecklist(config.autoNotifyChecklist !== undefined ? config.autoNotifyChecklist : true);
+    setAutoNotifyFreightStatus(config.autoNotifyFreightStatus !== undefined ? config.autoNotifyFreightStatus : true);
+    setConnectionStatus(config.connectionStatus || 'UNKNOWN');
+    setConnectionMessage(config.lastConnectionError || '');
+  }
+
   useEffect(() => {
     if (!isOpen) return;
     const initialTenantId = tenantId || tenant?.id || '';
@@ -146,17 +158,6 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({ isOpen
   const scopeLabel = selectedTenantId ? (selectedCompany?.name || 'Empresa selecionada') : 'Configuração global';
   const qrImage = qrCode.startsWith('data:image/') ? qrCode : `data:image/png;base64,${qrCode}`;
   const canRequestConnectionCode = !isSuperAdmin || Boolean(selectedTenantId);
-  const applySafeConfig = (config: SafeWhatsAppConfig) => {
-    setBaseUrl(config.baseUrl || '');
-    setToken('');
-    setTokenSaved(Boolean(config.tokenMasked));
-    setDefaultChannelNumber(config.defaultChannelNumber || '');
-    setIsActive(config.isActive !== undefined ? config.isActive : true);
-    setAutoNotifyChecklist(config.autoNotifyChecklist !== undefined ? config.autoNotifyChecklist : true);
-    setAutoNotifyFreightStatus(config.autoNotifyFreightStatus !== undefined ? config.autoNotifyFreightStatus : true);
-    setConnectionStatus(config.connectionStatus || 'UNKNOWN');
-    setConnectionMessage(config.lastConnectionError || '');
-  };
 
   const stopStatusPolling = () => {
     if (pollingRef.current !== null) {

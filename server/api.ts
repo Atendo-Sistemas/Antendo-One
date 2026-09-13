@@ -4794,7 +4794,7 @@ apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest,
 });
 
 apiRouter.post('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
-  return handleWhatsAppStatus(req, res, req.body?.tenantId);
+  return handleWhatsAppStatus(req, res, req.body?.tenantId ?? req.query.tenantId);
 });
 
 // 4. Request a temporary QR Code or pairing code from Atendo CRM; neither is persisted
