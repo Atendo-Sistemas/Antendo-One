@@ -5406,7 +5406,7 @@ const reportTemplateTypes = new Set<ReportTemplateType>(['EXPENSE', 'CHECKLIST']
 
 apiRouter.get('/tenant/report-templates', (req: AuthenticatedRequest, res: Response) => {
   const tenant = getTenantReportOwner(req, req.query.tenantId);
-  if (!tenant) return res.status(403).json({ error: 'A edição dos modelos exige perfil administrador da empresa.' });
+  if (!tenant) return res.status(403).json({ error: 'O acesso aos modelos exige perfil administrador da empresa.' });
   if (isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Contas de teste não podem acessar a edição de modelos.' });
   return res.json(db.getTenantReportTemplates(tenant.id));
 });

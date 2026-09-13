@@ -27,8 +27,11 @@ export const BudgetManager: React.FC = () => {
   const refresh = () => budgetApi.list().then(setItems).catch(e => setError(e.message)).finally(() => setLoading(false));
   useEffect(() => {
     setLoading(true);
+    setSelected(null);
+    setDraft({ ...empty, origin: { ...empty.origin }, destination: { ...empty.destination }, expenses: [] });
+    setClients([]);
     void refresh();
-    void clientApi.list().then(setClients).catch(e => setError(e.message));
+    void clientApi.list().then(setClients).catch(e => { setClients([]); setError(e.message); });
   }, [tenant?.id]);
   useEffect(() => {
     addressCache.current.clear();
