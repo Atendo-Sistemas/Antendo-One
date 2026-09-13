@@ -58,6 +58,7 @@ export const BudgetManager: React.FC = () => {
   const status = async (value: BudgetStatus) => { if (!selected) return; try { const result = await budgetApi.status(selected.id, value); setSelected(result); setDraft(result); await refresh(); } catch (e: any) { setError(e.message); } };
   const convert = async () => {
     if (!selected) return;
+    setToast(null);
     if (selected.convertedFreightId) {
       setToast({ type: 'error', text: `O orçamento ${selected.code} já foi convertido para o frete ${selected.convertedFreightId}.` });
       return;
@@ -70,6 +71,7 @@ export const BudgetManager: React.FC = () => {
       setToast({ type: 'success', text: result.idempotent ? `O orçamento ${result.budget.code} já estava vinculado ao frete ${result.freightId}.` : `Orçamento ${result.budget.code} convertido com sucesso para o frete ${result.freightId}.` });
       await refresh();
     } catch (e: any) {
+      setToast(null);
       setError(e.message);
     }
   };

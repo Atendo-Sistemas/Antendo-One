@@ -317,6 +317,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
     setDestNumber(budget.destination?.number || '');
     setOriginCoordinates({ lat: budget.origin?.lat, lng: budget.origin?.lng, mapboxPlaceId: budget.origin?.mapboxPlaceId });
     setDestinationCoordinates({ lat: budget.destination?.lat, lng: budget.destination?.lng, mapboxPlaceId: budget.destination?.mapboxPlaceId });
+    setAddressSuggestions({ side: 'origin', items: [] });
     setCargoDesc(budget.cargoType || ''); setWeightKg(String(budget.weightKg || '')); setVolumeCount(String(budget.quantity || 1));
     setPrice(String(budget.financials?.totalFreight || 0)); setDriverCost(String(budget.driverPaid || 0)); setRouteDistanceKm(budget.distanceKm || null);
     setError(null);
