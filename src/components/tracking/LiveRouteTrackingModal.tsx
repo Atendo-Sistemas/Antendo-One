@@ -36,33 +36,60 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const [copied, setCopied] = useState(false);
   const [geocodedRoute, setGeocodedRoute] = useState<{ origin: { lat: number; lng: number }; destination: { lat: number; lng: number } } | null>(null);
   const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
-  useEffect(() => { let cancelled = false; budgetApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
+  const [geocodingError, setGeocodingError] = useState<string | null>(null);
+  
+  useEffect(() => { 
+    let cancelled = false; 
+    budgetApi.clientConfig().then(value => { 
+      if (!cancelled) setMapboxRuntime(value); 
+    }).catch(() => { 
+      if (!cancelled) setMapboxRuntime(null); 
+    }); 
+    return () => { cancelled = true; }; 
+  }, []);
+  
   useEffect(() => {
-    if (!mapboxRuntime?.apiKey) return;
+    if (!mapboxRuntime?.enabled) return; // ✅ Verifica se Mapbox está habilitado
     const controller = new AbortController();
     const geocode = async (address: typeof freight.origin) => {
-      const query = encodeURIComponent(`${address.address || ''}, ${address.number || ''}, ${address.city}, ${address.state}, Brasil`);
-      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?access_token=${encodeURIComponent(mapboxRuntime.apiKey)}&limit=1&country=br`, { signal: controller.signal });
-      const data = await response.json();
-      const coordinates = data.features?.[0]?.center;
-      return Array.isArray(coordinates) ? { lng: Number(coordinates[0]), lat: Number(coordinates[1]) } : null;
+      try {
+        // ✅ CORREÇÃO CRÍTICA: Usa endpoint protegido ao invés de chamar Mapbox diretamente com token exposto
+        const query = encodeURIComponent(`${address.address || ''}, ${address.number || ''}, ${address.city}, ${address.state}, Brasil`);
+        const result = await budgetApi.geocodeTracking(query, { signal: controller.signal });
+        return result;
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+          setGeocodingError('Erro ao geocodificar endereço. Usando coordenadas locais.');
+        }
+        return null;
+      }
     };
+    
     Promise.all([geocode(freight.origin), geocode(freight.destination)]).then(([origin, destination]) => {
-      if (origin && destination) setGeocodedRoute({ origin, destination });
-    }).catch(() => undefined);
+      if (origin && destination) {
+        setGeocodedRoute({ origin, destination });
+        setGeocodingError(null);
+      }
+    }).catch(() => {
+      setGeocodingError('Não foi possível geocodificar os endereços. Usando coordenadas padrão.');
+    });
+    
     return () => controller.abort();
-  }, [mapboxRuntime?.apiKey, freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state]);
+  }, [mapboxRuntime?.enabled]);
+  
   const trackingToken = freight.publicTrackingToken || new URLSearchParams(window.location.search).get('rastreio') || '';
   useEffect(() => {
     if (!trackingToken || typeof EventSource === 'undefined') return;
     return api.subscribePublicTracking(trackingToken, update => setLiveLocation(update.currentLocation));
   }, [trackingToken]);
+  
   const driverCoords = liveLocation ? {
     lat: liveLocation.lat,
     lng: liveLocation.lng,
     speed: liveLocation.speedKmh || 0,
     accuracy: liveLocation.accuracyMeters || 0
   } : null;
+  
   const [progressPercent, setProgressPercent] = useState<number>(() => {
     if (freight.status === 'ENTREGUE' || freight.status === 'FINALIZADO') return 100;
     if (freight.status === 'EM_TRANSITO') return 48;
@@ -78,6 +105,7 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const kmRemaining = Math.max(0, totalKm - kmTraveled);
   const etaMinutes = Math.round((kmRemaining / 70) * 60); // Assuming 70km/h avg
   const etaFormatted = `${Math.floor(etaMinutes / 60)}h ${etaMinutes % 60}m`;
+  
   const handleCopyLink = () => {
     const trackingUrl = `${window.location.origin}/?rastreio=${encodeURIComponent(trackingToken)}`;
     navigator.clipboard.writeText(trackingUrl);
@@ -144,6 +172,14 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
 
         {/* Content Scrollable */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+
+          {/* Geocoding Error Alert */}
+          {geocodingError && (
+            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span>{geocodingError}</span>
+            </div>
+          )}
 
           {/* Interactive Map Visualizer Canvas */}
           <div className="relative rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 flex flex-col justify-between shadow-inner">
