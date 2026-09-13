@@ -4727,10 +4727,9 @@ apiRouter.post('/integrations/whatsapp/config', async (req: AuthenticatedRequest
   });
 });
 
-// 3. Read Atendo CRM channel status without exposing provider response or credentials
-apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+async function handleWhatsAppStatus(req: AuthenticatedRequest, res: Response, rawTenantId?: unknown) {
   await db.waitForPersistence();
-  const scope = getWhatsAppScope(req, req.query.tenantId);
+  const scope = getWhatsAppScope(req, rawTenantId);
   if (!scope) {
     return res.status(403).json({ error: 'Você não tem permissão para consultar o status WhatsApp desta empresa.' });
   }
@@ -4787,6 +4786,15 @@ apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest,
     db.addErrorLog({ service: 'whatsapp-gateway', route: 'external-status-channel', method: 'GET', event: 'WHATSAPP_STATUS_ERROR', message: 'Falha de comunicação com o gateway WhatsApp.' });
     return res.status(502).json({ success: false, status: 'ERROR', message: 'Falha de comunicação com o gateway WhatsApp.', config: safeWhatsAppConfig(updated, scope) });
   }
+}
+
+// 3. Read Atendo CRM channel status without exposing provider response or credentials
+apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+  return handleWhatsAppStatus(req, res, req.query.tenantId);
+});
+
+apiRouter.post('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+  return handleWhatsAppStatus(req, res, req.body?.tenantId ?? req.query.tenantId);
 });
 
 // 4. Request a temporary QR Code or pairing code from Atendo CRM; neither is persisted

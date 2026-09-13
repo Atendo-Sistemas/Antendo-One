@@ -928,7 +928,7 @@ export const budgetApi = {
   duplicate: (id: string) => request<import('../types').Budget>(`/budgets/${id}/duplicate`, { method: 'POST' }),
   convert: (id: string) => request<{ budget: import('../types').Budget; freightId: string; idempotent: boolean }>(`/budgets/${id}/convert`, { method: 'POST' }),
   remove: (id: string) => request<import('../types').Budget>(`/budgets/${id}`, { method: 'DELETE' }),
-  geocode: (query: string) => request<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/mapbox/geocode?q=${encodeURIComponent(query)}`),
+  geocode: (query: string, signal?: AbortSignal) => request<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/mapbox/geocode?q=${encodeURIComponent(query)}`, signal ? { signal } : undefined),
   directions: (origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) => request<{ distanceKm: number; estimatedMinutes: number }>(`/mapbox/directions?origin=${origin.lng},${origin.lat}&destination=${destination.lng},${destination.lat}`),
   clientConfig: () => request<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number }>('/mapbox/client-config')
 };
