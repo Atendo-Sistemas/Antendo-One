@@ -25,7 +25,11 @@ export const BudgetManager: React.FC = () => {
   const addressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const addressCache = useRef(new Map<string, any[]>());
   const refresh = () => budgetApi.list().then(setItems).catch(e => setError(e.message)).finally(() => setLoading(false));
-  useEffect(() => { void refresh(); void clientApi.list().then(setClients).catch(e => setError(e.message)); }, []);
+  useEffect(() => {
+    setLoading(true);
+    void refresh();
+    void clientApi.list().then(setClients).catch(e => setError(e.message));
+  }, [tenant?.id]);
   useEffect(() => {
     addressCache.current.clear();
     setSuggestions({ side: 'origin', items: [] });

@@ -5383,6 +5383,7 @@ apiRouter.put('/saas/notification-templates/:id', async (req: AuthenticatedReque
 });
 
 const getTenantReportOwner = (req: AuthenticatedRequest, rawTenantId?: unknown): Tenant | undefined => {
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) return undefined;
   const tenantId = req.user?.role === 'SUPER_ADMIN'
     ? String(rawTenantId || req.user?.tenantId || '').trim()
     : String(req.user?.tenantId || '').trim();
