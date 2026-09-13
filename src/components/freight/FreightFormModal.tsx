@@ -113,7 +113,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   useEffect(() => {
     if (isOpen && tenant?.id) {
       api.getCompanyVehicles().then(setCompanyVehicles).catch(() => setCompanyVehicles([]));
-      budgetApi.list().then(result => setBudgets(result.filter(item => ['APROVADO', 'EM_ANALISE', 'RASCUNHO'].includes(item.status) && !item.convertedFreightId))).catch(() => setBudgets([]));
+      budgetApi.list().then(result => setBudgets(result.filter(item => item.status === 'APROVADO' && !item.convertedFreightId))).catch(() => setBudgets([]));
     }
   }, [isOpen, tenant?.id]);
   useEffect(() => {

@@ -3515,19 +3515,20 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
 
   const tenantId = req.user?.role === 'SUPER_ADMIN' ? (req.body.tenantId || null) : req.user?.tenantId;
   const tenant = db.tenants.find(t => t.id === tenantId);
+  if (!tenantId || !tenant) {
+    return res.status(400).json({ error: 'Empresa inválida.' });
+  }
 
-  if (tenant) {
-    const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
-    const tenantFreightsThisMonth = db.freights.filter(f =>
-      f.tenantId === tenant.id && f.createdAt.startsWith(currentMonth)
-    ).length;
+  const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+  const tenantFreightsThisMonth = db.freights.filter(f =>
+    f.tenantId === tenant.id && f.createdAt.startsWith(currentMonth)
+  ).length;
 
-    const maxLimit = tenant.planLimits?.maxFreightsMonthly || 0;
-    if (tenantFreightsThisMonth >= maxLimit) {
-      return res.status(403).json({
-        error: 'Limite de fretes mensais atingido para o plano atual (' + maxLimit + '). Faça o upgrade para continuar cadastrando.'
-      });
-    }
+  const maxLimit = tenant.planLimits?.maxFreightsMonthly || 0;
+  if (tenantFreightsThisMonth >= maxLimit) {
+    return res.status(403).json({
+      error: 'Limite de fretes mensais atingido para o plano atual (' + maxLimit + '). Faça o upgrade para continuar cadastrando.'
+    });
   }
 
   const {
@@ -3547,6 +3548,7 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   const requestedBudgetId = customData?.budgetId ? String(customData.budgetId) : '';
   const linkedBudget = requestedBudgetId ? db.budgets.find((budget: any) => budget.id === requestedBudgetId && budget.tenantId === tenantId && !budget.convertedFreightId) : undefined;
   if (requestedBudgetId && !linkedBudget) return res.status(400).json({ error: 'Orçamento selecionado não pertence à empresa, não existe ou já foi convertido.' });
+  if (linkedBudget && linkedBudget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode ser vinculado a um frete.' });
 
   if (!origin?.city || !origin?.state || !destination?.city || !destination?.state || !payment?.price) {
     return res.status(400).json({ error: 'Origem, destino e valor são obrigatórios' });
@@ -3634,9 +3636,10 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     ],
     createdByUserId: req.user!.id,
     createdByName: req.user!.name,
+    requestedBudgetId: requestedBudgetId || undefined,
     createdAt: now,
     updatedAt: now,
-    customData: requestedBudgetId ? { ...(customData || {}), budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status } : customData,
+    customData: requestedBudgetId ? { ...(customData || {}), budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status, budgetVersion: linkedBudget?.version, budgetFinancials: linkedBudget?.financials, budgetTaxes: linkedBudget?.taxes, budgetExpenses: linkedBudget?.expenses } : customData,
     companyVehicleId: companyVehicleId || undefined,
     publicListingEnabled: safePublicListing,
     publicPriceVisibleToRegistered: safePublicListing && publicPriceVisibleToRegistered !== false,
@@ -3646,6 +3649,11 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   };
 
   db.freights.unshift(newFreight);
+  if (linkedBudget) {
+    linkedBudget.convertedFreightId = newFreight.id;
+    linkedBudget.status = 'CONVERTIDO';
+    linkedBudget.updatedAt = now;
+  }
 
   db.addAuditLog({ ip: requestIp(req),
     tenantId: tenantId || undefined,
@@ -3726,13 +3734,18 @@ apiRouter.put('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
   };
   const updateLocation = (current: Freight['origin'], incoming: any): Freight['origin'] => {
     if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return current;
+    const lat = Number(incoming.lat);
+    const lng = Number(incoming.lng);
     return {
       ...current,
       zipCode: text(incoming.zipCode, current.zipCode, 20), address: text(incoming.address, current.address, 300),
       number: text(incoming.number, current.number, 30), neighborhood: text(incoming.neighborhood, current.neighborhood || '', 160),
       city: text(incoming.city, current.city, 120), state: text(incoming.state, current.state, 2).toUpperCase(),
       date: text(incoming.date, current.date, 32), timeWindow: text(incoming.timeWindow, current.timeWindow || '', 100),
-      contactName: text(incoming.contactName, current.contactName || '', 160), contactPhone: text(incoming.contactPhone, current.contactPhone || '', 30)
+      contactName: text(incoming.contactName, current.contactName || '', 160), contactPhone: text(incoming.contactPhone, current.contactPhone || '', 30),
+      lat: Number.isFinite(lat) ? lat : current.lat,
+      lng: Number.isFinite(lng) ? lng : current.lng,
+      mapboxPlaceId: typeof incoming.mapboxPlaceId === 'string' ? incoming.mapboxPlaceId.trim().slice(0, 180) || undefined : current.mapboxPlaceId
     };
   };
   const updatedAt = new Date().toISOString();
@@ -6349,5 +6362,5 @@ apiRouter.put('/budgets/:id', async (req: AuthenticatedRequest, res: Response) =
 });
 apiRouter.post('/budgets/:id/status', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const status = String(req.body?.status || ''); if (!validBudgetTransition[budget.status]?.includes(status)) return res.status(409).json({ error: `Transição ${budget.status} → ${status} não permitida.` }); budget.status = status; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });
 apiRouter.post('/budgets/:id/duplicate', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const source: any = budgetForRequest(req, req.params.id); if (!source) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const now = new Date().toISOString(); const copy: any = { ...JSON.parse(JSON.stringify(source)), id: randomUUID(), code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, convertedFreightId: undefined, createdAt: now, updatedAt: now, versions: [] }; copy.expenses = copy.expenses.map((item: any, index: number) => ({ ...item, id: randomUUID() })); copy.financials = calculateBudget(copy); copy.versions = [{ id: randomUUID(), budgetId: copy.id, version: 1, snapshot: JSON.parse(JSON.stringify(copy)), createdAt: now, createdByUserId: req.user!.id }]; db.budgets.unshift(copy); await db.persistNow(); res.status(201).json(copy); });
-apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType, type: 'GERAL', weightKg: budget.weightKg, volumeCount: budget.quantity }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: false }, status: 'RASCUNHO', statusHistory: [], createdByUserId: req.user!.id, createdByName: req.user!.name, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
+apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const inferredCargoType = ['GERAL', 'FRAGIL', 'REFRIGERADA', 'PERIGOSA', 'ALIMENTOS', 'CONSTRUCAO', 'MAQUINARIO', 'GRAOS'].includes(String(budget.cargoType || '').toUpperCase()) ? String(budget.cargoType).toUpperCase() : 'GERAL'; const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType || 'Carga geral', type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: 'RASCUNHO', statusHistory: [], createdByUserId: req.user!.id, createdByName: req.user!.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: 'BUDGET_CONVERSION' }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
 apiRouter.delete('/budgets/:id', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.status === 'CONVERTIDO') return res.status(409).json({ error: 'Orçamento convertido não pode ser apagado.' }); budget.status = 'CANCELADO'; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });

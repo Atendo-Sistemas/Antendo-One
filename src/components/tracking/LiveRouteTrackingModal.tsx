@@ -38,20 +38,17 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
   useEffect(() => { let cancelled = false; budgetApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
   useEffect(() => {
-    if (!mapboxRuntime?.apiKey) return;
-    const controller = new AbortController();
     const geocode = async (address: typeof freight.origin) => {
-      const query = encodeURIComponent(`${address.address || ''}, ${address.number || ''}, ${address.city}, ${address.state}, Brasil`);
-      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?access_token=${encodeURIComponent(mapboxRuntime.apiKey)}&limit=1&country=br`, { signal: controller.signal });
-      const data = await response.json();
-      const coordinates = data.features?.[0]?.center;
-      return Array.isArray(coordinates) ? { lng: Number(coordinates[0]), lat: Number(coordinates[1]) } : null;
+      if (address.lat !== undefined && address.lng !== undefined) return { lat: address.lat, lng: address.lng };
+      const query = [address.address, address.number, address.city, address.state, 'Brasil'].filter(Boolean).join(', ');
+      const result = await budgetApi.geocode(query);
+      const first = result[0];
+      return first ? { lat: first.lat, lng: first.lng } : null;
     };
     Promise.all([geocode(freight.origin), geocode(freight.destination)]).then(([origin, destination]) => {
       if (origin && destination) setGeocodedRoute({ origin, destination });
     }).catch(() => undefined);
-    return () => controller.abort();
-  }, [mapboxRuntime?.apiKey, freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state]);
+  }, [freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.origin.lat, freight.origin.lng, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state, freight.destination.lat, freight.destination.lng]);
   const trackingToken = freight.publicTrackingToken || new URLSearchParams(window.location.search).get('rastreio') || '';
   useEffect(() => {
     if (!trackingToken || typeof EventSource === 'undefined') return;

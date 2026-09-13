@@ -488,6 +488,7 @@ export interface Freight {
   completedAt?: string;
   cancelledAt?: string;
   cancelReason?: string;
+  requestedBudgetId?: string;
   formResponsesCount?: number;
   createdAt: string;
   updatedAt: string;

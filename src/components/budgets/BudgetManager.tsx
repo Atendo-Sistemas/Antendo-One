@@ -4,6 +4,43 @@ import { Budget, BudgetExpense, BudgetStatus } from '../../types';
 import { generateBudgetPdf } from '../../utils/budgetPdfGenerator';
 
 const brl = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const money = (value: unknown) => Math.round((Number(value) || 0) * 100) / 100;
+const previewFinancials = (draft: any) => {
+  const expenses = (draft.expenses || []).map((item: BudgetExpense) => ({ ...item, quantity: Number(item.quantity) || 0, unitPrice: money(item.unitPrice), total: money((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) }));
+  const totalExpenses = money(expenses.reduce((sum: number, item: BudgetExpense) => sum + item.total, 0));
+  const routeCost = money((Number(draft.distanceKm) || 0) * (Number(draft.pricePerKm) || 0));
+  const tolls = money(draft.tolls);
+  const insurance = money(draft.insurance);
+  const lodging = money((Number(draft.dailyRate) || 0) * (Number(draft.dailyCount) || 0));
+  const assistants = money((Number(draft.assistantCount) || 0) * (Number(draft.assistantDailyRate) || 0) * (Number(draft.dailyCount) || 1));
+  const subtotal = money(totalExpenses + routeCost + tolls + insurance + lodging + assistants);
+  const taxes = (draft.taxes || []).map((tax: any) => ({ ...tax, percentage: Number(tax.percentage) || 0, fixedValue: money(tax.fixedValue) }));
+  const fixedAndScopedTaxes = money(taxes.reduce((sum: number, tax: any) => {
+    if (tax.type === 'FIXO') return sum + money(tax.fixedValue);
+    if (tax.base === 'DESPESAS') return sum + money(totalExpenses * tax.percentage / 100);
+    if (tax.base === 'SUBTOTAL') return sum + money(subtotal * tax.percentage / 100);
+    return sum;
+  }, 0));
+  const freightTaxRate = taxes.reduce((sum: number, tax: any) => sum + (tax.type === 'PERCENTUAL' && tax.base === 'VALOR_FRETE' ? tax.percentage / 100 : 0), 0);
+  const calculateProfit = (totalCostValue: number) => draft.profitType === 'FIXO' ? money(draft.profitValue) : money(totalCostValue * (Number(draft.profitValue) || 0) / 100);
+  let totalTaxes = fixedAndScopedTaxes;
+  let cost = money(subtotal + totalTaxes);
+  let profit = calculateProfit(cost);
+  let total = money(cost + profit);
+  if (freightTaxRate > 0) {
+    let previous = total;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const freightBasedTaxes = money(previous * freightTaxRate);
+      totalTaxes = money(fixedAndScopedTaxes + freightBasedTaxes);
+      cost = money(subtotal + totalTaxes);
+      profit = calculateProfit(cost);
+      total = money(cost + profit);
+      if (Math.abs(total - previous) < 0.01) break;
+      previous = total;
+    }
+  }
+  return { expenseTotal: totalExpenses, routeCost, tolls, insurance, lodging, assistants, taxes: totalTaxes, cost, profit, total };
+};
 const empty = { clientName: '', date: new Date().toISOString().slice(0, 10), cargoType: '', weightKg: 0, quantity: 1, distanceKm: 0, pricePerKm: 0, priceTableReference: '', tolls: 0, insurance: 0, dailyRate: 0, dailyCount: 0, assistantCount: 0, assistantDailyRate: 0, estimatedMinutes: 0, expenses: [] as BudgetExpense[], taxes: [], profitType: 'PERCENTUAL' as const, profitValue: 20, driverPassed: 0, driverPaid: 0, origin: { address: '', city: '', state: '' }, destination: { address: '', city: '', state: '' } };
 
 type Side = 'origin' | 'destination';
@@ -25,15 +62,7 @@ export const BudgetManager: React.FC = () => {
   useEffect(() => { void refresh(); void clientApi.list().then(setClients).catch(e => setError(e.message)); }, []);
   const lookupClient = async () => { try { setCnpjLoading(true); setError(''); const result = await clientApi.lookupCnpj(cnpj); const data = result.data; const e = data.estabelecimento || data; const client = { cnpj: result.cnpj, legalName: data.razao_social || data.razaoSocial || '', tradeName: e.nome_fantasia || '', address: e.logradouro || '', number: e.numero || '', neighborhood: e.bairro || '', zipCode: e.cep || '', city: e.cidade?.nome || e.municipio || '', state: e.estado?.sigla || e.uf || '', email: e.email || '', phone: e.telefone1 || '', source: 'CNPJ_WS' as const, cnpjData: data }; const saved = await clientApi.create(client); setClients(current => [saved, ...current]); setDraft((d: any) => ({ ...d, clientId: saved.id, clientName: saved.legalName })); setCnpj(''); } catch (e: any) { setError(e.message); } finally { setCnpjLoading(false); } };
   const calculateRoute = async () => { const origin = draft.origin?.lat !== undefined && draft.origin?.lng !== undefined ? draft.origin : null; const destination = draft.destination?.lat !== undefined && draft.destination?.lng !== undefined ? draft.destination : null; if (!origin || !destination) return setError('Selecione um endereço de origem e um de destino nas sugestões de endereço.'); try { setRouteLoading(true); setError(''); const route = await budgetApi.directions(origin, destination); setDraft((d: any) => ({ ...d, distanceKm: Number(route.distanceKm.toFixed(2)), estimatedMinutes: Math.round(route.estimatedMinutes) })); } catch (e: any) { setError(e.message); } finally { setRouteLoading(false); } };
-  const preview = useMemo(() => {
-    const expenseTotal = (draft.expenses || []).reduce((s: number, e: BudgetExpense) => s + (Number(e.quantity) || 0) * (Number(e.unitPrice) || 0), 0);
-    const taxes = (draft.taxes || []).reduce((s: number, t: any) => s + (t.type === 'FIXO' ? Number(t.fixedValue || 0) : expenseTotal * Number(t.percentage || 0) / 100), 0);
-    const routeCost = (Number(draft.distanceKm) || 0) * (Number(draft.pricePerKm) || 0);
-    const tolls = Number(draft.tolls) || 0; const insurance = Number(draft.insurance) || 0; const lodging = (Number(draft.dailyRate) || 0) * (Number(draft.dailyCount) || 0); const assistants = (Number(draft.assistantCount) || 0) * (Number(draft.assistantDailyRate) || 0) * (Number(draft.dailyCount) || 1);
-    const cost = expenseTotal + routeCost + tolls + insurance + lodging + assistants + taxes;
-    const profit = draft.profitType === 'FIXO' ? Number(draft.profitValue || 0) : cost * Number(draft.profitValue || 0) / 100;
-    return { expenseTotal, routeCost, tolls, insurance, lodging, assistants, taxes, cost, profit, total: cost + profit };
-  }, [draft]);
+  const preview = useMemo(() => previewFinancials(draft), [draft]);
   const save = async () => { if (saving) return; try { setSaving(true); setError(''); const saved = selected ? await budgetApi.update(selected.id, draft) : await budgetApi.create(draft); setSelected(saved); setDraft(saved); await refresh(); } catch (e: any) { setError(e.message); } finally { setSaving(false); } };
   const addExpense = () => setDraft((d: any) => ({ ...d, expenses: [...(d.expenses || []), { id: crypto.randomUUID(), description: 'Combustível', category: 'ABASTECIMENTO', quantity: 1, unit: 'un', unitPrice: 0, total: 0 }] }));
   const status = async (value: BudgetStatus) => { if (!selected) return; try { const result = await budgetApi.status(selected.id, value); setSelected(result); setDraft(result); await refresh(); } catch (e: any) { setError(e.message); } };

@@ -138,16 +138,6 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
             }
           });
 
-          // Substitui a linha estimada pela rota viária real do Mapbox.
-          const coords = `${originCoords.lng},${originCoords.lat};${destCoords.lng},${destCoords.lat}`;
-          const directions = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${encodeURIComponent(apiKey)}`);
-          if (directions.ok) {
-            const data = await directions.json() as { routes?: Array<{ geometry?: GeoJSON.Geometry }> };
-            const geometry = data.routes?.[0]?.geometry;
-            if (geometry && map.getSource('route-line')) {
-              (map.getSource('route-line') as mapboxgl.GeoJSONSource).setData({ type: 'Feature', properties: { realRoute: true }, geometry });
-            }
-          }
         } catch (err) {
           console.error('Error drawing route line:', err);
         }
