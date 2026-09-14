@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Freight } from '../../types';
-import { api, budgetApi } from '../../services/api';
+import { api, publicTrackingApi } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { InteractiveLeafletMap } from './InteractiveLeafletMap';
 const InteractiveMapboxView = lazy(() => import('./InteractiveMapboxView').then(module => ({ default: module.InteractiveMapboxView })));
@@ -36,27 +36,35 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const [copied, setCopied] = useState(false);
   const [geocodedRoute, setGeocodedRoute] = useState<{ origin: { lat: number; lng: number }; destination: { lat: number; lng: number } } | null>(null);
   const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
-  useEffect(() => { let cancelled = false; budgetApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
+  const [lastLiveAt, setLastLiveAt] = useState<string | null>(freight.currentLocation?.recordedAt || null);
+  useEffect(() => { let cancelled = false; publicTrackingApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
   useEffect(() => {
-    if (!mapboxRuntime?.apiKey) return;
-    const controller = new AbortController();
+    if (!mapboxRuntime?.enabled) {
+      setGeocodedRoute(null);
+      return;
+    }
+    let cancelled = false;
     const geocode = async (address: typeof freight.origin) => {
-      const query = encodeURIComponent(`${address.address || ''}, ${address.number || ''}, ${address.city}, ${address.state}, Brasil`);
-      const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?access_token=${encodeURIComponent(mapboxRuntime.apiKey)}&limit=1&country=br`, { signal: controller.signal });
-      const data = await response.json();
-      const coordinates = data.features?.[0]?.center;
-      return Array.isArray(coordinates) ? { lng: Number(coordinates[0]), lat: Number(coordinates[1]) } : null;
+      if (address.lat !== undefined && address.lng !== undefined) return { lat: address.lat, lng: address.lng };
+      const query = [address.address, address.number, address.city, address.state, 'Brasil'].filter(Boolean).join(', ');
+      const result = await publicTrackingApi.geocode(query);
+      const first = result[0];
+      return first ? { lat: first.lat, lng: first.lng } : null;
     };
     Promise.all([geocode(freight.origin), geocode(freight.destination)]).then(([origin, destination]) => {
-      if (origin && destination) setGeocodedRoute({ origin, destination });
+      if (!cancelled) setGeocodedRoute(origin && destination ? { origin, destination } : null);
     }).catch(() => undefined);
-    return () => controller.abort();
-  }, [mapboxRuntime?.apiKey, freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state]);
+    return () => {
+      cancelled = true;
+    };
+  }, [mapboxRuntime?.enabled, freight.origin.address, freight.origin.number, freight.origin.city, freight.origin.state, freight.origin.lat, freight.origin.lng, freight.destination.address, freight.destination.number, freight.destination.city, freight.destination.state, freight.destination.lat, freight.destination.lng]);
   const trackingToken = freight.publicTrackingToken || new URLSearchParams(window.location.search).get('rastreio') || '';
   useEffect(() => {
     if (!trackingToken || typeof EventSource === 'undefined') return;
-    return api.subscribePublicTracking(trackingToken, update => setLiveLocation(update.currentLocation));
+    return api.subscribePublicTracking(trackingToken, update => { setLiveLocation(update.currentLocation); setLastLiveAt(update.currentLocation?.recordedAt || new Date().toISOString()); });
   }, [trackingToken]);
+  const liveAgeSeconds = lastLiveAt ? Math.max(0, Math.round((Date.now() - new Date(lastLiveAt).getTime()) / 1000)) : null;
+  const liveSignal = liveAgeSeconds === null ? 'AGUARDANDO' : liveAgeSeconds <= 30 ? 'AO VIVO' : liveAgeSeconds <= 120 ? 'ATRASADO' : 'SEM SINAL';
   const driverCoords = liveLocation ? {
     lat: liveLocation.lat,
     lng: liveLocation.lng,
@@ -123,9 +131,9 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-black text-white">Rastreamento de Trajeto GPS</h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                  Sinal Ao Vivo
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 ${liveSignal === 'AO VIVO' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : liveSignal === 'ATRASADO' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-slate-500/20 text-slate-300 border-slate-500/30'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${liveSignal === 'AO VIVO' ? 'bg-emerald-400 animate-ping' : liveSignal === 'ATRASADO' ? 'bg-amber-400' : 'bg-slate-400'}`}></span>
+                  {liveSignal}{liveAgeSeconds !== null && ` · ${liveAgeSeconds}s`}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
@@ -171,6 +179,7 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
                 }}
                 vehiclePlate={freight.assignedVehiclePlate || 'ABC-1234'}
                 driverName={freight.assignedDriverName || 'Motorista'}
+                routeGeometry={freight.routeGeometry || null}
                 />
               </Suspense>
             ) : (

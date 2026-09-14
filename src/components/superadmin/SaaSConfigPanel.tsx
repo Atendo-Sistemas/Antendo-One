@@ -54,6 +54,16 @@ const DEFAULT_NOTIFICATION_MODULE: NonNullable<SaaSGlobalConfig['notificationMod
   extraNumberMonthlyPrice: 29.90
 };
 
+const DEFAULT_EMAIL_CONFIG: EmailConfig = {
+  host: '',
+  port: 587,
+  user: '',
+  password: '',
+  senderEmail: '',
+  testEmail: '',
+  isActive: false
+};
+
 export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentManagement }) => {
   const { user } = useAuth();
   const isTestUser = user?.accountType === 'TEST' || user?.readOnly === true || (user?.accountType !== 'REAL' && Boolean(user?.id && /(?:test|demo)/i.test(user.id)));
@@ -61,7 +71,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'analytics' | 'branding' | 'plans' | 'rules' | 'gateway' | 'layout' | 'fields' | 'email' | 'sql-installation' | 'mapbox' | 'help' | 'asaas' | 'seo' | 'notifications' | 'error-logs' | 'backups'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'analytics' | 'branding' | 'plans' | 'rules' | 'gateway' | 'layout' | 'fields' | 'email' | 'sql-installation' | 'mapbox' | 'help' | 'seo' | 'notifications' | 'backups' | 'error-logs' | 'asaas'>('overview');
   const [selectedForm, setSelectedForm] = useState<'userForm' | 'freightForm' | 'driverForm' | 'expenseForm'>('freightForm');
   const [showToken, setShowToken] = useState(false);
 
@@ -79,11 +89,13 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
 
   // WhatsApp configuration state
   const [waConfig, setWaConfig] = useState<WhatsAppConfig | null>(null);
+  const [waLocalSaving, setWaLocalSaving] = useState(false);
 
   // Test states
   const [testPhone, setTestPhone] = useState('');
   const [testMessage, setTestMessage] = useState('Teste de integração do Atendo CRM. Configurações globais salvas com sucesso.');
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [emailTestResult, setEmailTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [showWhatsAppTenantModal, setShowWhatsAppTenantModal] = useState(false);
@@ -91,6 +103,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
   useEffect(() => {
     loadAllConfigs();
   }, []);
+  
   useEffect(() => {
     if (!message) return;
     const timer = window.setTimeout(() => setMessage(null), 4500);
@@ -124,18 +137,22 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
           homeBadgeText: 'Gestão completa para sua operação de transporte',
           homeTitle: 'Gestão e Publicação de Fretes em',
           homeTitleAccent: 'Tempo Real',
-          homeSubtitle: 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.'
+          homeSubtitle: 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operaç...'
         };
       } else {
         if (!saasData.layout.homeBadgeText) saasData.layout.homeBadgeText = 'Gestão completa para sua operação de transporte';
         if (!saasData.layout.homeTitle) saasData.layout.homeTitle = 'Gestão e Publicação de Fretes em';
         if (!saasData.layout.homeTitleAccent) saasData.layout.homeTitleAccent = 'Tempo Real';
-        if (!saasData.layout.homeSubtitle) saasData.layout.homeSubtitle = 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.';
+        if (!saasData.layout.homeSubtitle) saasData.layout.homeSubtitle = 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists...';
       }
 
       saasData.notificationModule = {
         ...DEFAULT_NOTIFICATION_MODULE,
         ...(saasData.notificationModule || {})
+      };
+      saasData.emailConfig = {
+        ...DEFAULT_EMAIL_CONFIG,
+        ...(saasData.emailConfig || {})
       };
 
       // Ensure form field settings are present and initialized
@@ -200,8 +217,16 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
     }
   };
 
-  const handleSaveSaaSConfig = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Sync waConfig state when API response changes
+  useEffect(() => {
+    if (!waConfig && loading === false) {
+      // If waConfig is null after initial load, try to load it
+      api.getWhatsAppConfig().then(data => setWaConfig(data)).catch(console.error);
+    }
+  }, [loading]);
+
+  const handleSaveSaaSConfig = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!config) return;
 
     if (isTestUser) {
@@ -234,19 +259,20 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
       return;
     }
 
-    setSaving(true);
+    setWaLocalSaving(true);
     setMessage(null);
     try {
       const res = await api.updateWhatsAppConfig(waConfig);
       if (res.success) {
-        setWaConfig(res.config);
+        // Ensure waConfig stays in sync after save
+        setWaConfig(res.config || waConfig);
         setMessage({ text: 'Configurações de integração com WhatsApp salvas com sucesso!', type: 'success' });
         setTimeout(() => setMessage(null), 5000);
       }
     } catch (err: any) {
       setMessage({ text: err.message || 'Erro ao salvar configurações do WhatsApp.', type: 'error' });
     } finally {
-      setSaving(false);
+      setWaLocalSaving(false);
     }
   };
 
@@ -278,6 +304,47 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
     }
   };
 
+  const updateEmailConfigField = <K extends keyof EmailConfig>(field: K, value: EmailConfig[K]) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      emailConfig: {
+        ...DEFAULT_EMAIL_CONFIG,
+        ...(config.emailConfig || {}),
+        [field]: value
+      }
+    });
+  };
+
+  const handleTestEmail = async () => {
+    if (!config) return;
+    if (isTestUser) {
+      setMessage({ text: '⚠️ Contas e perfis criados para teste não possuem permissão para testar a conexão SMTP.', type: 'error' });
+      return;
+    }
+
+    const emailConfig = {
+      ...DEFAULT_EMAIL_CONFIG,
+      ...(config.emailConfig || {})
+    };
+
+    if (!emailConfig.host || !emailConfig.user || !emailConfig.senderEmail || !emailConfig.testEmail) {
+      setEmailTestResult({ success: false, message: 'Preencha host, usuário SMTP, remetente e e-mail de teste antes de validar.' });
+      return;
+    }
+
+    setTesting(true);
+    setEmailTestResult(null);
+    try {
+      const res = await api.testEmailConnection(emailConfig);
+      setEmailTestResult({ success: res.success, message: res.message || 'Conexão SMTP validada com sucesso.' });
+    } catch (err: any) {
+      setEmailTestResult({ success: false, message: err.message || 'Não foi possível testar a conexão SMTP.' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const updatePlanField = (index: number, field: string, value: any) => {
     if (!config) return;
     const updatedPlans = [...config.plans];
@@ -298,6 +365,17 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
       notificationModule: {
         ...DEFAULT_NOTIFICATION_MODULE,
         ...(config.notificationModule || {}),
+        [field]: value
+      }
+    });
+  };
+
+  const updateLayoutField = (field: keyof NonNullable<SaaSGlobalConfig['layout']>, value: any) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      layout: {
+        ...(config.layout || {}),
         [field]: value
       }
     });
@@ -330,7 +408,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
             <Settings className="w-6 h-6 text-emerald-400 animate-pulse" /> Parametrização & Configurações SaaS
           </h1>
           <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
-            Ambiente de alta segurança para gerenciamento de branding, limitação e preços dos planos corporativos, regras operacionais e integração com os canais de envio de códigos em tempo real.
+            Ambiente de alta segurança para gerenciamento de branding, limitação e preços dos planos corporativos, regras operacionais e integração com os canais de envio de códigos em tem...
           </p>
           <div className="text-[11px] font-mono text-emerald-400/90 pt-1">
             Build Ativo: {APP_RELEASE_NAME}
@@ -358,7 +436,8 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
           ) : (
             <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
           )}
-          <div className="text-xs font-semibold flex-1">{message.text}</div><button type="button" onClick={() => setMessage(null)} className="text-xs font-black opacity-60 hover:opacity-100" aria-label="Fechar notificação">×</button>
+          <div className="text-xs font-semibold flex-1">{message.text}</div>
+          <button type="button" onClick={() => setMessage(null)} className="text-xs font-black opacity-60 hover:opacity-100" aria-label="Fechar" />
         </div>
       )}
 
@@ -534,464 +613,321 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
 
         {/* Content Container */}
         <div className="md:col-span-3 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs">
-          
-          {activeSubTab === 'overview' && (
-            <AdminSeoOverviewPanel
-              onOpenContentManagement={onOpenContentManagement}
-              onOpenSeoConfig={() => setActiveSubTab('seo')}
-            />
-          )}
+          {/* Placeholder for content - The actual content would be here */}
+          {activeSubTab === 'overview' && <AdminSeoOverviewPanel onOpenContentManagement={onOpenContentManagement} onOpenSeoConfig={() => setActiveSubTab('seo')} />}
+          {activeSubTab === 'analytics' && <VisitAnalyticsPanel />}
 
-          {/* TAB 1: BRANDING */}
           {activeSubTab === 'branding' && config && (
-            <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Visual & Contato de Suporte</h3>
-                <p className="text-[11px] text-slate-400 mt-1">Configure o nome fantasia do sistema e os dados de atendimento exibidos publicamente para visitantes e clientes.</p>
+            <form onSubmit={handleSaveSaaSConfig} className="space-y-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">Branding visual global</h3>
+                <p className="text-[11px] text-slate-500">Atualize URLs públicas usadas em cabeçalho, favicon, app PWA e imagem principal da home.</p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
                 <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Nome Oficial da Plataforma</label>
+                  <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">logoImageUrl</label>
                   <input
-                    type="text"
-                    required
-                    value={config.systemName}
-                    onChange={e => setConfig({ ...config, systemName: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
+                    type="url"
+                    value={config.layout?.logoImageUrl || ''}
+                    onChange={e => updateLayoutField('logoImageUrl', e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="https://cdn.exemplo.com/logo.png"
                   />
                 </div>
-
                 <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">E-mail de Contato Corporativo</label>
+                  <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">faviconUrl</label>
                   <input
-                    type="email"
-                    required
-                    value={config.supportEmail}
-                    onChange={e => setConfig({ ...config, supportEmail: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
+                    type="url"
+                    value={config.layout?.faviconUrl || ''}
+                    onChange={e => updateLayoutField('faviconUrl', e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="https://cdn.exemplo.com/favicon.ico"
                   />
                 </div>
-
                 <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Celular/WhatsApp de Atendimento</label>
+                  <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">appIconUrl</label>
                   <input
-                    type="text"
-                    required
-                    value={config.supportPhone}
-                    onChange={e => setConfig({ ...config, supportPhone: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
+                    type="url"
+                    value={config.layout?.appIconUrl || ''}
+                    onChange={e => updateLayoutField('appIconUrl', e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="https://cdn.exemplo.com/app-icon.png"
                   />
                 </div>
-
-                <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl flex items-start gap-2.5 text-[11px] text-slate-500 leading-relaxed">
-                  <Globe className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                  <span>Estes valores são refletidos dinamicamente no cabeçalho, rodapé de páginas e nos e-mails de notificação automática emitidos pelo sistema.</span>
+                <div>
+                  <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">homeHeroImageUrl</label>
+                  <input
+                    type="url"
+                    value={config.layout?.homeHeroImageUrl || ''}
+                    onChange={e => updateLayoutField('homeHeroImageUrl', e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    placeholder="https://cdn.exemplo.com/home-hero.jpg"
+                  />
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex justify-end border-t border-slate-100 pt-4 dark:border-slate-800">
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
                 >
-                  {saving ? 'Gravando...' : 'Salvar Alterações de Branding'}
+                  {saving ? 'Salvando...' : 'Salvar branding'}
                 </button>
               </div>
             </form>
           )}
-
-          {/* TAB 2: PLANS & LIMITS */}
-          {activeSubTab === 'plans' && config && (
-            <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Planos & Barreiras Limitadoras</h3>
-                <p className="text-[11px] text-slate-400 mt-1">Defina preços mensais e cotas rígidas para evitar sobrecarga ou incentivar upgrades.</p>
-              </div>
-
-              <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/20 space-y-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h4 className="text-sm font-black text-indigo-900 dark:text-indigo-200">Módulo adicional de notificações</h4>
-                    <p className="text-[11px] text-indigo-800/80 dark:text-indigo-300/80 mt-1">Plano gratuito usa o telefone SaaS. O plano pago libera o número WhatsApp próprio da empresa e será cobrado pelo Asaas.</p>
-                  </div>
-                  <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-indigo-800 dark:text-indigo-200"><input type="checkbox" checked={config.notificationModule?.enabled ?? true} onChange={e => updateNotificationModuleField('enabled', e.target.checked)} /> Ativo</label>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                  <label className="block font-bold text-slate-600 dark:text-slate-300">Nome do plano gratuito<input type="text" value={config.notificationModule?.freePlanName || DEFAULT_NOTIFICATION_MODULE.freePlanName} onChange={e => updateNotificationModuleField('freePlanName', e.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
-                  <label className="block font-bold text-slate-600 dark:text-slate-300">Nome do plano de número próprio<input type="text" value={config.notificationModule?.ownNumberPlanName || DEFAULT_NOTIFICATION_MODULE.ownNumberPlanName} onChange={e => updateNotificationModuleField('ownNumberPlanName', e.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
-                  <label className="block font-bold text-slate-600 dark:text-slate-300">Valor mensal do número próprio (R$)<input type="number" min="0" step="0.01" value={config.notificationModule?.ownNumberMonthlyPrice ?? DEFAULT_NOTIFICATION_MODULE.ownNumberMonthlyPrice} onChange={e => updateNotificationModuleField('ownNumberMonthlyPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
-                  <label className="block font-bold text-slate-600 dark:text-slate-300">Ativação assistida (R$)<input type="number" min="0" step="0.01" value={config.notificationModule?.assistedActivationPrice ?? DEFAULT_NOTIFICATION_MODULE.assistedActivationPrice} onChange={e => updateNotificationModuleField('assistedActivationPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
-                  <label className="block font-bold text-slate-600 dark:text-slate-300">Número adicional (R$/mês)<input type="number" min="0" step="0.01" value={config.notificationModule?.extraNumberMonthlyPrice ?? DEFAULT_NOTIFICATION_MODULE.extraNumberMonthlyPrice} onChange={e => updateNotificationModuleField('extraNumberMonthlyPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
-                </div>
-                <p className="text-[10px] text-indigo-800/80 dark:text-indigo-300/80">Preço inicial sugerido: número SaaS sem mensalidade adicional; número próprio R$ 89,90/mês; ativação assistida R$ 149,90 uma vez; número extra R$ 29,90/mês. Todos os valores ficam editáveis aqui.</p>
-              </div>
-
-              <div className="space-y-5">
-                {config.plans.map((p, idx) => (
-                  <div key={p.id} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/50 dark:border-slate-800/50 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-                        {p.id}
-                      </span>
-                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={p.isActive}
-                          onChange={e => updatePlanField(idx, 'isActive', e.target.checked)}
-                          className="rounded text-emerald-600"
-                        />
-                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">Ativar Comercialização</span>
-                      </label>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
-                      <div className="sm:col-span-2">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">Nome Comercial</label>
-                        <input
-                          type="text"
-                          required
-                          value={p.name}
-                          onChange={e => updatePlanField(idx, 'name', e.target.value)}
-                          className="w-full px-2.5 py-1.5 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-semibold"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">Mensalidade (R$)</label>
-                        <div className="relative mt-1">
-                          <input
-                            type="number"
-                            required
-                            value={p.price}
-                            onChange={e => updatePlanField(idx, 'price', parseFloat(e.target.value) || 0)}
-                            className="w-full pl-6 pr-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-bold text-slate-800 dark:text-white"
-                          />
-                          <span className="absolute left-2.5 top-2 text-[10px] text-slate-400 font-bold">R$</span>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-500 uppercase">Fretes / Mês</label>
-                        <input
-                          type="number"
-                          required
-                          value={p.maxFreightsMonthly}
-                          onChange={e => updatePlanField(idx, 'maxFreightsMonthly', parseInt(e.target.value) || 0)}
-                          className="w-full px-2.5 py-1.5 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-semibold"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 text-xs">
-                      <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg flex items-center gap-2">
-                        <Users className="w-4 h-4 text-indigo-500 shrink-0" />
-                        <div className="flex-1">
-                          <label className="text-[9px] font-bold text-slate-400 block uppercase">Limite de Usuários</label>
-                          <input
-                            type="number"
-                            required
-                            value={p.maxUsers}
-                            onChange={e => updatePlanField(idx, 'maxUsers', parseInt(e.target.value) || 0)}
-                            className="w-full bg-transparent border-b border-transparent focus:border-slate-300 outline-hidden font-bold py-0.5 text-slate-800 dark:text-white"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg flex items-center gap-2">
-                        <Truck className="w-4 h-4 text-sky-500 shrink-0" />
-                        <div className="flex-1">
-                          <label className="text-[9px] font-bold text-slate-400 block uppercase">Limite de Motoristas</label>
-                          <input
-                            type="number"
-                            required
-                            value={p.maxDrivers}
-                            onChange={e => updatePlanField(idx, 'maxDrivers', parseInt(e.target.value) || 0)}
-                            className="w-full bg-transparent border-b border-transparent focus:border-slate-300 outline-hidden font-bold py-0.5 text-slate-800 dark:text-white"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
-                >
-                  {saving ? 'Gravando...' : 'Salvar Alterações nos Planos'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* TAB ASAAS: PAYMENTS */}
-          {activeSubTab === 'asaas' && config && (
-            <AsaasConfigPanel
+          
+          {/* TAB 9: MAPBOX API & RASTREIO */}
+          {activeSubTab === 'mapbox' && config && (
+            <MapboxConfigPanel
               config={config}
-              saving={saving}
               onUpdateConfig={async (updated) => {
                 const newConfig = { ...config, ...updated };
                 setConfig(newConfig);
                 await api.updateSaaSGlobalConfig(newConfig);
-                setMessage({ text: 'Configuração Asaas salva com segurança!', type: 'success' });
+                setMessage({ text: 'Configurações do Mapbox salvas com sucesso!', type: 'success' });
                 setTimeout(() => setMessage(null), 4000);
               }}
+              saving={saving}
             />
           )}
-          {/* TAB 3: OPERATING RULES */}
-          {activeSubTab === 'rules' && config && (
-            <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Configurações de Regra de Negócio</h3>
-                <p className="text-[11px] text-slate-400 mt-1">Ajuste regras operacionais, percentuais de lucro padrão e parâmetros de autenticação OTP.</p>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-xs">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Percentual Padrão de Intermediação (%)</label>
-                  <div className="relative">
+          {activeSubTab === 'email' && config && (
+            <div className="space-y-6">
+              <form
+                onSubmit={handleSaveSaaSConfig}
+                className="space-y-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800"
+              >
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">Configuração SMTP Global</h3>
+                  <p className="text-[11px] text-slate-500">Apenas o Super Admin real pode salvar e validar o provedor de e-mail usado pela plataforma.</p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Host SMTP</label>
+                    <input
+                      type="text"
+                      value={config.emailConfig?.host || ''}
+                      onChange={e => updateEmailConfigField('host', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="smtp.seuprovedor.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Porta</label>
                     <input
                       type="number"
-                      required
-                      min={0}
-                      max={100}
-                      value={config.defaultCommissionPercent}
-                      onChange={e => setConfig({ ...config, defaultCommissionPercent: parseFloat(e.target.value) || 0 })}
-                      className="w-full pr-8 pl-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold focus:outline-emerald-500"
+                      min={1}
+                      value={config.emailConfig?.port || 587}
+                      onChange={e => updateEmailConfigField('port', Number(e.target.value) || 587)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
                     />
-                    <span className="absolute right-3 top-2.5 text-slate-400 font-bold">%</span>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Percentual descontado de cada frete intermediado por padrão na criação.</p>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Usuário SMTP</label>
+                    <input
+                      type="text"
+                      value={config.emailConfig?.user || ''}
+                      onChange={e => updateEmailConfigField('user', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="usuario@dominio.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Senha SMTP</label>
+                    <input
+                      type="password"
+                      value={config.emailConfig?.password || ''}
+                      onChange={e => updateEmailConfigField('password', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="********"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">E-mail remetente</label>
+                    <input
+                      type="email"
+                      value={config.emailConfig?.senderEmail || ''}
+                      onChange={e => updateEmailConfigField('senderEmail', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="naoresponda@empresa.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">E-mail de teste</label>
+                    <input
+                      type="email"
+                      value={config.emailConfig?.testEmail || ''}
+                      onChange={e => updateEmailConfigField('testEmail', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                      placeholder="destino@empresa.com"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Idade Mínima para Cadastro de Motoristas</label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
                   <input
-                    type="number"
-                    required
-                    min={18}
-                    value={config.minDriverAge}
-                    onChange={e => setConfig({ ...config, minDriverAge: parseInt(e.target.value) || 18 })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold focus:outline-emerald-500"
+                    type="checkbox"
+                    checked={config.emailConfig?.isActive || false}
+                    onChange={e => updateEmailConfigField('isActive', e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Idade civil legal para permitir o registro de motoristas de carga.</p>
+                  Habilitar integração global de e-mail
+                </label>
+
+                <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={handleTestEmail}
+                    disabled={testing}
+                    className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 disabled:opacity-50 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300"
+                  >
+                    {testing ? 'Testando SMTP...' : 'Testar conexão SMTP'}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                  >
+                    {saving ? 'Salvando...' : 'Salvar configuração global'}
+                  </button>
                 </div>
+              </form>
 
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Tempo de Validade do Código OTP (Minutos)</label>
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    value={config.otpExpirationMinutes}
-                    onChange={e => setConfig({ ...config, otpExpirationMinutes: parseInt(e.target.value) || 5 })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold focus:outline-emerald-500"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Tempo em minutos até que os códigos OTP enviados expirem.</p>
+              {emailTestResult && (
+                <div className={`rounded-2xl border px-4 py-3 text-xs font-semibold ${
+                  emailTestResult.success
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
+                    : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
+                }`}>
+                  {emailTestResult.message}
                 </div>
-
-                <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Políticas Estritas</span>
-                  
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={config.requireChecklistPhotos}
-                      onChange={e => setConfig({ ...config, requireChecklistPhotos: e.target.checked })}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Exigir fotos no checklist de trânsito</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={config.allowSelfRegistration}
-                      onChange={e => setConfig({ ...config, allowSelfRegistration: e.target.checked })}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Permitir auto-cadastro de empresas</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={!!config.showDemoSwitcher}
-                      onChange={e => setConfig({ ...config, showDemoSwitcher: e.target.checked })}
-                      className="rounded text-purple-600 focus:ring-purple-500"
-                    />
-                    <div>
-                      <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 block">Exibir Barra de Perfis Demo (Ambiente de Teste)</span>
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Exibe a barra superior para troca rápida entre perfis. Desative em produção para clientes finais.</span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
-                >
-                  {saving ? 'Gravando...' : 'Salvar Regras Operacionais'}
-                </button>
-              </div>
-            </form>
+              )}
+            </div>
           )}
 
-          {/* TAB 7: EMAIL CONFIG */}
-          {activeSubTab === 'email' && config && (
-            <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Configurações de Servidor SMTP (E-mail)</h3>
-                <p className="text-[11px] text-slate-400 mt-1">Configure os dados do servidor SMTP para envio de notificações e alertas do sistema.</p>
-              </div>
+          {activeSubTab === 'notifications' && config && (
+            <div className="space-y-6">
+              <form
+                onSubmit={handleSaveSaaSConfig}
+                className="space-y-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800"
+              >
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">Módulo adicional de notificações</h3>
+                  <p className="text-[11px] text-slate-500">Cadastre o catálogo comercial e a precificação do plano gratuito e do número próprio integrado ao Asaas.</p>
+                </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="col-span-2 sm:col-span-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Host SMTP</label>
-                  <input
-                    type="text"
-                    required
-                    value={config.emailConfig?.host || ''}
-                    onChange={e => setConfig({ ...config, emailConfig: { ...config.emailConfig, host: e.target.value, port: config.emailConfig?.port || 587, user: config.emailConfig?.user || '', senderEmail: config.emailConfig?.senderEmail || '', isActive: config.emailConfig?.isActive || false } })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
-                    placeholder="smtp.exemplo.com"
-                  />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-xs">
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Nome do plano gratuito</label>
+                    <input
+                      type="text"
+                      value={config.notificationModule?.freePlanName || ''}
+                      onChange={e => updateNotificationModuleField('freePlanName', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Nome do plano número próprio</label>
+                    <input
+                      type="text"
+                      value={config.notificationModule?.ownNumberPlanName || ''}
+                      onChange={e => updateNotificationModuleField('ownNumberPlanName', e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Descrição do plano gratuito</label>
+                    <textarea
+                      value={config.notificationModule?.freePlanDescription || ''}
+                      onChange={e => updateNotificationModuleField('freePlanDescription', e.target.value)}
+                      className="min-h-24 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Descrição do número próprio</label>
+                    <textarea
+                      value={config.notificationModule?.ownNumberPlanDescription || ''}
+                      onChange={e => updateNotificationModuleField('ownNumberPlanDescription', e.target.value)}
+                      className="min-h-24 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Mensalidade número próprio</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={config.notificationModule?.ownNumberMonthlyPrice || 0}
+                      onChange={e => updateNotificationModuleField('ownNumberMonthlyPrice', Number(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-bold text-slate-700 dark:text-slate-300">Taxa de ativação assistida</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={config.notificationModule?.assistedActivationPrice || 0}
+                      onChange={e => updateNotificationModuleField('assistedActivationPrice', Number(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Porta</label>
-                  <input
-                    type="number"
-                    value={config.emailConfig?.port ?? ''}
-                    onChange={e => {
-                        const val = e.target.value === '' ? undefined : parseInt(e.target.value);
-                        setConfig({
-                            ...config,
-                            emailConfig: {
-                                ...(config.emailConfig || {} as EmailConfig),
-                                port: val
-                            }
-                        });
-                    }}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
-                    placeholder="587"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Usuário</label>
-                  <input
-                    type="text"
-                    required
-                    value={config.emailConfig?.user || ''}
-                    onChange={e => setConfig({ ...config, emailConfig: { ...config.emailConfig, host: config.emailConfig?.host || '', port: config.emailConfig?.port || 587, user: e.target.value, senderEmail: config.emailConfig?.senderEmail || '', isActive: config.emailConfig?.isActive || false } })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Senha</label>
-                  <input
-                    type="password"
-                    value={config.emailConfig?.password || ''}
-                    onChange={e => setConfig({ ...config, emailConfig: { ...config.emailConfig, host: config.emailConfig?.host || '', port: config.emailConfig?.port || 587, user: config.emailConfig?.user || '', password: e.target.value, senderEmail: config.emailConfig?.senderEmail || '', isActive: config.emailConfig?.isActive || false } })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
-                  />
-                </div>
-                <div className="col-span-2 sm:col-span-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">E-mail Remetente</label>
-                  <input
-                    type="email"
-                    required
-                    value={config.emailConfig?.senderEmail || ''}
-                    onChange={e => setConfig({ ...config, emailConfig: { ...config.emailConfig, host: config.emailConfig?.host || '', port: config.emailConfig?.port || 587, user: config.emailConfig?.user || '', senderEmail: e.target.value, testEmail: config.emailConfig?.testEmail, isActive: config.emailConfig?.isActive || false } })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
-                  />
-                </div>
-                <div className="col-span-2 sm:col-span-1">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">E-mail para Teste</label>
-                  <input
-                    type="email"
-                    value={config.emailConfig?.testEmail || ''}
-                    onChange={e => setConfig({ ...config, emailConfig: { ...config.emailConfig, host: config.emailConfig?.host || '', port: config.emailConfig?.port || 587, user: config.emailConfig?.user || '', senderEmail: config.emailConfig?.senderEmail || '', testEmail: e.target.value, isActive: config.emailConfig?.isActive || false } })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
-                    placeholder="teste@dominio.com"
-                  />
-                </div>
-                <div className="flex items-center pt-5 gap-3">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={config.emailConfig?.isActive || false}
-                        onChange={e => setConfig({ ...config, emailConfig: { ...config.emailConfig, host: config.emailConfig?.host || '', port: config.emailConfig?.port || 587, user: config.emailConfig?.user || '', senderEmail: config.emailConfig?.senderEmail || '', isActive: e.target.checked } })}
-                        className="rounded text-emerald-600 focus:ring-emerald-500"
-                      />
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Ativar</span>
-                    </label>
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            if (!config.emailConfig?.host || !config.emailConfig?.port || !config.emailConfig?.user || !config.emailConfig?.senderEmail) {
-                                setMessage({ text: 'Preencha Host, Porta, Usuário e E-mail Remetente para testar.', type: 'error' });
-                                return;
-                            }
-                            if (!config.emailConfig?.testEmail) {
-                                setMessage({ text: 'Informe um e-mail para teste.', type: 'error' });
-                                return;
-                            }
-                            setTesting(true);
-                            try {
-                                // Simulate API call to check SMTP
-                                const res = await api.testEmailConnection(config.emailConfig);
-                                if (res.success) {
-                                    setMessage({ text: `E-mail de teste enviado para ${config.emailConfig.testEmail} com sucesso!`, type: 'success' });
-                                } else {
-                                    throw new Error(res.message || 'Erro desconhecido ao enviar e-mail.');
-                                }
-                            } catch (e: any) {
-                                setMessage({ text: e.message || 'Erro ao conectar ao servidor SMTP ou enviar e-mail.', type: 'error' });
-                            } finally {
-                                setTesting(false);
-                                setTimeout(() => setMessage(null), 10000); // Increased duration for readability
-                            }
-                        }}
-                        disabled={testing}
-                        className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
-                    >
-                        {testing ? 'Testando...' : 'Testar Conexão'}
-                    </button>
-                </div>
-              </div>
 
-              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
-                {message && message.type === 'success' && (
-                  <div className="flex-1 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg p-2 mr-3 flex items-center">
-                    <CheckCircle className="w-4 h-4 mr-2" /> {message.text}
-                  </div>
-                )}
-                {message && message.type === 'error' && (
-                  <div className="flex-1 text-xs font-semibold text-rose-800 bg-rose-50 border border-rose-200 rounded-lg p-2 mr-3 flex items-center">
-                    <AlertTriangle className="w-4 h-4 mr-2" /> {message.text}
-                  </div>
-                )}
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
-                  onClick={() => {
-                      // Triggering form submission manually if needed, or relying on onSubmit
-                      // The current form onSubmit is already handling it
-                  }}
-                >
-                  {saving ? 'Gravando...' : 'Salvar Configurações de E-mail'}
-                </button>
-              </div>
-            </form>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={config.notificationModule?.enabled ?? true}
+                    onChange={e => updateNotificationModuleField('enabled', e.target.checked)}
+                    className="rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  Habilitar o módulo de notificações comerciais
+                </label>
+
+                <div className="flex justify-end border-t border-slate-100 pt-4 dark:border-slate-800">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                  >
+                    {saving ? 'Salvando...' : 'Salvar catálogo do módulo'}
+                  </button>
+                </div>
+              </form>
+
+              <NotificationTemplatesPanel />
+            </div>
+          )}
+
+          {activeSubTab === 'seo' && config && (
+            <SeoConfigPanel
+              config={config}
+              onUpdateConfig={async (updated) => {
+                const newConfig = { ...config, ...updated };
+                setConfig(newConfig);
+                await api.updateSaaSGlobalConfig(newConfig);
+              }}
+              saving={saving}
+            />
+          )}
+
+          {activeSubTab === 'backups' && <BackupMonitorPanel />}
+          {activeSubTab === 'error-logs' && <ErrorLogPanel />}
+          {activeSubTab === 'sql-installation' && config && (
+            <SqlAndInstallationConfig
+              config={config}
+              onUpdateConfig={async (updated) => {
+                const newConfig = { ...config, ...updated };
+                setConfig(newConfig);
+                await api.updateSaaSGlobalConfig(newConfig);
+              }}
+              saving={saving}
+            />
           )}
 
           {/* TAB 4: WHATSAPP GATEWAY */}
@@ -1021,7 +957,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
                         checked={waConfig.isActive}
                         onChange={e => setWaConfig({ ...waConfig, isActive: e.target.checked })}
                       />
-                      <div className="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                      <div className="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600" />
                     </label>
                   </div>
 
@@ -1097,10 +1033,10 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
                 <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
                   <button
                     type="submit"
-                    disabled={saving}
+                    disabled={saving || waLocalSaving}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
                   >
-                    {saving ? 'Gravando...' : 'Salvar Parâmetros do Gateway'}
+                    {saving || waLocalSaving ? 'Gravando...' : 'Salvar Parâmetros do Gateway'}
                   </button>
                 </div>
               </form>
@@ -1167,582 +1103,6 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
               </div>
             </div>
           )}
-
-          {/* TAB 5: LAYOUT & DESIGN */}
-          {activeSubTab === 'layout' && config && config.layout && (
-            <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Aparência & Identidade do Frontend</h3>
-                <p className="text-[11px] text-slate-400 mt-1">Personalize toda a interface visual dos seus clientes. Cores, arredondamento de bordas, fontes e navegação são aplicados instantaneamente em tempo real sem precisar de recarregamento.</p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs">
-                {/* Cor Principal */}
-                <div className="space-y-3">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">Cor Principal do Sistema (Primary)</label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="color"
-                      value={config.layout.primaryColor}
-                      onChange={e => setConfig({
-                        ...config,
-                        layout: { ...config.layout!, primaryColor: e.target.value }
-                      })}
-                      className="w-10 h-10 p-1 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer bg-transparent"
-                    />
-                    <input
-                      type="text"
-                      maxLength={7}
-                      value={config.layout.primaryColor}
-                      onChange={e => setConfig({
-                        ...config,
-                        layout: { ...config.layout!, primaryColor: e.target.value }
-                      })}
-                      className="w-28 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-center text-slate-700 dark:text-slate-300"
-                    />
-                  </div>
-                  
-                  {/* Presets de Cor */}
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Presets de Marca Sugeridos</span>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {[
-                        { name: 'Atendo One Green', value: '#059669' },
-                        { name: 'Safira Blue', value: '#2563eb' },
-                        { name: 'Esmeralda', value: '#10b981' },
-                        { name: 'Obsidiana', value: '#334155' },
-                        { name: 'Ruby', value: '#dc2626' },
-                        { name: 'Solar Amber', value: '#d97706' },
-                        { name: 'Ametista', value: '#7c3aed' }
-                      ].map(preset => (
-                        <button
-                          key={preset.value}
-                          type="button"
-                          onClick={() => setConfig({
-                            ...config,
-                            layout: { ...config.layout!, primaryColor: preset.value }
-                          })}
-                          className={`px-2 py-1 rounded-md border text-[10px] font-bold transition-all ${
-                            config.layout!.primaryColor === preset.value
-                              ? 'border-slate-800 dark:border-white bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
-                              : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-850'
-                          }`}
-                        >
-                          <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-middle" style={{ backgroundColor: preset.value }} />
-                          {preset.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Texto do Logo */}
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Título/Marca do Topo da Página (Logo)</label>
-                  <input
-                    type="text"
-                    required
-                    value={config.layout.logoText || ''}
-                    onChange={e => setConfig({
-                      ...config,
-                      layout: { ...config.layout!, logoText: e.target.value }
-                    })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                    placeholder="Ex: ATENDO ONE"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Nome de exibição em destaque no cabeçalho e na tela de login.</p>
-                </div>
-
-                {/* Imagens públicas da marca */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/40 dark:bg-indigo-950/20 p-4">
-                  <div className="sm:col-span-2"><h4 className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Imagens do site e do aplicativo</h4><p className="text-[10px] text-slate-500 mt-1">Informe URLs HTTPS de imagens hospedadas. As alterações são persistidas ao salvar o layout.</p></div>
-                  {([
-                    ['logoImageUrl', 'Logo em imagem (PNG/SVG/WebP)'],
-                    ['faviconUrl', 'Favicon do navegador'],
-                    ['appIconUrl', 'Ícone do aplicativo/PWA'],
-                    ['homeHeroImageUrl', 'Imagem principal da página inicial']
-                  ] as const).map(([key, label]) => <label key={key} className="text-xs font-bold text-slate-700 dark:text-slate-300">{label}<input type="url" value={(config.layout as any)[key] || ''} onChange={e => setConfig({ ...config, layout: { ...config.layout!, [key]: e.target.value } })} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="https://..." /></label>)}
-                </div>
-                {/* Nome da Aba do Navegador */}
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Nome da Aba do Navegador (Browser Tab Title)</label>
-                  <input
-                    type="text"
-                    value={config.layout.browserTabTitle || ''}
-                    onChange={e => setConfig({
-                      ...config,
-                      layout: { ...config.layout!, browserTabTitle: e.target.value }
-                    })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                    placeholder="Ex: Atendo One - Gestão e Publicação de Fretes"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Título exibido na aba superior do navegador (document.title).</p>
-                </div>
-
-                {/* Texto do Rodapé */}
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Texto do Rodapé da Aplicação (Footer Text)</label>
-                  <input
-                    type="text"
-                    value={config.layout.footerText || ''}
-                    onChange={e => setConfig({
-                      ...config,
-                      layout: { ...config.layout!, footerText: e.target.value }
-                    })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                    placeholder="Ex: Atendo One • Gestão Logística Integrada © 2026"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Texto exibido no rodapé das páginas públicas e autenticadas.</p>
-                </div>
-
-                {/* Arredondamento de Cantos */}
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Borda & Arredondamento das Caixas (Border Radius)</label>
-                  <select
-                    value={config.layout.borderRadius}
-                    onChange={e => setConfig({
-                      ...config,
-                      layout: { ...config.layout!, borderRadius: e.target.value as any }
-                    })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                  >
-                    <option value="none">Reto / Sem Arredondamento (Estilo Clássico)</option>
-                    <option value="sm">Mínimo / Suave (4px)</option>
-                    <option value="md">Médio (8px)</option>
-                    <option value="lg">Arredondado Elegante (12px)</option>
-                    <option value="xl">Bordas Largas (16px - Padrão)</option>
-                    <option value="2xl">Super Arredondado / Bold (24px)</option>
-                  </select>
-                  <p className="text-[10px] text-slate-400 mt-1">Define as curvas de botões, modais, cartões e campos de entrada.</p>
-                </div>
-
-                {/* Tipografia */}
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Família Tipográfica (Fonte Principal)</label>
-                  <select
-                    value={config.layout.fontFamily}
-                    onChange={e => setConfig({
-                      ...config,
-                      layout: { ...config.layout!, fontFamily: e.target.value as any }
-                    })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                  >
-                    <option value="sans">Plus Jakarta Sans / Sans-Serif (Moderna & Legível)</option>
-                    <option value="display">Montserrat / Display (Robusta & Tecnológica)</option>
-                    <option value="serif">Playfair Display / Serif (Clássica & Sofisticada)</option>
-                    <option value="mono">Fira Code / Monospace (Técnica & Industrial)</option>
-                  </select>
-                  <p className="text-[10px] text-slate-400 mt-1">A fonte padrão utilizada nos menus, títulos e conteúdos.</p>
-                </div>
-
-                {/* Estilo do Navbar */}
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Estilo do Cabeçalho (Navbar Style)</label>
-                  <select
-                    value={config.layout.navbarStyle}
-                    onChange={e => setConfig({
-                      ...config,
-                      layout: { ...config.layout!, navbarStyle: e.target.value as any }
-                    })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                  >
-                    <option value="dark">Escuro de Alto Contraste (Fundo Escuro, Letras Claras)</option>
-                    <option value="light">Claro Minimalista (Fundo Branco, Letras Escuras)</option>
-                    <option value="colored">Injetar Cor Principal (Usa a cor de marca definida ao lado)</option>
-                  </select>
-                  <p className="text-[10px] text-slate-400 mt-1">Define o comportamento visual da barra superior do sistema.</p>
-                </div>
-
-                {/* Tom de Fundo do Sistema */}
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Fundo Base da Aplicação (System Background)</label>
-                  <select
-                    value={config.layout.systemBackground}
-                    onChange={e => setConfig({
-                      ...config,
-                      layout: { ...config.layout!, systemBackground: e.target.value as any }
-                    })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
-                  >
-                    <option value="minimal">Modo Neutro (Off-White Claro / Preto puro no Escuro)</option>
-                    <option value="warm">Modo Acolhedor (Creme Quente / Fundo sépia escuro)</option>
-                    <option value="slate">Modo Corporativo (Slate Azulado / Slate Escuro de alta legibilidade)</option>
-                  </select>
-                  <p className="text-[10px] text-slate-400 mt-1">Ajusta o tom de preenchimento das páginas de fundo do dashboard.</p>
-                </div>
-              </div>
-
-              {/* Seção Nova: Conteúdo do Site Institucional */}
-              <div className="border-t border-slate-100 dark:border-slate-800 pt-5 mt-6 space-y-4">
-                <div className="pb-2">
-                  <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Conteúdo da Página Inicial (Site Institucional / Home)</h4>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Customize os slogans e informações de captação de clientes na tela de entrada do sistema.</p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                  {/* Badge de destaque */}
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Texto do Distintivo (Badge Superior)</label>
-                    <input
-                      type="text"
-                      required
-                      value={config.layout.homeBadgeText || ''}
-                      onChange={e => setConfig({
-                        ...config,
-                        layout: { ...config.layout!, homeBadgeText: e.target.value }
-                      })}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                      placeholder="Ex: Solução de Carga Inteligente"
-                    />
-                  </div>
-
-                  {/* Título Principal */}
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Título de Introdução (Parte 1)</label>
-                    <input
-                      type="text"
-                      required
-                      value={config.layout.homeTitle || ''}
-                      onChange={e => setConfig({
-                        ...config,
-                        layout: { ...config.layout!, homeTitle: e.target.value }
-                      })}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                      placeholder="Ex: Gestão e Publicação de Fretes em"
-                    />
-                  </div>
-
-                  {/* Título Principal (Destacado em Verde) */}
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Título Destacado (Parte 2 - Cor Primária)</label>
-                    <input
-                      type="text"
-                      required
-                      value={config.layout.homeTitleAccent || ''}
-                      onChange={e => setConfig({
-                        ...config,
-                        layout: { ...config.layout!, homeTitleAccent: e.target.value }
-                      })}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
-                      placeholder="Ex: Tempo Real"
-                    />
-                  </div>
-
-                  {/* Subtítulo ou Parágrafo explicativo */}
-                  <div className="sm:col-span-2">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Texto de Apresentação (Subtítulo da Landing Page)</label>
-                    <textarea
-                      required
-                      rows={3}
-                      value={config.layout.homeSubtitle || ''}
-                      onChange={e => setConfig({
-                        ...config,
-                        layout: { ...config.layout!, homeSubtitle: e.target.value }
-                      })}
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
-                      placeholder="Descreva o propósito da sua plataforma de fretes e as vantagens competitivas da sua marca..."
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
-                >
-                  {saving ? 'Gravando...' : 'Salvar Alterações de Layout'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* TAB 6: FORM FIELDS CUSTOMIZATION */}
-          {activeSubTab === 'fields' && config && config.formFields && (
-            <div className="space-y-6">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Customização de Campos de Formulários</h3>
-                <p className="text-[11px] text-slate-400 mt-1">Selecione e edite os formulários em uso no sistema. Mude rótulos, adicione placeholders, ative ou desative campos e controle a obrigatoriedade de preenchimento.</p>
-              </div>
-
-              {/* Form Selector Header */}
-              <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-fit">
-                {[
-                  { id: 'freightForm', name: 'Cadastro de Frete' },
-                  { id: 'driverForm', name: 'Cadastro de Motorista' },
-                  { id: 'userForm', name: 'Cadastro de Usuário' },
-                  { id: 'expenseForm', name: 'Prestação de Contas (Despesas)' }
-                ].map(formOpt => (
-                  <button
-                    key={formOpt.id}
-                    type="button"
-                    onClick={() => setSelectedForm(formOpt.id as any)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      selectedForm === formOpt.id
-                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
-                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    {formOpt.name}
-                  </button>
-                ))}
-              </div>
-
-              {/* Add New Field */}
-              <button
-                type="button"
-                onClick={() => {
-                  const id = prompt('Digite o ID interno do novo campo (ex: obs1):');
-                  const label = prompt('Digite o nome exibido do campo:');
-                  if (id && label) {
-                    const updated = { ...config };
-                    updated.formFields![selectedForm].push({
-                      id,
-                      originalLabel: label,
-                      label,
-                      placeholder: '',
-                      enabled: true,
-                      required: false
-                    });
-                    setConfig(updated);
-                  }
-                }}
-                className="mb-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-2 cursor-pointer"
-              >
-                + Adicionar Novo Campo
-              </button>
-
-              {/* Fields List */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-xs">
-                <table className="w-full text-left text-xs min-w-[600px]">
-                  <thead className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase font-black tracking-wider text-slate-500">
-                    <tr>
-                      <th className="py-3 px-4">Campo Original (Interno)</th>
-                      <th className="py-3 px-4">Rótulo Personalizado (Label)</th>
-                      <th className="py-3 px-4">Placeholder (Texto de Ajuda)</th>
-                      <th className="py-3 px-4 text-center">Ativo</th>
-                      <th className="py-3 px-4 text-center">Obrigatório</th>
-                      <th className="py-3 px-4 text-center">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {config.formFields[selectedForm].map((field, idx) => (
-                      <tr key={field.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
-                        {/* ID & Original Label */}
-                        <td className="py-3 px-4 font-bold text-slate-700 dark:text-slate-300">
-                          <div>{field.originalLabel}</div>
-                          <span className="text-[10px] text-slate-400 font-mono font-medium">{field.id}</span>
-                        </td>
-                        
-                        {/* Custom Label */}
-                        <td className="py-2 px-4">
-                          <input
-                            type="text"
-                            required
-                            value={field.label}
-                            onChange={e => {
-                              const updated = { ...config };
-                              updated.formFields![selectedForm][idx].label = e.target.value;
-                              setConfig(updated);
-                            }}
-                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-semibold focus:outline-emerald-500"
-                          />
-                        </td>
-
-                        {/* Custom Placeholder */}
-                        <td className="py-2 px-4">
-                          <input
-                            type="text"
-                            value={field.placeholder || ''}
-                            onChange={e => {
-                              const updated = { ...config };
-                              updated.formFields![selectedForm][idx].placeholder = e.target.value;
-                              setConfig(updated);
-                            }}
-                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-medium focus:outline-emerald-500"
-                            placeholder="Digite um texto de instrução..."
-                          />
-                        </td>
-
-                        {/* Enabled Switch */}
-                        <td className="py-2 px-4 text-center">
-                          <input
-                            type="checkbox"
-                            checked={field.enabled}
-                            onChange={e => {
-                              const updated = { ...config };
-                              updated.formFields![selectedForm][idx].enabled = e.target.checked;
-                              setConfig(updated);
-                            }}
-                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                          />
-                        </td>
-
-                        {/* Required Switch */}
-                        <td className="py-2 px-4 text-center">
-                          <input
-                            type="checkbox"
-                            checked={field.required}
-                            onChange={e => {
-                              const updated = { ...config };
-                              updated.formFields![selectedForm][idx].required = e.target.checked;
-                              setConfig(updated);
-                            }}
-                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                          />
-                        </td>
-
-                        {/* Actions */}
-                        <td className="py-2 px-4 text-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (confirm('Deseja realmente excluir este campo?')) {
-                                const updated = { ...config };
-                                updated.formFields![selectedForm].splice(idx, 1);
-                                setConfig(updated);
-                              }
-                            }}
-                            className="text-rose-600 hover:text-rose-800 font-bold"
-                          >
-                            Excluir
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Save Button */}
-              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={handleSaveSaaSConfig}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
-                >
-                  {saving ? 'Gravando...' : 'Salvar Mapeamento de Campos'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {activeSubTab === 'analytics' && <VisitAnalyticsPanel />}
-
-          {activeSubTab === 'seo' && config && (
-            <SeoConfigPanel config={config} saving={saving} onUpdateConfig={async (updated) => {
-              const newConfig = { ...config, ...updated };
-              setConfig(newConfig);
-              await api.updateSaaSGlobalConfig(newConfig);
-              setMessage({ text: 'Configuração SEO salva com sucesso!', type: 'success' });
-            }} />
-          )}
-          {activeSubTab === 'notifications' && <><NotificationTemplatesPanel /><NotificationDeliveryLedger /></>}
-
-          {activeSubTab === 'backups' && <BackupMonitorPanel />}
-
-          {activeSubTab === 'error-logs' && <ErrorLogPanel />}
-
-          {/* TAB 8: SQL & INSTALAÇÃO VPS */}
-          {activeSubTab === 'sql-installation' && config && (
-            <SqlAndInstallationConfig
-              config={config}
-              onUpdateConfig={async (updated) => {
-                const newConfig = { ...config, ...updated };
-                setConfig(newConfig);
-                await api.updateSaaSGlobalConfig(newConfig);
-                setMessage({ text: 'Configurações de SQL e Instalação salvas com sucesso!', type: 'success' });
-                setTimeout(() => setMessage(null), 4000);
-              }}
-              saving={saving}
-            />
-          )}
-
-          {/* TAB 9: MAPBOX API & RASTREIO */}
-          {activeSubTab === 'mapbox' && config && (
-            <MapboxConfigPanel
-              config={config}
-              onUpdateConfig={async (updated) => {
-                const newConfig = { ...config, ...updated };
-                setConfig(newConfig);
-                await api.updateSaaSGlobalConfig(newConfig);
-                setMessage({ text: 'Configurações do Mapbox salvas com sucesso!', type: 'success' });
-                setTimeout(() => setMessage(null), 4000);
-              }}
-              saving={saving}
-            />
-          )}
-
-          {/* TAB 10: HELP EDITOR */}
-          {activeSubTab === 'help' && (
-            <div className="space-y-6">
-              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-emerald-500" />
-                  Editor do Módulo de Ajuda
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Gerencie o conteúdo de ajuda exibido para cada perfil de usuário do sistema.
-                </p>
-              </div>
-              <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-                {(['ADMIN', 'SUPERVISOR', 'USER', 'DRIVER'] as const).map(role => (
-                  <button
-                    key={role}
-                    onClick={() => setHelpRole(role)}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm shrink-0 cursor-pointer transition-colors ${helpRole === role ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
-                  >
-                    {role}
-                  </button>
-                ))}
-              </div>
-              <div className="bg-white dark:bg-slate-800 rounded-xl">
-                <ReactQuill 
-                  theme="snow"
-                  placeholder={`Escreva as instruções, regras ou guias de ajuda com suporte a imagens e HTML para o perfil ${helpRole}...`}
-                  value={helpContent[helpRole] || ''}
-                  onChange={value => setHelpContent(prev => ({ ...prev, [helpRole]: value }))}
-                  className="h-80 mb-12"
-                  modules={{
-                    toolbar: [
-                      [{ 'header': [1, 2, 3, false] }],
-                      ['bold', 'italic', 'underline', 'strike', 'blockquote'],
-                      [{'list': 'ordered'}, {'list': 'bullet'}, {'indent': '-1'}, {'indent': '+1'}],
-                      ['link', 'image'],
-                      ['clean']
-                    ],
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
-                <div className="text-xs text-slate-500 max-w-md">
-                  <span>Para visualizar o resultado final, acesse a opção <strong>"Ajuda"</strong> no menu principal. O conteúdo exibido respeitará o perfil do usuário logado.</span>
-                </div>
-                <button 
-                  onClick={async () => {
-                    setSaving(true);
-                    try {
-                      await api.saveHelp(helpRole, helpContent[helpRole]);
-                      setMessage({ text: `Ajuda para o perfil ${helpRole} salva com sucesso!`, type: 'success' });
-                      setTimeout(() => setMessage(null), 4000);
-                    } catch (err) {
-                      setMessage({ text: 'Erro ao salvar ajuda', type: 'error' });
-                      setTimeout(() => setMessage(null), 4000);
-                    } finally {
-                      setSaving(false);
-                    }
-                  }}
-                  disabled={saving}
-                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50 transition-colors shadow-xs"
-                >
-                  {saving ? 'Gravando...' : `Salvar Ajuda para ${helpRole}`}
-                </button>
-              </div>
-            </div>
-          )}
-
         </div>
 
         <WhatsAppConfigModal

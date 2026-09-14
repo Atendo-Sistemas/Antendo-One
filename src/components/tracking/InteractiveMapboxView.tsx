@@ -14,6 +14,7 @@ interface InteractiveMapboxViewProps {
   currentCoords?: { lat: number; lng: number; speed: number; heading?: number };
   vehiclePlate?: string;
   driverName?: string;
+  routeGeometry?: { type: 'LineString'; coordinates: number[][] } | null;
 }
 
 export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
@@ -24,7 +25,8 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
   destCoords = { lat: -22.9068, lng: -43.1729, name: 'Destino (Rio de Janeiro)' },
   currentCoords = { lat: -23.2237, lng: -45.8953, speed: 68 },
   vehiclePlate = 'ABC-1234',
-  driverName = 'Motorista'
+  driverName = 'Motorista',
+  routeGeometry = null
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<mapboxgl.Map | null>(null);
@@ -111,14 +113,14 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
             data: {
               type: 'Feature',
               properties: {},
-              geometry: {
-                type: 'LineString',
-                coordinates: [
-                  [originCoords.lng, originCoords.lat],
-                  [currentCoords.lng, currentCoords.lat],
-                  [destCoords.lng, destCoords.lat]
-                ]
-              }
+                geometry: routeGeometry || {
+                  type: 'LineString',
+                  coordinates: [
+                    [originCoords.lng, originCoords.lat],
+                    [currentCoords.lng, currentCoords.lat],
+                    [destCoords.lng, destCoords.lat]
+                  ]
+                }
             }
           });
 
@@ -138,16 +140,6 @@ export const InteractiveMapboxView: React.FC<InteractiveMapboxViewProps> = ({
             }
           });
 
-          // Substitui a linha estimada pela rota viária real do Mapbox.
-          const coords = `${originCoords.lng},${originCoords.lat};${destCoords.lng},${destCoords.lat}`;
-          const directions = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coords}?geometries=geojson&overview=full&access_token=${encodeURIComponent(apiKey)}`);
-          if (directions.ok) {
-            const data = await directions.json() as { routes?: Array<{ geometry?: GeoJSON.Geometry }> };
-            const geometry = data.routes?.[0]?.geometry;
-            if (geometry && map.getSource('route-line')) {
-              (map.getSource('route-line') as mapboxgl.GeoJSONSource).setData({ type: 'Feature', properties: { realRoute: true }, geometry });
-            }
-          }
         } catch (err) {
           console.error('Error drawing route line:', err);
         }

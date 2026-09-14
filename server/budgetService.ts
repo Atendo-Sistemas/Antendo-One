@@ -9,13 +9,35 @@ export function calculateBudget(input: Pick<Budget, 'expenses'|'taxes'|'profitTy
   const lodging = money((Number(input.dailyRate) || 0) * (Number(input.dailyCount) || 0));
   const assistants = money((Number(input.assistantCount) || 0) * (Number(input.assistantDailyRate) || 0) * (Number(input.dailyCount) || 1));
   const subtotal = money(totalExpenses + routeCost + tolls + insurance + lodging + assistants);
-  const totalTaxes = money((input.taxes || []).reduce((sum, tax: BudgetTax) => {
-    const base = tax.base === 'DESPESAS' ? totalExpenses : tax.base === 'SUBTOTAL' ? subtotal : money(Number(input.driverPassed) || 0);
-    return sum + (tax.type === 'FIXO' ? money(tax.fixedValue) : money(base * (Number(tax.percentage) || 0) / 100));
+  const taxes = (input.taxes || []).map((tax: BudgetTax) => ({
+    ...tax,
+    percentage: Number(tax.percentage) || 0,
+    fixedValue: money(tax.fixedValue)
+  }));
+  const fixedAndScopedTaxes = money(taxes.reduce((sum, tax) => {
+    if (tax.type === 'FIXO') return sum + money(tax.fixedValue);
+    if (tax.base === 'DESPESAS') return sum + money(totalExpenses * tax.percentage / 100);
+    if (tax.base === 'SUBTOTAL') return sum + money(subtotal * tax.percentage / 100);
+    return sum;
   }, 0));
-  const totalCost = money(subtotal + totalTaxes);
-  const profit = input.profitType === 'FIXO' ? money(input.profitValue) : money(totalCost * (Number(input.profitValue) || 0) / 100);
-  const totalFreight = money(totalCost + profit);
+  const freightTaxRate = taxes.reduce((sum, tax) => sum + (tax.type === 'PERCENTUAL' && tax.base === 'VALOR_FRETE' ? tax.percentage / 100 : 0), 0);
+  const calculateProfit = (totalCostValue: number) => input.profitType === 'FIXO' ? money(input.profitValue) : money(totalCostValue * (Number(input.profitValue) || 0) / 100);
+  let totalTaxes = fixedAndScopedTaxes;
+  let totalCost = money(subtotal + totalTaxes);
+  let profit = calculateProfit(totalCost);
+  let totalFreight = money(totalCost + profit);
+  if (freightTaxRate > 0) {
+    let previous = totalFreight;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const freightBasedTaxes = money(previous * freightTaxRate);
+      totalTaxes = money(fixedAndScopedTaxes + freightBasedTaxes);
+      totalCost = money(subtotal + totalTaxes);
+      profit = calculateProfit(totalCost);
+      totalFreight = money(totalCost + profit);
+      if (Math.abs(totalFreight - previous) < 0.01) break;
+      previous = totalFreight;
+    }
+  }
   const driverPassed = money(input.driverPassed);
   const driverPaid = money(input.driverPaid);
   return { totalExpenses, routeCost, tolls, insurance, lodging, assistants, subtotal, totalTaxes, totalCost, profit, totalFreight, driverPassed, driverPaid, netResult: money(totalFreight - driverPaid - totalExpenses - routeCost - tolls - insurance - lodging - assistants - totalTaxes) };

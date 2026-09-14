@@ -295,8 +295,15 @@ export interface CompanyVehicle {
   year: number;
   plate: string;
   renavam: string;
+  chassis?: string;
   capacityKg: number;
   bodyType: BodyType;
+  color?: string;
+  fuelType?: string;
+  axleCount?: number;
+  manufactureYear?: number;
+  modelYear?: number;
+  insuranceValidUntil?: string;
   ownerName?: string;
   ownerCnpj?: string;
   registrationState?: string;
@@ -410,6 +417,7 @@ export interface FreightTrackingLocation {
   lat: number;
   lng: number;
   speedKmh?: number;
+  heading?: number;
   accuracyMeters?: number;
   recordedAt: string;
   label?: string;
@@ -488,10 +496,12 @@ export interface Freight {
   completedAt?: string;
   cancelledAt?: string;
   cancelReason?: string;
+  requestedBudgetId?: string;
   formResponsesCount?: number;
   createdAt: string;
   updatedAt: string;
   customData?: Record<string, any>;
+  routeGeometry?: { type: 'LineString'; coordinates: number[][] };
   companyVehicleId?: string;
   companyVehicle?: CompanyVehicle;
   publicListingEnabled?: boolean;

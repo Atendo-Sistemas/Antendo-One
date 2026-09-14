@@ -1,101 +1,33 @@
-import { 
-  User, 
-  Tenant, 
-  Driver, 
-  Vehicle, 
-  Freight, 
-  FreightStatus, 
-  AppNotification, 
-  FormDefinition, 
-  FormResponse, 
-  AuditLog, 
-  DashboardStats,
-  WhatsAppConfig,
-  WhatsAppNotificationPayload,
-  SaaSGlobalConfig,
-  TripExpenseReport,
-  EmailConfig,
-  WebPage,
-  BlogPost,
-  NotificationTemplate,
-  VisitAnalyticsResponse,
-  CompanyVehicle,
-  PublicFreightSummary,
-  DriverCompanyLink,
-  NotificationDelivery,
-  SupportSessionInfo,
-  WhatsAppPairingResult,
-  NotificationModuleStatus,
-  BackupStatusResponse,
-  TenantReportTemplate,
-  ReportTemplateType
-} from '../types';
+import { User, Tenant, Driver, Vehicle, Freight, Tenant as TenantType } from '../types';
 
-let currentToken: string | null = null;
-let currentRefreshToken: string | null = null;
-const AUTH_TOKEN_STORAGE_KEY = 'frete_auth_token';
-const REFRESH_TOKEN_STORAGE_KEY = 'frete_refresh_token';
+type OfflineResponse = { formId: string; freightId?: string; responseId: string; stage: string; isDraft: boolean; answers: Record<string, any> };
 
+// Auth Token Management
 export const setAuthToken = (token: string) => {
-  currentToken = token || null;
-  if (typeof window === 'undefined') return;
-  try {
-    if (currentToken) window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, currentToken);
-    else window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-  } catch {
-    // Storage may be unavailable in private/restricted browser contexts; memory session still works.
-  }
+  localStorage.setItem('elolog_auth_token', token);
+};
+
+export const getAuthToken = (): string => {
+  return localStorage.getItem('elolog_auth_token') || '';
 };
 
 export const clearAuthToken = () => {
-  setAuthToken('');
-  currentRefreshToken = null;
-  if (typeof window !== 'undefined') {
-    try { window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY); } catch { /* storage unavailable */ }
-  }
+  localStorage.removeItem('elolog_auth_token');
+  localStorage.removeItem('elolog_refresh_token');
 };
 
 export const setAuthSession = (token: string, refreshToken?: string) => {
   setAuthToken(token);
-  currentRefreshToken = refreshToken || null;
-  if (typeof window !== 'undefined') {
-    try {
-      if (currentRefreshToken) window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, currentRefreshToken);
-      else window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
-    } catch { /* storage unavailable */ }
+  if (refreshToken) {
+    localStorage.setItem('elolog_refresh_token', refreshToken);
   }
-};
-
-export const getAuthToken = (): string => {
-  if (currentToken) return currentToken;
-  if (typeof window === 'undefined') return '';
-  try {
-    currentToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || null;
-  } catch {
-    currentToken = null;
-  }
-  return currentToken || '';
 };
 
 const getRefreshToken = (): string => {
-  if (currentRefreshToken) return currentRefreshToken;
-  if (typeof window === 'undefined') return '';
-  try { currentRefreshToken = window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) || null; } catch { currentRefreshToken = null; }
-  return currentRefreshToken || '';
+  return localStorage.getItem('elolog_refresh_token') || '';
 };
 
-export interface OfflineResponse {
-  id: string;
-  formId: string;
-  freightId?: string;
-  responseId?: string;
-  stage?: 'RETIRADA_INICIADA' | 'FINALIZADO_ENTREGA' | 'COMPLETO';
-  isDraft?: boolean;
-  answers: Record<string, any>;
-  createdAt: string;
-}
-
-// Get items pending offline sync from local storage
+// Offline Queue Management
 export const getOfflineQueue = (): OfflineResponse[] => {
   try {
     return JSON.parse(localStorage.getItem('elolog_offline_queue') || '[]');
@@ -104,7 +36,6 @@ export const getOfflineQueue = (): OfflineResponse[] => {
   }
 };
 
-// Save items pending offline sync to local storage
 export const saveOfflineQueue = (queue: OfflineResponse[]) => {
   localStorage.setItem('elolog_offline_queue', JSON.stringify(queue));
 };
@@ -186,435 +117,69 @@ export const api = {
       tenant: Tenant | null;
       driver?: Driver;
       vehicles: Vehicle[];
-      availableDemoAccounts: Array<{ id: string; name: string; email: string; role: string; tenantId: string | null; driverId?: string }>;
-      supportSession?: SupportSessionInfo | null;
+      availableDemoAccounts?: any[];
+      supportSession?: any;
     }>('/auth/me');
   },
-
-  async login(email: string, role?: string, password?: string) {
-    return request<{ user: User; token: string; refreshToken: string }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, role, password })
-    });
-  },
-
-  async switchDemoUser(userId: string) {
-    return request<{
-      user: User;
-      tenant: Tenant | null;
-      driver?: Driver;
-      vehicles: Vehicle[];
-      token: string;
-    }>('/auth/switch-demo', {
-      method: 'POST',
-      body: JSON.stringify({ userId })
-    });
-  },
-
-  async startDemoSession(userId?: string) {
-    return request<{
-      user: User;
-      tenant: Tenant | null;
-      driver?: Driver;
-      vehicles: Vehicle[];
-      token: string;
-      demo: true;
-    }>('/auth/demo-session', {
-      method: 'POST',
-      body: JSON.stringify(userId ? { userId } : {})
-    });
-  },
-
-  async startSupportSession(targetUserId: string) {
-    return request<{
-      user: User;
-      tenant: Tenant | null;
-      driver?: Driver;
-      vehicles: Vehicle[];
-      token: string;
-      supportSession: SupportSessionInfo;
-    }>('/support/sessions', {
-      method: 'POST',
-      body: JSON.stringify({ targetUserId })
-    });
-  },
-
-  async endSupportSession() {
-    return request<{
-      user: User;
-      tenant: Tenant | null;
-      driver?: Driver;
-      vehicles: Vehicle[];
-      token: string;
-    }>('/support/sessions/end', { method: 'POST' });
-  },
-
-  async requestOtp(phone: string) {
-    return request<{ success: boolean; message: string }>('/auth/request-otp', {
-      method: 'POST',
-      body: JSON.stringify({ phone })
-    });
-  },
-
   async verifyOtp(phone: string, code: string) {
-    return request<{ user: User; token: string; refreshToken: string }>('/auth/verify-otp', {
-      method: 'POST',
-      body: JSON.stringify({ phone, code })
-    });
+    return request<{ token: string; refreshToken: string; user: User }>('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, code }) });
   },
-
-  async registerCompany(data: {
-    companyName: string;
-    cnpj: string;
-    responsibleName: string;
-    email: string;
-    phone: string;
-    password?: string;
-    termsAccepted?: boolean;
-    privacyAccepted?: boolean;
-  }) {
-    return request<{ success: boolean; message: string }>('/auth/register-company', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
+  async startFreightInterest(data: any) {
+    return request<{ userId: string }>('/freights/interest', { method: 'POST', body: JSON.stringify(data) });
   },
-
-  async verifyRegistration(email: string, code: string) {
-    return request<{ success: boolean; message: string }>('/auth/verify-registration', {
-      method: 'POST',
-      body: JSON.stringify({ email, code })
-    });
+  async completeQuickDriver(userId: string, data: any) {
+    return request<{ driver: Driver }>(`/drivers/${userId}/quick-complete`, { method: 'POST', body: JSON.stringify(data) });
   },
-
-  async registerDriver(data: any) {
-    return request<{ user: User; driver: Driver; vehicle: Vehicle; token?: string }>('/drivers/register', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  // Content management
-  async getPages() { return request<WebPage[]>('/pages'); },
-  async createPage(data: Partial<WebPage>) { return request<WebPage>('/pages', { method: 'POST', body: JSON.stringify(data) }); },
-  async updatePage(id: string, data: Partial<WebPage> & { contentVersion?: string; changeNote?: string }) { return request<WebPage>(`/pages/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async getPageVersions(id: string) { return request<{ currentVersion: string | null; versions: import('../types').LegalDocumentVersion[] }>(`/pages/${id}/versions`); },
-  async deletePage(id: string) { return request<{ success: boolean }>(`/pages/${id}`, { method: 'DELETE' }); },
-  async getPosts() { return request<BlogPost[]>('/posts'); },
-  async createPost(data: Partial<BlogPost>) { return request<BlogPost>('/posts', { method: 'POST', body: JSON.stringify(data) }); },
-  async updatePost(id: string, data: Partial<BlogPost>) { return request<BlogPost>(`/posts/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async deletePost(id: string) { return request<{ success: boolean }>(`/posts/${id}`, { method: 'DELETE' }); },
-  async getPublicSeo() { return request<{ seo: any; content: any[] }>('/public/seo'); },
-  async getVisitAnalytics(days = 30) { return request<VisitAnalyticsResponse>(`/analytics/visits?days=${days}`); },
-  async recordPublicVisit(payload: { path: string; referrer?: string; source?: string; medium?: string; campaign?: string; device?: string }) { return request<void>('/analytics/visit', { method: 'POST', body: JSON.stringify(payload) }); },
-  async getPublicContent(slug: string, section?: 'conteudo' | 'elo-log') { return request<any>(`/public/content/${encodeURIComponent(slug)}${section ? `?section=${section}` : ''}`); },
-  async getRegistrationLegalContent(slug: string) { return request<any>(`/public/registration-content/${encodeURIComponent(slug)}`); },
-  async getNotificationDeliveries(limit = 100) { return request<NotificationDelivery[]>(`/notification-deliveries?limit=${limit}`); },
-  async getNotificationConsent() { return request<{ email: boolean; whatsapp: boolean; updatedAt?: string | null }>('/notification-consent'); },
-  async updateNotificationConsent(payload: { email?: boolean; whatsapp?: boolean }) { return request<{ email: boolean; whatsapp: boolean; updatedAt: string }>('/notification-consent', { method: 'PUT', body: JSON.stringify(payload) }); },
-
-  async getNotificationTemplates() { return request<NotificationTemplate[]>('/saas/notification-templates'); },
-  async updateNotificationTemplate(id: string, data: Partial<NotificationTemplate>) { return request<NotificationTemplate>(`/saas/notification-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async getTenantNotificationTemplates() { return request<NotificationTemplate[]>('/tenant/notification-templates'); },
-  async updateTenantNotificationTemplate(id: string, data: Partial<NotificationTemplate>) { return request<NotificationTemplate>(`/tenant/notification-templates/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async getTenantReportTemplates() { return request<TenantReportTemplate[]>('/tenant/report-templates'); },
-  async updateTenantReportTemplate(type: ReportTemplateType, data: Partial<TenantReportTemplate>) { return request<TenantReportTemplate>(`/tenant/report-templates/${encodeURIComponent(type)}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async getErrorLogs(params?: { limit?: number; event?: string; status?: number }) { const query = new URLSearchParams(); if (params?.limit) query.set('limit', String(params.limit)); if (params?.event) query.set('event', params.event); if (params?.status) query.set('status', String(params.status)); return request<{ items: import('../types').ErrorLogEntry[]; total: number }>(`/error-logs?${query.toString()}`); },
-  async getBackupStatus() { return request<BackupStatusResponse>('/admin/backups/status'); },
-  async requestManualBackup() { return request<{ success: boolean; requestId: string; status: 'QUEUED'; message: string }>('/admin/backups/run', { method: 'POST', body: JSON.stringify({}) }); },
-  async updateBackupNotifications(data: { enabled: boolean; whatsappEnabled: boolean; whatsappPhone: string; notifyOnFailure: boolean; notifyOnSuccess: boolean }) { return request<{ success: boolean; notifications: { enabled: boolean; whatsappEnabled: boolean; whatsappPhone: string; whatsappPhoneMasked: string; notifyOnFailure: boolean; notifyOnSuccess: boolean; updatedAt?: string } }>('/admin/backups/notifications', { method: 'PUT', body: JSON.stringify(data) }); },
-  async testBackupWhatsApp() { return request<{ success: boolean; message: string }>('/admin/backups/whatsapp-test', { method: 'POST', body: JSON.stringify({}) }); },
-  async cleanupErrorLogs(olderThanDays = 90) { return request<{ success: boolean; removed: number }>('/error-logs', { method: 'DELETE', body: JSON.stringify({ olderThanDays }) }); },
-  async testAsaasConnection() { return request<{ success: boolean; accountName: string; environment: string }>('/billing/asaas/test', { method: 'POST', body: JSON.stringify({}) }); },
-  async createAsaasSubscription(payload: { tenantId: string; planId: string; cycle: string; billingType: string; nextDueDate?: string }) { return request<{ id: string; status: string; cycle: string; nextDueDate: string; value: number }>('/billing/asaas/subscribe', { method: 'POST', body: JSON.stringify(payload) }); },
-  async getAsaasSubscription(tenantId?: string) { const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''; return request<any>(`/billing/asaas/subscription${query}`); },
-  async getAsaasFinancialSummary(tenantId?: string) { const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''; return request<any>(`/billing/asaas/financial-summary${query}`); },
-  async cancelAsaasSubscription(tenantId?: string) { return request<any>('/billing/asaas/subscription/cancel', { method: 'POST', body: JSON.stringify(tenantId ? { tenantId } : {}) }); },
-  async changeAsaasPlan(payload: { tenantId?: string; planId: string; cycle?: string; billingType?: string; nextDueDate?: string; updatePendingPayments?: boolean }) { return request<any>('/billing/asaas/subscription/change-plan', { method: 'POST', body: JSON.stringify(payload) }); },
-  async getNotificationModuleStatus(tenantId?: string) {
-    const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
-    return request<NotificationModuleStatus>(`/billing/asaas/notification-module${query}`);
-  },
-  async selectFreeNotificationModule(tenantId?: string) {
-    return request<NotificationModuleStatus>('/billing/asaas/notification-module/free', {
-      method: 'POST',
-      body: JSON.stringify(tenantId ? { tenantId } : {})
-    });
-  },
-  async createNotificationModuleSubscription(payload: { tenantId?: string; billingType?: string; nextDueDate?: string }) {
-    return request<{ id: string; status: string; value: number; nextDueDate: string; module: string }>('/billing/asaas/notification-module/subscribe', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
-  },
-  async cancelNotificationModule(tenantId?: string) { return request<any>('/billing/asaas/notification-module/cancel', { method: 'POST', body: JSON.stringify(tenantId ? { tenantId } : {}) }); },
-  // Tenants
-  async getTenants() {
-    return request<Tenant[]>('/tenants');
-  },
-
-  async createTenant(data: Partial<Tenant> & {
-    responsibleName: string;
-    password: string;
-    confirmPassword: string;
-    termsAccepted: boolean;
-    privacyAccepted: boolean;
-  }) {
-    return request<Tenant>('/tenants', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  async provisionTenantAtendo(id: string) {
-    return request<{ success: boolean; status: string; tenant: Tenant }>(`/tenants/${id}/provision-atendo`, {
-      method: 'POST',
-      body: JSON.stringify({})
-    });
-  },
-
-  async updateTenant(id: string, data: Partial<Tenant>) {
-    return request<Tenant>(`/tenants/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  },
-
-  async activateTenantPlan(id: string, plan: Tenant['plan'], days = 30) {
-    return request<{ success: boolean; tenant: Tenant }>(`/tenants/${id}/activate-plan`, {
-      method: 'POST',
-      body: JSON.stringify({ plan, days })
-    });
-  },
-
-  async deleteTenant(id: string) {
-    return request<{ success: boolean; message: string }>(`/tenants/${id}`, {
-      method: 'DELETE'
-    });
-  },
-
-  // Users
-  async getUsers() {
-    return request<User[]>('/users');
-  },
-
-  async createUser(data: Partial<User>) {
-    return request<User>('/users', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  async updateUser(id: string, data: Partial<User>) {
-    return request<User>(`/users/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  },
-
-  async deleteUser(id: string) {
-    return request<{ success: boolean; message: string }>(`/users/${id}`, {
-      method: 'DELETE'
-    });
-  },
-
-  async updateProfile(data: Partial<User> & { address?: string; city?: string; state?: string; zipCode?: string; password?: string }) {
-    return request<{ success: boolean; user: User; driver?: Driver }>('/auth/profile', {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  },
-
-  // Drivers & Vehicles
-  async getDrivers() {
-    return request<Driver[]>('/drivers');
-  },
-
-  async updateDriver(id: string, data: Partial<Driver>) {
-    return request<Driver>(`/drivers/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  },
-
-  async getDriverDetails(id: string) {
-    return request<{ driver: Driver; vehicles: Vehicle[]; freightsHistory: Freight[] }>(`/drivers/${id}`);
-  },
-
-  async getVehicles() {
-    return request<Vehicle[]>('/vehicles');
-  },
-  async getCompanyVehicles() {
-    return request<CompanyVehicle[]>('/company-vehicles');
-  },
-  async createCompanyVehicle(data: Partial<CompanyVehicle>) {
-    return request<CompanyVehicle>('/company-vehicles', { method: 'POST', body: JSON.stringify(data) });
-  },
-  async updateCompanyVehicle(id: string, data: Partial<CompanyVehicle>) {
-    return request<CompanyVehicle>(`/company-vehicles/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-  },
-  async deleteCompanyVehicle(id: string) {
-    return request<{ success: boolean; message: string }>(`/company-vehicles/${id}`, { method: 'DELETE' });
-  },
-  async getDriverCompanyLinks() {
-    return request<Array<DriverCompanyLink & { driver?: Driver; freightCode?: string; originCity?: string; destinationCity?: string }>>('/driver-company-links');
-  },
-  async updateDriverCompanyLinkStatus(id: string, status: 'APROVADO' | 'RECUSADO' | 'BLOQUEADO', reason?: string, scope?: 'FRETE' | 'EMPRESA') {
-    return request<{ success: boolean; link: DriverCompanyLink }>(`/driver-company-links/${id}/status`, { method: 'PUT', body: JSON.stringify({ status, reason, scope }) });
+  subscribePublicTracking(token: string, callback: (update: any) => void) {
+    try {
+      const eventSource = new EventSource(`/api/public/tracking/${encodeURIComponent(token)}/subscribe`);
+      eventSource.onmessage = (event) => callback(JSON.parse(event.data));
+      eventSource.onerror = () => eventSource.close();
+      return () => eventSource.close();
+    } catch (err) {
+      console.error('Erro ao subscrever rastreamento público:', err);
+    }
   },
 
   // Freights
-  async getFreights(params?: { status?: string; originCity?: string; destinationCity?: string; vehicleType?: string; onlyMine?: boolean }) {
-    const query = new URLSearchParams();
-    if (params?.status) query.set('status', params.status);
-    if (params?.originCity) query.set('originCity', params.originCity);
-    if (params?.destinationCity) query.set('destinationCity', params.destinationCity);
-    if (params?.vehicleType) query.set('vehicleType', params.vehicleType);
-    if (params?.onlyMine) query.set('onlyMine', 'true');
-    
-    return request<Freight[]>(`/freights?${query.toString()}`);
+  async getFreights(search = '', status = '', vehicleType = '') {
+    return request<Freight[]>(`/freights?${new URLSearchParams({ search, status, vehicleType }).toString()}`);
   },
-
-  async getFreight(id: string) {
-    return request<Freight & { formResponses: FormResponse[] }>(`/freights/${id}`);
-  },
-  async getPublicFreights() {
-    return request<PublicFreightSummary[]>('/public/freights');
-  },
-  async getPublicTracking(code: string) {
-    return publicRequest<Freight>(`/public/tracking/${encodeURIComponent(code)}`);
-  },
-  subscribePublicTracking(code: string, onUpdate: (freight: Freight) => void, onError?: () => void) {
-    const source = new EventSource(`/api/public/tracking/${encodeURIComponent(code)}/events`);
-    source.addEventListener('tracking', event => { try { onUpdate(JSON.parse((event as MessageEvent).data) as Freight); } catch { /* ignora payload inválido */ } });
-    if (onError) source.onerror = onError;
-    return () => source.close();
-  },
-  async setPublicTrackingRevoked(freightId: string, revoked: boolean) {
-    return request<{ success: boolean; revoked: boolean; freightId: string }>(`/freights/${encodeURIComponent(freightId)}/public-tracking/revoke`, { method: 'POST', body: JSON.stringify({ revoked }) });
-  },
-  async getPublicFreightDetails(id: string) {
-    return request<PublicFreightSummary & { price: number | null; priceAvailable: boolean; message?: string }>(`/public/freights/${id}`);
-  },
-  async startFreightInterest(data: { freightId: string; name: string; phone: string; termsAccepted: boolean; privacyAccepted: boolean }) {
-    return request<{ success: boolean; userId: string; message: string }>(`/public/freights/${data.freightId}/interest`, { method: 'POST', body: JSON.stringify(data) });
-  },
-  async completeQuickDriver(userId: string, data: Record<string, any>) {
-    return request<{ success: boolean; status: string; message: string }>(`/public/freights/${data.freightId}/interest/complete`, { method: 'POST', body: JSON.stringify({ ...data, userId }) });
-  },
-
-  async createFreight(data: any) {
-    return request<Freight>('/freights', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  async updateFreight(id: string, data: any) {
-    return request<Freight>(`/freights/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  },
-
-  // Atomic Accept (Mutex protected in backend)
-  async acceptFreight(id: string) {
-    return request<{ message: string; freight: Freight }>(`/freights/${id}/accept`, {
-      method: 'POST'
-    });
-  },
-
-  // Status transition
-  async updateFreightStatus(id: string, newStatus: FreightStatus, notes?: string, location?: string) {
-    return request<Freight>(`/freights/${id}/status`, {
-      method: 'POST',
-      body: JSON.stringify({ newStatus, notes, location })
-    });
-  },
-  async updateFreightLocation(id: string, location: { lat: number; lng: number; speedKmh?: number; accuracyMeters?: number; label?: string }) {
-    return request<Freight>(`/freights/${id}/location`, { method: 'POST', body: JSON.stringify(location) });
-  },
-
-  // Forms
-  async getForms(params?: { triggerEvent?: string }) {
-    const query = new URLSearchParams();
-    if (params?.triggerEvent) query.set('triggerEvent', params.triggerEvent);
-    return request<FormDefinition[]>(`/forms?${query.toString()}`);
-  },
-  async getCompanyStops(tenantId?: string) { return request<import('../types').CompanyStop[]>(`/company-stops${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
-  async createCompanyStop(data: Partial<import('../types').CompanyStop> & { tenantId?: string }) { return request<import('../types').CompanyStop>('/company-stops', { method: 'POST', body: JSON.stringify(data) }); },
-  async getLodgingPartners(tenantId?: string) { return request<import('../types').LodgingPartner[]>(`/lodging-partners${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
-  async createLodgingPartner(data: Partial<import('../types').LodgingPartner> & { tenantId?: string }) { return request<import('../types').LodgingPartner>('/lodging-partners', { method: 'POST', body: JSON.stringify(data) }); },
-
-  async createForm(data: Partial<FormDefinition>) {
-    return request<FormDefinition>('/forms', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  async copyForm(id: string, tenantId?: string) {
-    return request<FormDefinition>(`/forms/${id}/copy`, { method: 'POST', body: JSON.stringify(tenantId ? { tenantId } : {}) });
-  },
-
-  async updateForm(id: string, data: Partial<FormDefinition>) {
-    return request<FormDefinition>(`/forms/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-  },
-
-  async submitFormResponse(data: { 
-    formId: string; 
-    freightId?: string; 
-    responseId?: string;
-    stage?: 'RETIRADA_INICIADA' | 'FINALIZADO_ENTREGA' | 'COMPLETO';
-    isDraft?: boolean;
-    answers: Record<string, any>;
-  }) {
-    if (isOfflineMode()) {
-      const offlineId = `offline-${Date.now()}`;
-      const mockResponse: FormResponse = {
-        id: data.responseId || offlineId,
-        formId: data.formId,
-        formTitle: 'Vistoria',
-        tenantId: 'offline',
-        freightId: data.freightId || undefined,
-        driverId: 'offline',
-        filledByUserId: 'offline',
-        filledByName: 'Motorista',
-        stage: data.stage || 'COMPLETO',
-        isDraft: data.isDraft || false,
-        answers: data.answers,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      // Add to local storage offline queue
-      const queue = getOfflineQueue();
-      // Remove duplicate pending response for same freight and form to avoid duplicates
-      const filtered = queue.filter(q => !(q.formId === data.formId && q.freightId === data.freightId));
-      filtered.push({
-        id: mockResponse.id,
-        formId: data.formId,
-        freightId: data.freightId,
-        responseId: data.responseId,
-        stage: data.stage,
-        isDraft: data.isDraft,
-        answers: data.answers,
-        createdAt: new Date().toISOString()
-      });
-      saveOfflineQueue(filtered);
-
-      // Trigger a custom event to notify components that the queue changed
-      window.dispatchEvent(new Event('elolog_offline_queue_changed'));
-
-      return mockResponse;
-    }
-
-    return request<FormResponse>('/forms/responses', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  async syncOfflineQueue(): Promise<{ success: boolean; syncedCount: number }> {
+  async getFreight(id: string) { return request<Freight>(`/freights/${id}`); },
+  async createFreight(data: Partial<Freight>) { return request<Freight>('/freights', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateFreight(id: string, data: Partial<Freight>) { return request<Freight>(`/freights/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async updateFreightStatus(id: string, status: string, notes?: string) { return request<Freight>(`/freights/${id}/status`, { method: 'POST', body: JSON.stringify({ status, ...(notes ? { notes } : {}) }) }); },
+  async deleteFreight(id: string) { return request<{ success: boolean }>(`/freights/${id}`, { method: 'DELETE' }); },
+  async publishFreight(id: string, data: any) { return request<Freight>(`/freights/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }); },
+  async unpublishFreight(id: string) { return request<Freight>(`/freights/${id}/unpublish`, { method: 'POST' }); },
+  async getPublicFreights(filters?: any) { return publicRequest<Freight[]>(`/public/freights?${new URLSearchParams(filters).toString()}`); },
+  async getFreightPublicInterests(id: string) { return request<any[]>(`/freights/${id}/public-interests`); },
+  async updateFreightLocation(id: string, location: any) { return request<Freight>(`/freights/${id}/location`, { method: 'POST', body: JSON.stringify(location) }); },
+  async getFreightLocations(id: string, hours = 24) { return request<any[]>(`/freights/${id}/locations?hours=${hours}`); },
+  async updateFreightOccurrence(id: string, occurrence: any) { return request<any>(`/freights/${id}/occurrences`, { method: 'POST', body: JSON.stringify(occurrence) }); },
+  async getFreightOccurrences(id: string) { return request<any[]>(`/freights/${id}/occurrences`); },
+  async getPages() { return request<any[]>('/pages'); },
+  async createPage(data: any) { return request<any>('/pages', { method: 'POST', body: JSON.stringify(data) }); },
+  async updatePage(id: string, data: any) { return request<any>(`/pages/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deletePage(id: string) { return request<{ success: boolean }>(`/pages/${id}`, { method: 'DELETE' }); },
+  async createPost(data: any) { return request<any>('/posts', { method: 'POST', body: JSON.stringify(data) }); },
+  async updatePost(id: string, data: any) { return request<any>(`/posts/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deletePost(id: string) { return request<{ success: boolean }>(`/posts/${id}`, { method: 'DELETE' }); },
+  async getPublicSeo() { return request<{ seo: any; content: any[] }>('/public/seo'); },
+  async getVisitAnalytics(days = 30) { return request<any>(`/analytics/visits?days=${days}`); },
+  async recordPublicVisit(payload: any) { return request<void>('/analytics/visit', { method: 'POST', body: JSON.stringify(payload) }); },
+  async getPublicContent(slug: string, section?: string) { return request<any>(`/public/content/${encodeURIComponent(slug)}${section ? `?section=${section}` : ''}`); },
+  async getRegistrationLegalContent(slug: string) { return request<any>(`/public/registration-content/${encodeURIComponent(slug)}`); },
+  async getNotificationDeliveries(limit = 100) { return request<any[]>(`/notification-deliveries?limit=${limit}`); },
+  async getNotificationConsent() { return request<any>('/notification-consent'); },
+  async updateNotificationConsent(payload: any) { return request<any>('/notification-consent', { method: 'POST', body: JSON.stringify(payload) }); },
+  async getNotificationTemplates() { return request<any[]>('/saas/notification-templates'); },
+  async updateNotificationTemplate(id: string, data: any) { return request<any>(`/saas/notification-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async getTenantNotificationTemplates() { return request<any[]>('/tenant/notification-templates'); },
+  async updateTenantNotificationTemplate(id: string, data: any) { return request<any>(`/tenant/notification-templates/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async getTenantReportTemplates() { return request<any[]>('/tenant/report-templates'); },
+  async updateTenantReportTemplate(id: string, data: any) { return request<any>(`/tenant/report-templates/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async syncOfflineQueue() {
     const queue = getOfflineQueue();
     if (queue.length === 0) return { success: true, syncedCount: 0 };
 
@@ -623,7 +188,7 @@ export const api = {
 
     for (const item of queue) {
       try {
-        await request<FormResponse>('/forms/responses', {
+        await request<any>('/forms/responses', {
           method: 'POST',
           body: JSON.stringify({
             formId: item.formId,
@@ -646,15 +211,8 @@ export const api = {
     return { success: remainingQueue.length === 0, syncedCount };
   },
 
-  async sendWhatsAppNotification(data: WhatsAppNotificationPayload) {
-    return request<{ 
-      success: boolean; 
-      messageId: string; 
-      recipient: string; 
-      status: string; 
-      details: string;
-      gatewayResponse?: any;
-    }>('/integrations/whatsapp/notify', {
+  async sendWhatsAppNotification(data: any) {
+    return request<any>('/integrations/whatsapp/notify', {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -662,11 +220,11 @@ export const api = {
 
   async getWhatsAppConfig(tenantId?: string) {
     const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
-    return request<WhatsAppConfig & { tokenMasked?: string; tenantId?: string | null; scope?: 'GLOBAL' | 'TENANT'; tenantHasDedicatedConfig?: boolean }>(`/integrations/whatsapp/config${query}`);
+    return request<any>(`/integrations/whatsapp/config${query}`);
   },
 
-  async updateWhatsAppConfig(data: Partial<WhatsAppConfig> & { tenantId?: string }) {
-    return request<{ success: boolean; config: WhatsAppConfig & { tokenMasked?: string; tenantId?: string | null } }>('/integrations/whatsapp/config', {
+  async updateWhatsAppConfig(data: any) {
+    return request<any>('/integrations/whatsapp/config', {
       method: 'POST',
       body: JSON.stringify(data)
     });
@@ -674,11 +232,11 @@ export const api = {
 
   async getWhatsAppStatus(tenantId?: string) {
     const query = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : '';
-    return request<{ success: boolean; status: string; message: string; pairingCode?: string; qrCode?: string; config: WhatsAppConfig & { tokenMasked?: string } }>(`/integrations/whatsapp/status${query}`);
+    return request<any>(`/integrations/whatsapp/status${query}`);
   },
 
   async requestWhatsAppQr(tenantId?: string, phone?: string) {
-    return request<WhatsAppPairingResult & { config?: WhatsAppConfig & { tokenMasked?: string } }>('/integrations/whatsapp/qr', {
+    return request<any>('/integrations/whatsapp/qr', {
       method: 'POST',
       body: JSON.stringify({
         ...(tenantId ? { tenantId } : {}),
@@ -687,256 +245,179 @@ export const api = {
     });
   },
 
-  async testWhatsAppConnection(data: { phone?: string; message?: string; baseUrl?: string; token?: string; tenantId?: string }) {
-    return request<{ success: boolean; message: string; recipient: string; details?: any }>('/integrations/whatsapp/test', {
+  async testWhatsAppConnection(data: any) {
+    return request<any>('/integrations/whatsapp/test', {
       method: 'POST',
       body: JSON.stringify(data)
     });
   },
 
-  async testEmailConnection(data: EmailConfig) {
-    return request<{ success: boolean; message: string }>('/integrations/email/test', {
+  async testEmailConnection(data: any) {
+    return request<any>('/integrations/email/test', {
       method: 'POST',
       body: JSON.stringify(data)
     });
   },
 
-  async getFormResponses(params?: { freightId?: string; formId?: string }) {
-    const query = new URLSearchParams();
-    if (params?.freightId) query.set('freightId', params.freightId);
-    if (params?.formId) query.set('formId', params.formId);
-    return request<FormResponse[]>(`/forms/responses?${query.toString()}`);
-  },
-
-  async getNextTalaoNumber() {
-    return request<{ nextNumber: string }>('/forms/next-talao');
-  },
-
-  async sendChecklistDispatch(data: {
-    responseId?: string;
-    stage: 'RETIRADA' | 'ENTREGA' | 'COMPLETO';
-    talaoNumber: string;
-    freightCode?: string;
-    recipientType: 'ORIGEM' | 'DESTINO' | 'CLIENTE';
-    recipientName?: string;
-    recipientEmail?: string;
-    recipientPhone?: string;
-    maskedData?: any;
-    receiptText: string;
-  }) {
-    return request<{
-      success: boolean;
-      emailStatus: string;
-      recipientEmail: string | null;
-      recipientPhone: string | null;
-      whatsappLink: string;
-      sentAt: string;
-    }>('/forms/send-dispatch', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  // Notifications
-  async getNotifications() {
-    return request<AppNotification[]>('/notifications');
-  },
-
-  async markNotificationRead(id: string) {
-    return request<{ success: boolean }>(`/notifications/${id}/read`, {
-      method: 'PUT'
-    });
-  },
-
-  async markAllNotificationsRead() {
-    return request<{ success: boolean }>('/notifications/mark-all-read', {
-      method: 'PUT'
-    });
-  },
-
-  // Audit Logs & Stats
-  async getAuditLogs() {
-    return request<AuditLog[]>('/audit-logs');
-  },
-
-  async getStats() {
-    return request<DashboardStats>('/stats');
-  },
-
-  async getDetailedHealth() {
-    return request<any>('/health/detailed');
-  },
-
-  // Deletes
-  async deleteFreight(id: string) {
-    return request<{ success: boolean; message: string }>(`/freights/${id}`, { method: 'DELETE' });
-  },
-  async deleteDriver(id: string) {
-    return request<{ success: boolean; message: string }>(`/drivers/${id}`, { method: 'DELETE' });
-  },
-  async deleteForm(id: string) {
-    return request<{ success: boolean; message: string }>(`/forms/${id}`, { method: 'DELETE' });
-  },
-  async deleteVehicle(id: string) {
-    return request<{ success: boolean; message: string }>(`/vehicles/${id}`, { method: 'DELETE' });
-  },
-
-  // SaaS Global Configurations
-  async getSaaSGlobalConfig() {
-    return request<SaaSGlobalConfig>('/saas/config');
-  },
-
-  async updateSaaSGlobalConfig(data: Partial<SaaSGlobalConfig>) {
-    return request<{ success: boolean; config: SaaSGlobalConfig }>('/saas/config', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
-
-  // Trip Expenses & Accountability (Prestação de Contas ELO LOG)
-  async getTripExpenses(params?: { freightId?: string; driverId?: string; status?: string }) {
+  async getFormResponses(params?: any) {
     const query = new URLSearchParams();
     if (params?.freightId) query.append('freightId', params.freightId);
-    if (params?.driverId) query.append('driverId', params.driverId);
-    if (params?.status) query.append('status', params.status);
-    const qs = query.toString() ? `?${query.toString()}` : '';
-    return request<TripExpenseReport[]>(`/expenses${qs}`);
+    if (params?.formId) query.append('formId', params.formId);
+    return request<any[]>(`/forms/responses?${query.toString()}`);
   },
 
-  async getTripExpense(id: string) {
-    return request<TripExpenseReport>(`/expenses/${id}`);
-  },
+  // Users
+  async getUsers() { return request<User[]>('/users'); },
+  async getUser(id: string) { return request<User>(`/users/${id}`); },
+  async createUser(data: any) { return request<User>('/users', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateUser(id: string, data: any) { return request<User>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deleteUser(id: string) { return request<{ success: boolean }>(`/users/${id}`, { method: 'DELETE' }); },
 
-  async createTripExpense(data: Partial<TripExpenseReport>) {
-    return request<TripExpenseReport>('/expenses', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  },
+  // Drivers
+  async getDrivers(search = '') { return request<Driver[]>(`/drivers?search=${encodeURIComponent(search)}`); },
+  async getDriver(id: string) { return request<Driver>(`/drivers/${id}`); },
+  async createDriver(data: any) { return request<Driver>('/drivers', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateDriver(id: string, data: any) { return request<Driver>(`/drivers/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deleteDriver(id: string) { return request<{ success: boolean }>(`/drivers/${id}`, { method: 'DELETE' }); },
+  async inviteDriver(email: string) { return request<{ success: boolean }>('/drivers/invite', { method: 'POST', body: JSON.stringify({ email }) }); },
+  async linkDriverToCompany(driverId: string, tenantId: string) { return request<any>('/driver-company-links', { method: 'POST', body: JSON.stringify({ driverId, tenantId }) }); },
+  async unlinkDriverFromCompany(linkId: string) { return request<{ success: boolean }>(`/driver-company-links/${linkId}`, { method: 'DELETE' }); },
 
-  async updateTripExpense(id: string, data: Partial<TripExpenseReport>) {
-    return request<TripExpenseReport>(`/expenses/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    });
-  },
+  // Compatibility methods used by legacy and administrative screens
+  async login(...args: any[]) { return request<any>('/auth/login', { method: 'POST', body: JSON.stringify({ email: args[0], password: args[2] ?? args[1] }) }); },
+  async requestOtp(phone: string) { return request<any>('/auth/request-otp', { method: 'POST', body: JSON.stringify({ phone }) }); },
+  async registerCompany(data: any) { return request<any>('/auth/register-company', { method: 'POST', body: JSON.stringify(data) }); },
+  async verifyRegistration(...args: any[]) { return request<any>('/auth/verify-registration', { method: 'POST', body: JSON.stringify({ email: args[0], code: args[1], ...(typeof args[0] === 'object' ? args[0] : {}) }) }); },
+  async getPublicTracking(code: string) { return publicRequest<any>(`/public/tracking/${encodeURIComponent(code)}`); },
+  async getPublicFreightDetails(id: string) { return publicRequest<any>(`/public/freights/${encodeURIComponent(id)}`); },
+  async getForms() { return request<any[]>('/forms'); },
+  async createForm(data: any) { return request<any>('/forms', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateForm(id: string, data: any) { return request<any>(`/forms/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async copyForm(id: string) { return request<any>(`/forms/${encodeURIComponent(id)}/copy`, { method: 'POST' }); },
+  async deleteForm(id: string) { return request<any>(`/forms/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+  async submitFormResponse(data: any) { return request<any>('/forms/responses', { method: 'POST', body: JSON.stringify(data) }); },
+  async getAuditLogs(...args: any[]) { return request<any[]>('/audit-logs'); },
+  async getHelp() { return request<any[]>('/help'); },
+  async getTenants() { return request<Tenant[]>('/tenants'); },
+  async createTenant(data: any) { return request<any>('/tenants', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateTenant(id: string, data: any) { return request<any>(`/tenants/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deleteTenant(id: string) { return request<any>(`/tenants/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+  async provisionTenantAtendo(id: string, data?: any) { return request<any>(`/tenants/${encodeURIComponent(id)}/provision-atendo`, { method: 'POST', body: JSON.stringify(data || {}) }); },
+  async activateTenantPlan(id: string, ...args: any[]) { return request<any>(`/tenants/${encodeURIComponent(id)}/activate-plan`, { method: 'POST', body: JSON.stringify({ plan: args[0], days: args[1], ...(typeof args[0] === 'object' ? args[0] : {}) }) }); },
+  async getNotifications() { return request<any[]>('/notifications'); },
+  async markNotificationRead(id: string) { return request<any>(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PUT' }); },
+  async markAllNotificationsRead() { return request<any>('/notifications/mark-all-read', { method: 'PUT' }); },
+  async updateProfile(data: any) { return request<any>('/auth/profile', { method: 'PUT', body: JSON.stringify(data) }); },
+  async switchDemoUser(userId: string) { return request<any>('/auth/switch-demo', { method: 'POST', body: JSON.stringify({ userId }) }); },
+  async startDemoSession(userId?: string) { return request<any>('/auth/demo-session', { method: 'POST', body: JSON.stringify(userId ? { userId } : {}) }); },
+  async startSupportSession(targetUserId: string) { return request<any>('/support/sessions', { method: 'POST', body: JSON.stringify({ targetUserId }) }); },
+  async endSupportSession() { return request<any>('/support/sessions/end', { method: 'POST' }); },
+  async getNotificationModuleStatus(...args: any[]) { return request<any>('/billing/asaas/notification-module'); },
+  async selectFreeNotificationModule(data?: any) { return request<any>('/billing/asaas/notification-module/free', { method: 'POST', body: JSON.stringify(data || {}) }); },
+  async createNotificationModuleSubscription(data: any) { return request<any>('/billing/asaas/notification-module/subscribe', { method: 'POST', body: JSON.stringify(data) }); },
+  async cancelNotificationModule(data?: any) { return request<any>('/billing/asaas/notification-module/cancel', { method: 'POST', body: JSON.stringify(data || {}) }); },
+  async getAsaasFinancialSummary(...args: any[]) { return request<any>('/billing/asaas/financial-summary'); },
+  async changeAsaasPlan(data: any) { return request<any>('/billing/asaas/subscription/change-plan', { method: 'POST', body: JSON.stringify(data) }); },
+  async createAsaasSubscription(data: any) { return request<any>('/billing/asaas/subscribe', { method: 'POST', body: JSON.stringify(data) }); },
+  async cancelAsaasSubscription(data: any) { return request<any>('/billing/asaas/subscription/cancel', { method: 'POST', body: JSON.stringify(data) }); },
+  async getAsaasSubscription(...args: any[]) { return request<any>('/billing/asaas/subscription'); },
+  async testAsaasConnection(data?: any) { return request<any>('/billing/asaas/test', { method: 'POST', body: JSON.stringify(data || {}) }); },
+  async getCompanyStops(...args: any[]) { return request<any[]>('/company-stops'); },
+  async createCompanyStop(data: any) { return request<any>('/company-stops', { method: 'POST', body: JSON.stringify(data) }); },
+  async getLodgingPartners(...args: any[]) { return request<any[]>('/lodging-partners'); },
+  async createLodgingPartner(data: any) { return request<any>('/lodging-partners', { method: 'POST', body: JSON.stringify(data) }); },
+  async acceptFreight(id: string) { return request<any>(`/freights/${encodeURIComponent(id)}/accept`, { method: 'POST' }); },
+  async getDriverCompanyLinks(...args: any[]) { return request<any[]>('/driver-company-links'); },
+  async updateDriverCompanyLinkStatus(id: string, ...args: any[]) { return request<any>(`/driver-company-links/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ status: args[0], freightId: args[1], scope: args[2], ...(typeof args[0] === 'object' ? args[0] : {}) }) }); },
+  async registerDriver(data: any) { return request<any>('/drivers/register', { method: 'POST', body: JSON.stringify(data) }); },
+  async getTripExpenses(...args: any[]) { return request<any[]>('/expenses'); },
+  async createTripExpense(data: any) { return request<any>('/expenses', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateTripExpense(id: string, data: any) { return request<any>(`/expenses/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deleteTripExpense(id: string) { return request<any>(`/expenses/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+  async getNextTalaoNumber(...args: any[]) { return request<any>('/forms/next-talao'); },
+  async sendChecklistDispatch(data: any) { return request<any>('/notifications/checklist-dispatch', { method: 'POST', body: JSON.stringify(data) }); },
+  async setPublicTrackingRevoked(id: string, revoked: boolean) { return request<any>(`/freights/${encodeURIComponent(id)}/public-tracking/revoke`, { method: 'POST', body: JSON.stringify({ revoked }) }); },
+  async getStats(...args: any[]) { return request<any>('/stats'); },
+  async getDetailedHealth(...args: any[]) { return request<any>('/health/detailed'); },
+  async getPosts() { return request<any[]>('/posts'); },
+  async getPageVersions(id: string) { return request<any>(`/pages/${encodeURIComponent(id)}/versions`); },
+  async getErrorLogs(...args: any[]) { return request<any>('/error-logs'); },
+  async cleanupErrorLogs(data?: any) { return request<any>('/error-logs', { method: 'DELETE', body: JSON.stringify(typeof data === 'number' ? { olderThanDays: data } : data || {}) }); },
+  async getSaaSGlobalConfig() { return request<any>('/saas/config'); },
+  async updateSaaSGlobalConfig(data: any) { return request<any>('/saas/config', { method: 'PUT', body: JSON.stringify(data) }); },
+  async getBackupStatus(...args: any[]) { return request<any>('/admin/backups/status'); },
+  async requestManualBackup(data?: any) { return request<any>('/admin/backups/run', { method: 'POST', body: JSON.stringify(data || {}) }); },
+  async updateBackupNotifications(data: any) { return request<any>('/admin/backups/notifications', { method: 'PUT', body: JSON.stringify(data) }); },
+  async testBackupWhatsApp(data?: any) { return request<any>('/admin/backups/whatsapp-test', { method: 'POST', body: JSON.stringify(data || {}) }); },
+  async getDatabaseStatus(...args: any[]) { return request<any>('/database/status'); },
+  async getSshInstallScript(...args: any[]) { return request<any>('/database/ssh-install-script'); },
+  async getPortainerStackYaml(...args: any[]) { return request<any>('/database/portainer-stack-yaml'); },
+  async getDatabaseSchema(...args: any[]) { return request<any>('/database/schema'); },
+  async testDatabaseConnection(data?: any) { return request<any>('/database/test', { method: 'POST', body: JSON.stringify(data || {}) }); },
+  async migrateDatabase(data?: any) { return request<any>('/database/migrate', { method: 'POST', body: JSON.stringify(data || {}) }); },
 
-  async deleteTripExpense(id: string) {
-    return request<{ success: boolean; message: string }>(`/expenses/${id}`, {
-      method: 'DELETE'
-    });
-  },
+  // Vehicles
+  async getVehicles(search = '') { return request<Vehicle[]>(`/vehicles?search=${encodeURIComponent(search)}`); },
+  async getVehicle(id: string) { return request<Vehicle>(`/vehicles/${id}`); },
+  async createVehicle(data: any) { return request<Vehicle>('/vehicles', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateVehicle(id: string, data: any) { return request<Vehicle>(`/vehicles/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deleteVehicle(id: string) { return request<{ success: boolean }>(`/vehicles/${id}`, { method: 'DELETE' }); },
+  async getCompanyVehicles() { return request<any[]>('/company-vehicles'); },
+  async createCompanyVehicle(data: any) { return request<any>('/company-vehicles', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateCompanyVehicle(id: string, data: any) { return request<any>(`/company-vehicles/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deleteCompanyVehicle(id: string) { return request<{ success: boolean }>(`/company-vehicles/${id}`, { method: 'DELETE' }); },
 
-  // SQL Database & Installation Management
-  async getDatabaseStatus() {
-    return request<{
-      success: boolean;
-      enabled: boolean;
-      status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR' | 'UNCONFIGURED';
-      host: string;
-      port: number;
-      database: string;
-      username: string;
-      ssl: boolean;
-      lastTestedAt?: string;
-      tables: string[];
-      recordsCount: Record<string, number>;
-      imageCompression?: any;
-    }>('/database/status');
+  // Budgets
+  async getBudgets() { return request<any[]>('/budgets'); },
+  async getBudget(id: string) { return request<any>(`/budgets/${id}`); },
+  async createBudget(data: any) { return request<any>('/budgets', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateBudget(id: string, data: any) { return request<any>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify({ ...data, expectedVersion: (data as any).version }) }); },
+  async updateBudgetStatus(id: string, status: string) { return request<any>(`/budgets/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }); },
+  async duplicateBudget(id: string) { return request<any>(`/budgets/${id}/duplicate`, { method: 'POST' }); },
+  async convertBudgetToFreight(id: string) { return request<any>(`/budgets/${id}/convert`, { method: 'POST' }); },
+  async deleteBudget(id: string) { return request<any>(`/budgets/${id}`, { method: 'DELETE' }); },
+  async geocode(query: string) { return request<any[]>(`/mapbox/geocode?q=${encodeURIComponent(query)}`); },
+  // ✅ NOVO: Endpoint protegido para geocodificação em rastreamento (token não exposto no cliente)
+  async geocodeTracking(query: string, options?: RequestInit) {
+    return request<any[]>(`/mapbox/geocode-tracking?q=${encodeURIComponent(query)}`, options);
   },
-
-  async testDatabaseConnection(customConfig?: any) {
-    return request<{
-      success: boolean;
-      message: string;
-      version?: string;
-      tablesCount?: number;
-      latencyMs?: number;
-    }>('/database/test', {
-      method: 'POST',
-      body: JSON.stringify(customConfig || {})
-    });
-  },
-
-  async migrateDatabase() {
-    return request<{
-      success: boolean;
-      message: string;
-    }>('/database/migrate', {
-      method: 'POST'
-    });
-  },
-
-  async getDatabaseSchema() {
-    const token = getAuthToken();
-    const res = await fetch('/api/database/schema', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-    if (!res.ok) {
-      throw new Error(`Erro ao carregar schema SQL: ${res.status}`);
-    }
-    return res.text();
-  },
-
-  async getSshInstallScript() {
-    const token = getAuthToken();
-    const res = await fetch('/api/installation/ssh-script', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-    if (!res.ok) {
-      throw new Error(`Erro ao carregar script SSH: ${res.status}`);
-    }
-    return res.text();
-  },
-
-  async getPortainerStackYaml() {
-    const token = getAuthToken();
-    const res = await fetch('/api/installation/portainer-stack', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    });
-    if (!res.ok) {
-      throw new Error(`Erro ao carregar stack Portainer: ${res.status}`);
-    }
-    return res.text();
-  },
-
-  async getHelp() {
-    return request<any>('/help');
-  },
-
-  async saveHelp(role: string, content: string) {
-    const token = getAuthToken();
-    return request('/help', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({ role, content })
-    });
-  }
+  async getDirections(origin: any, destination: any) { return request<any>(`/mapbox/directions?origin=${origin.lng},${origin.lat}&destination=${destination.lng},${destination.lat}`); },
+  async getClientConfig() { return request<any>('/mapbox/client-config'); },
 };
 
-
 export const budgetApi = {
-  list: () => request<import('../types').Budget[]>('/budgets'),
-  get: (id: string) => request<import('../types').Budget>(`/budgets/${id}`),
-  create: (data: Partial<import('../types').Budget>) => request<import('../types').Budget>('/budgets', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<import('../types').Budget>) => request<import('../types').Budget>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify({ ...data, expectedVersion: (data as any).version }) }),
-  calculate: (data: Partial<import('../types').Budget>) => request<{ expenses: import('../types').BudgetExpense[]; financials: import('../types').BudgetFinancials }>('/budgets/calculate', { method: 'POST', body: JSON.stringify(data) }),
-  status: (id: string, status: import('../types').BudgetStatus) => request<import('../types').Budget>(`/budgets/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
-  duplicate: (id: string) => request<import('../types').Budget>(`/budgets/${id}/duplicate`, { method: 'POST' }),
-  convert: (id: string) => request<{ budget: import('../types').Budget; freightId: string; idempotent: boolean }>(`/budgets/${id}/convert`, { method: 'POST' }),
-  remove: (id: string) => request<import('../types').Budget>(`/budgets/${id}`, { method: 'DELETE' }),
-  geocode: (query: string) => request<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/mapbox/geocode?q=${encodeURIComponent(query)}`),
-  directions: (origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) => request<{ distanceKm: number; estimatedMinutes: number }>(`/mapbox/directions?origin=${origin.lng},${origin.lat}&destination=${destination.lng},${destination.lat}`),
-  clientConfig: () => request<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number }>('/mapbox/client-config')
+  list: () => request<any[]>('/budgets'),
+  get: (id: string) => request<any>(`/budgets/${id}`),
+  create: (data: any) => request<any>('/budgets', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: any) => request<any>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify({ ...data, expectedVersion: (data as any).version }) }),
+  status: (id: string, status: string) => request<any>(`/budgets/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
+  duplicate: (id: string) => request<any>(`/budgets/${id}/duplicate`, { method: 'POST' }),
+  convert: (id: string) => request<any>(`/budgets/${id}/convert`, { method: 'POST' }),
+  remove: (id: string) => request<any>(`/budgets/${id}`, { method: 'DELETE' }),
+  geocode: (query: string, signal?: AbortSignal) => request<any[]>(`/mapbox/geocode?q=${encodeURIComponent(query)}`, signal ? { signal } : undefined),
+  // ✅ NOVO: Endpoint protegido para geocodificação em rastreamento
+  geocodeTracking: (query: string, options?: RequestInit) => request<any[]>(`/mapbox/geocode-tracking?q=${encodeURIComponent(query)}`, options),
+  directions: (origin: any, destination: any) => request<any>(`/mapbox/directions?origin=${origin.lng},${origin.lat}&destination=${destination.lng},${destination.lat}`),
+  clientConfig: () => request<any>('/mapbox/client-config')
+};
+
+export const publicTrackingApi = {
+  geocode: (query: string) => publicRequest<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/public/mapbox/geocode?q=${encodeURIComponent(query)}`),
+  clientConfig: () => publicRequest<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number }>(`/public/mapbox/client-config`)
 };
 
 export const clientApi = {
-  list: (search = '') => request<import('../types').Client[]>(`/clients${search ? `?search=${encodeURIComponent(search)}` : ''}`),
-  lookupCnpj: (cnpj: string) => request<{ cnpj: string; data: any }>(`/clients/cnpj/${encodeURIComponent(cnpj)}/lookup`),
-  create: (data: Partial<import('../types').Client>) => request<import('../types').Client>('/clients', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<import('../types').Client>) => request<import('../types').Client>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  remove: (id: string) => request<import('../types').Client>(`/clients/${id}`, { method: 'DELETE' })
+  list: (search = '') => request<any[]>(`/clients${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+  lookupCnpj: (cnpj: string) => request<any>(`/clients/cnpj/${encodeURIComponent(cnpj)}/lookup`),
+  create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  remove: (id: string) => request<any>(`/clients/${id}`, { method: 'DELETE' })
+};
+
+export const tenantApi = {
+  getTenants: () => request<Tenant[]>('/tenants'),
+  getTenant: (id: string) => request<Tenant>(`/tenants/${id}`),
+  createTenant: (data: any) => request<Tenant>('/tenants', { method: 'POST', body: JSON.stringify(data) }),
+  updateTenant: (id: string, data: any) => request<Tenant>(`/tenants/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteTenant: (id: string) => request<{ success: boolean }>(`/tenants/${id}`, { method: 'DELETE' }),
 };

@@ -10,7 +10,7 @@ export interface BudgetVersion { id: string; budgetId: string; version: number; 
 export interface Budget {
   id: string; tenantId: string; code: string; status: BudgetStatus; version: number; clientName: string; clientId?: string;
   origin: Record<string, any>; destination: Record<string, any>; date: string; cargoType: string; weightKg: number; quantity: number;
-  vehicleType?: string; driverId?: string; distanceKm: number; pricePerKm?: number; priceTableReference?: string; tolls?: number; insurance?: number; dailyRate?: number; dailyCount?: number; assistantCount?: number; assistantDailyRate?: number; estimatedMinutes: number; notes?: string;
+  vehicleType?: string; driverId?: string; distanceKm: number; pricePerKm?: number; priceTableReference?: string; tolls?: number; insurance?: number; dailyRate?: number; dailyCount?: number; assistantCount?: number; assistantDailyRate?: number; estimatedMinutes: number; routeGeometry?: { type: 'LineString'; coordinates: number[][] }; notes?: string;
   expenses: BudgetExpense[]; taxes: BudgetTax[]; profitType: BudgetProfitType; profitValue: number;
   driverPassed: number; driverPaid: number; financials: BudgetFinancials; customFields: Record<string, unknown>;
   versions: BudgetVersion[]; convertedFreightId?: string; createdAt: string; updatedAt: string;

@@ -28,16 +28,23 @@ const bodyTypes: Array<{ value: BodyType; label: string }> = [
 const emptyForm = {
   plate: '',
   renavam: '',
+  chassis: '',
   type: 'TRUCK' as VehicleType,
   bodyType: 'BAU' as BodyType,
   brand: '',
   model: '',
   year: String(new Date().getFullYear()),
+  manufactureYear: String(new Date().getFullYear()),
+  modelYear: String(new Date().getFullYear()),
+  color: '',
+  fuelType: 'DIESEL',
+  axleCount: '2',
   capacityKg: '',
   ownerName: '',
   ownerCnpj: '',
   registrationState: '',
   crlvNumber: '',
+  insuranceValidUntil: '',
   notes: ''
 };
 const inputClass = 'w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/30';
@@ -74,16 +81,23 @@ export const CompanyVehicleManager: React.FC = () => {
     setForm({
       plate: vehicle.plate || '',
       renavam: vehicle.renavam || '',
+      chassis: vehicle.chassis || '',
       type: vehicle.type,
       bodyType: vehicle.bodyType,
       brand: vehicle.brand || '',
       model: vehicle.model || '',
       year: String(vehicle.year || ''),
+      manufactureYear: String(vehicle.manufactureYear || vehicle.year || ''),
+      modelYear: String(vehicle.modelYear || vehicle.year || ''),
+      color: vehicle.color || '',
+      fuelType: vehicle.fuelType || 'DIESEL',
+      axleCount: String(vehicle.axleCount || 2),
       capacityKg: String(vehicle.capacityKg || ''),
       ownerName: vehicle.ownerName || '',
       ownerCnpj: vehicle.ownerCnpj || '',
       registrationState: vehicle.registrationState || '',
       crlvNumber: vehicle.crlvNumber || '',
+      insuranceValidUntil: vehicle.insuranceValidUntil || '',
       notes: vehicle.notes || ''
     });
     setError(null);
@@ -95,7 +109,10 @@ export const CompanyVehicleManager: React.FC = () => {
       setError(null);
       const payload = {
         ...form,
-        year: Number(form.year),
+        year: Number(form.modelYear),
+        manufactureYear: Number(form.manufactureYear),
+        modelYear: Number(form.modelYear),
+        axleCount: Number(form.axleCount || 0),
         capacityKg: Number(form.capacityKg || 0)
       };
       if (isDemo) {
@@ -156,19 +173,24 @@ export const CompanyVehicleManager: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <label className="text-xs font-semibold">Placa *<input required value={form.plate} onChange={e => setField('plate', e.target.value.toUpperCase())} className={inputClass} placeholder="ABC1D23" /></label>
             <label className="text-xs font-semibold">RENAVAM *<input required value={form.renavam} onChange={e => setField('renavam', e.target.value)} className={inputClass} /></label>
+            <label className="text-xs font-semibold">Chassi *<input required minLength={5} value={form.chassis} onChange={e => setField('chassis', e.target.value.toUpperCase())} className={inputClass} /></label>
             <label className="text-xs font-semibold">Tipo *<select value={form.type} onChange={e => setField('type', e.target.value)} className={inputClass}>{vehicleTypes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
             <label className="text-xs font-semibold">Carroceria *<select value={form.bodyType} onChange={e => setField('bodyType', e.target.value)} className={inputClass}>{bodyTypes.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
             <label className="text-xs font-semibold">Marca *<input required value={form.brand} onChange={e => setField('brand', e.target.value)} className={inputClass} /></label>
             <label className="text-xs font-semibold">Modelo *<input required value={form.model} onChange={e => setField('model', e.target.value)} className={inputClass} /></label>
-            <label className="text-xs font-semibold">Ano *<input required type="number" min="1950" max="2100" value={form.year} onChange={e => setField('year', e.target.value)} className={inputClass} /></label>
+            <label className="text-xs font-semibold">Ano modelo *<input required type="number" min="1950" max="2100" value={form.modelYear} onChange={e => setField('modelYear', e.target.value)} className={inputClass} /></label>
+            <label className="text-xs font-semibold">Ano fabricação *<input required type="number" min="1950" max="2100" value={form.manufactureYear} onChange={e => setField('manufactureYear', e.target.value)} className={inputClass} /></label>
+            <label className="text-xs font-semibold">Cor<input value={form.color} onChange={e => setField('color', e.target.value)} className={inputClass} /></label>
+            <label className="text-xs font-semibold">Combustível<select value={form.fuelType} onChange={e => setField('fuelType', e.target.value)} className={inputClass}><option value="DIESEL">Diesel</option><option value="FLEX">Flex</option><option value="GASOLINA">Gasolina</option><option value="ELETRICO">Elétrico</option><option value="HIBRIDO">Híbrido</option></select></label>
+            <label className="text-xs font-semibold">Qtd. eixos<input required type="number" min="1" max="12" value={form.axleCount} onChange={e => setField('axleCount', e.target.value)} className={inputClass} /></label>
             <label className="text-xs font-semibold">Capacidade (kg) *<input required type="number" min="0" value={form.capacityKg} onChange={e => setField('capacityKg', e.target.value)} className={inputClass} /></label>
           </div>
-          <div className="border-t border-slate-100 dark:border-slate-800 pt-4"><p className="text-[10px] uppercase font-black tracking-wider text-slate-400 mb-3 flex items-center gap-2"><FileText className="w-3.5 h-3.5" /> Dados para documentos fiscais</p><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"><label className="text-xs font-semibold">Proprietário/razão social<input value={form.ownerName} onChange={e => setField('ownerName', e.target.value)} className={inputClass} /></label><label className="text-xs font-semibold">CNPJ/CPF do proprietário<input value={form.ownerCnpj} onChange={e => setField('ownerCnpj', e.target.value)} className={inputClass} /></label><label className="text-xs font-semibold">UF de registro<input maxLength={2} value={form.registrationState} onChange={e => setField('registrationState', e.target.value.toUpperCase())} className={inputClass} placeholder="SP" /></label><label className="text-xs font-semibold">Número do CRLV<input value={form.crlvNumber} onChange={e => setField('crlvNumber', e.target.value)} className={inputClass} /></label></div></div>
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-4"><p className="text-[10px] uppercase font-black tracking-wider text-slate-400 mb-3 flex items-center gap-2"><FileText className="w-3.5 h-3.5" /> Dados para documentos fiscais</p><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3"><label className="text-xs font-semibold">Proprietário/razão social<input value={form.ownerName} onChange={e => setField('ownerName', e.target.value)} className={inputClass} /></label><label className="text-xs font-semibold">CNPJ/CPF do proprietário<input value={form.ownerCnpj} onChange={e => setField('ownerCnpj', e.target.value)} className={inputClass} /></label><label className="text-xs font-semibold">UF de registro<input maxLength={2} value={form.registrationState} onChange={e => setField('registrationState', e.target.value.toUpperCase())} className={inputClass} placeholder="SP" /></label><label className="text-xs font-semibold">Número do CRLV<input value={form.crlvNumber} onChange={e => setField('crlvNumber', e.target.value)} className={inputClass} /></label><label className="text-xs font-semibold">Seguro válido até<input type="date" value={form.insuranceValidUntil} onChange={e => setField('insuranceValidUntil', e.target.value)} className={inputClass} /></label></div></div>
           <label className="text-xs font-semibold block">Observações internas<textarea rows={2} value={form.notes} onChange={e => setField('notes', e.target.value)} className={inputClass} /></label>
           <div className="flex justify-end gap-2"><button type="submit" disabled={saving} className="rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">{saving ? 'Preparando...' : isDemo ? 'Visualizar simulação' : editing ? 'Salvar alterações' : 'Cadastrar veículo'}</button></div>
         </form>
       )}
-      {loading ? <div className="rounded-2xl bg-white dark:bg-slate-900 p-8 text-center text-sm text-slate-500">Carregando veículos próprios...</div> : vehicles.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center text-sm text-slate-500">Nenhum veículo próprio cadastrado.</div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{vehicles.map(vehicle => <article key={vehicle.id} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-slate-900 dark:text-white">{vehicle.plate}</h3><p className="text-xs text-slate-500">{vehicle.brand} {vehicle.model} • {vehicle.year}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${vehicle.status === 'ATIVO' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>{vehicle.status}</span></div><div className="grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300"><span>Tipo: <strong>{vehicle.type}</strong></span><span>Carroceria: <strong>{vehicle.bodyType}</strong></span><span>Capacidade: <strong>{vehicle.capacityKg.toLocaleString('pt-BR')} kg</strong></span><span>RENAVAM: <strong>{vehicle.renavam}</strong></span></div><div className="border-t border-slate-100 dark:border-slate-800 pt-3 text-xs text-slate-500"><p>Proprietário: {vehicle.ownerName || 'Não informado'}</p><p>UF/CRLV: {vehicle.registrationState || '--'} / {vehicle.crlvNumber || '--'}</p></div><div className="flex justify-end gap-2"><button onClick={() => openEdit(vehicle)} className="inline-flex items-center gap-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1.5 text-[11px] font-bold text-blue-700 dark:text-blue-300 cursor-pointer"><Pencil className="w-3 h-3" /> Editar</button>{vehicle.status === 'ATIVO' && <button onClick={() => handleDeactivate(vehicle)} className="inline-flex items-center gap-1 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-[11px] font-bold text-amber-700 dark:text-amber-300 cursor-pointer"><Archive className="w-3 h-3" /> Desativar</button>}</div></article>)}</div>}
+      {loading ? <div className="rounded-2xl bg-white dark:bg-slate-900 p-8 text-center text-sm text-slate-500">Carregando veículos próprios...</div> : vehicles.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center text-sm text-slate-500">Nenhum veículo próprio cadastrado.</div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{vehicles.map(vehicle => <article key={vehicle.id} className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-slate-900 dark:text-white">{vehicle.plate}</h3><p className="text-xs text-slate-500">{vehicle.brand} {vehicle.model} • {vehicle.modelYear || vehicle.year}</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${vehicle.status === 'ATIVO' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>{vehicle.status}</span></div><div className="grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300"><span>Tipo: <strong>{vehicle.type}</strong></span><span>Carroceria: <strong>{vehicle.bodyType}</strong></span><span>Capacidade: <strong>{vehicle.capacityKg.toLocaleString('pt-BR')} kg</strong></span><span>RENAVAM: <strong>{vehicle.renavam}</strong></span><span>Chassi: <strong>{vehicle.chassis || '--'}</strong></span><span>Combustível: <strong>{vehicle.fuelType || '--'}</strong></span></div><div className="border-t border-slate-100 dark:border-slate-800 pt-3 text-xs text-slate-500"><p>Proprietário: {vehicle.ownerName || 'Não informado'}</p><p>UF/CRLV: {vehicle.registrationState || '--'} / {vehicle.crlvNumber || '--'}</p><p>Seguro válido até: {vehicle.insuranceValidUntil || '--'}</p></div><div className="flex justify-end gap-2"><button onClick={() => openEdit(vehicle)} className="inline-flex items-center gap-1 rounded-lg bg-blue-50 dark:bg-blue-950/40 px-2.5 py-1.5 text-[11px] font-bold text-blue-700 dark:text-blue-300 cursor-pointer"><Pencil className="w-3 h-3" /> Editar</button>{vehicle.status === 'ATIVO' && <button onClick={() => handleDeactivate(vehicle)} className="inline-flex items-center gap-1 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-[11px] font-bold text-amber-700 dark:text-amber-300 cursor-pointer"><Archive className="w-3 h-3" /> Desativar</button>}</div></article>)}</div>}
     </section>
   );
 };

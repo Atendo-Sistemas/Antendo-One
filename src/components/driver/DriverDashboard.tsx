@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Freight, FreightStatus, FormDefinition } from '../../types';
 import { api } from '../../services/api';
@@ -47,6 +47,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [gpsStatus, setGpsStatus] = useState<'idle' | 'searching' | 'online' | 'offline' | 'error'>('idle');
+  const [lastGpsAt, setLastGpsAt] = useState<string | null>(null);
+  const wakeLockRef = useRef<any>(null);
 
   const primaryVehicle = vehicles[0];
 
@@ -127,22 +130,57 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
 
   // Public tracking receives the driver's position, never the visitor's location.
   useEffect(() => {
-    if (!driver?.id || !navigator.geolocation) return;
+    if (!driver?.id || !navigator.geolocation) { setGpsStatus('error'); return; }
     const activeFreight = freights.find(f => f.assignedDriverId === driver.id && ['RESERVADO', 'EM_COLETA', 'COLETADO', 'EM_TRANSITO'].includes(f.status));
-    if (!activeFreight) return;
+    if (!activeFreight) { setGpsStatus('idle'); return; }
+    let disposed = false;
+    const queueKey = 'elolog_gps_queue';
+    const readQueue = (): Array<{ freightId: string; payload: any }> => {
+      try { return JSON.parse(localStorage.getItem(queueKey) || '[]'); } catch { return []; }
+    };
+    const writeQueue = (queue: Array<{ freightId: string; payload: any }>) => localStorage.setItem(queueKey, JSON.stringify(queue.slice(-100)));
+    const enqueue = (payload: any) => { writeQueue([...readQueue(), { freightId: activeFreight.id, payload }]); setGpsStatus('offline'); };
+    const flushQueue = async () => {
+      if (!navigator.onLine) return;
+      const queue = readQueue();
+      const remaining: Array<{ freightId: string; payload: any }> = [];
+      for (const item of queue) {
+        try { await api.updateFreightLocation(item.freightId, item.payload); } catch { remaining.push(item); }
+      }
+      writeQueue(remaining);
+      if (!remaining.length && !disposed) setGpsStatus('online');
+    };
+    const publish = async (position: GeolocationPosition) => {
+      const payload = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        speedKmh: position.coords.speed == null ? undefined : position.coords.speed * 3.6,
+        heading: position.coords.heading == null ? undefined : position.coords.heading,
+        accuracyMeters: position.coords.accuracy,
+        recordedAt: new Date(position.timestamp).toISOString()
+      };
+      setLastGpsAt(payload.recordedAt);
+      if (!navigator.onLine) { enqueue(payload); return; }
+      try { await api.updateFreightLocation(activeFreight.id, payload); if (!disposed) setGpsStatus('online'); }
+      catch { enqueue(payload); }
+    };
+    const acquireWakeLock = async () => {
+      try { if ('wakeLock' in navigator && !wakeLockRef.current) wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch { /* recurso opcional */ }
+    };
+    const releaseWakeLock = () => { try { wakeLockRef.current?.release?.(); } catch { /* noop */ } wakeLockRef.current = null; };
+    const handleVisibility = () => { if (document.visibilityState === 'visible') void acquireWakeLock(); };
+    setGpsStatus('searching');
+    void acquireWakeLock();
+    void flushQueue();
+    window.addEventListener('online', flushQueue);
+    document.addEventListener('visibilitychange', handleVisibility);
+    const retry = window.setInterval(() => void flushQueue(), 15000);
     const watchId = navigator.geolocation.watchPosition(
-      position => {
-        void api.updateFreightLocation(activeFreight.id, {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          speedKmh: position.coords.speed == null ? undefined : position.coords.speed * 3.6,
-          accuracyMeters: position.coords.accuracy
-        }).catch(error => console.warn('Não foi possível publicar a posição GPS:', error));
-      },
-      error => console.warn('GPS indisponível para rastreamento público:', error.message),
+      position => void publish(position),
+      error => { console.warn('GPS indisponível para rastreamento público:', error.message); if (!disposed) setGpsStatus('error'); },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
     );
-    return () => navigator.geolocation.clearWatch(watchId);
+    return () => { disposed = true; navigator.geolocation.clearWatch(watchId); window.clearInterval(retry); window.removeEventListener('online', flushQueue); document.removeEventListener('visibilitychange', handleVisibility); releaseWakeLock(); };
   }, [driver?.id, freights]);
 
   // Handle atomic freight acceptance
@@ -278,6 +316,20 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
       </div>
 
       {/* Pending Sync Banner */}
+      {gpsStatus !== 'idle' && (
+        <div className={`rounded-xl border p-3 flex items-center justify-between gap-3 text-xs ${
+          gpsStatus === 'online' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/30 dark:border-emerald-900 dark:text-emerald-300' :
+          gpsStatus === 'offline' ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-950/30 dark:border-amber-900 dark:text-amber-300' :
+          gpsStatus === 'error' ? 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/30 dark:border-red-900 dark:text-red-300' :
+          'bg-sky-50 border-sky-200 text-sky-800 dark:bg-sky-950/30 dark:border-sky-900 dark:text-sky-300'
+        }`}>
+          <span className="font-bold flex items-center gap-2"><Navigation className="w-4 h-4" />
+            {gpsStatus === 'online' ? 'GPS ativo — posição enviada em tempo real' : gpsStatus === 'offline' ? 'GPS salvo localmente — aguardando conexão' : gpsStatus === 'error' ? 'GPS indisponível — permita a localização no celular' : 'Localizando o motorista…'}
+          </span>
+          {lastGpsAt && <span>Última: {new Date(lastGpsAt).toLocaleTimeString('pt-BR')}</span>}
+        </div>
+      )}
+
       {pendingCount > 0 && (
         <div className="bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">

@@ -798,11 +798,29 @@ apiRouter.get('/mapbox/geocode', async (req: AuthenticatedRequest, res: Response
   try {
     const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
     if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
-    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; context?: Array<{ id: string; text: string }> }> };
-    return res.json((data.features || []).filter(item => item.center).map(item => ({ id: item.id, placeName: item.place_name, address: item.text || item.place_name, city: item.context?.find(c => c.id.startsWith('place'))?.text, state: item.context?.find(c => c.id.startsWith('region'))?.text, lng: item.center![0], lat: item.center![1] })));
+    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; address?: string; properties?: { address?: string }; context?: Array<{ id: string; text: string }> }> };
+    return res.json((data.features || []).filter(item => item.center).map(item => { const context = item.context || []; const find = (prefix: string) => context.find(c => c.id.startsWith(prefix))?.text; return { id: item.id, placeName: item.place_name, address: item.properties?.address || item.address || item.text || item.place_name, number: item.properties?.address?.match(/\d+/)?.[0], neighborhood: find('neighborhood') || find('locality'), zipCode: find('postcode'), city: find('place') || find('district'), state: find('region'), lng: item.center![0], lat: item.center![1] }; }));
   } catch {
     return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
   }
+});
+apiRouter.get('/mapbox/geocode-tracking', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
+  const query = String(req.query.q || '').trim().slice(0, 180);
+  if (query.length < 3) return res.json([]);
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+  if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
+  try {
+    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
+    const data: any = await response.json().catch(() => ({}));
+    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
+    return res.json((data.features || []).filter((item: any) => item.center).map((item: any) => {
+      const context = item.context || [];
+      const find = (prefix: string) => context.find((c: any) => c.id.startsWith(prefix))?.text;
+      const address = item.properties?.address || item.address || item.text || item.place_name;
+      return { id: item.id, placeName: item.place_name, address, number: item.properties?.address?.match(/\d+/)?.[0], neighborhood: find('neighborhood') || find('locality'), zipCode: find('postcode'), city: find('place') || find('district'), state: find('region'), lng: item.center[0], lat: item.center[1] };
+    }));
+  } catch { return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' }); }
 });
 apiRouter.get('/mapbox/directions', async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
@@ -810,10 +828,29 @@ apiRouter.get('/mapbox/directions', async (req: AuthenticatedRequest, res: Respo
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
   if (origin.length !== 2 || destination.length !== 2 || origin.some(Number.isNaN) || destination.some(Number.isNaN)) return res.status(400).json({ error: 'Coordenadas de origem e destino inválidas.' });
   if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
-  try { const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${origin.join(',')};${destination.join(',')}?overview=false&access_token=${encodeURIComponent(token)}`); const data: any = await response.json().catch(() => ({})); if (!response.ok || !data.routes?.[0]) return res.status(502).json({ error: 'Não foi possível calcular a rota no Mapbox.' }); const route = data.routes[0]; return res.json({ distanceKm: Number(route.distance || 0) / 1000, estimatedMinutes: Number(route.duration || 0) / 60 }); } catch { return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' }); }
+  try { const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${origin.join(',')};${destination.join(',')}?overview=full&geometries=geojson&access_token=${encodeURIComponent(token)}`); const data: any = await response.json().catch(() => ({})); if (!response.ok || !data.routes?.[0]) return res.status(502).json({ error: 'Não foi possível calcular a rota no Mapbox.' }); const route = data.routes[0]; return res.json({ distanceKm: Number(route.distance || 0) / 1000, estimatedMinutes: Number(route.duration || 0) / 60, geometry: route.geometry || null, source: 'MAPBOX' }); } catch { return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' }); }
   });
+apiRouter.get('/public/mapbox/geocode', async (req: AuthenticatedRequest, res: Response) => {
+  const query = String(req.query.q || '').trim().slice(0, 180);
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+  if (query.length < 3) return res.json([]);
+  if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
+  try {
+    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
+    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
+    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; address?: string; properties?: { address?: string }; context?: Array<{ id: string; text: string }> }> };
+    return res.json((data.features || []).filter(item => item.center).map(item => { const context = item.context || []; const find = (prefix: string) => context.find(c => c.id.startsWith(prefix))?.text; return { id: item.id, placeName: item.place_name, address: item.properties?.address || item.address || item.text || item.place_name, number: item.properties?.address?.match(/\d+/)?.[0], neighborhood: find('neighborhood') || find('locality'), zipCode: find('postcode'), city: find('place') || find('district'), state: find('region'), lng: item.center![0], lat: item.center![1] }; }));
+  } catch {
+    return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
+  }
+});
 apiRouter.get('/mapbox/client-config', (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+  const isPublicToken = token.startsWith('pk.');
+  return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : '', defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || 'streets-v12', defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
+});
+apiRouter.get('/public/mapbox/client-config', (_req: AuthenticatedRequest, res: Response) => {
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
   const isPublicToken = token.startsWith('pk.');
   return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : '', defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || 'streets-v12', defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
@@ -3389,22 +3426,25 @@ apiRouter.get('/company-vehicles', (req: AuthenticatedRequest, res: Response) =>
   if (!req.user?.tenantId) return res.status(403).json({ error: 'Empresa não identificada.' });
   res.json(db.companyVehicles.filter(vehicle => vehicle.tenantId === req.user?.tenantId));
 });
-apiRouter.post('/company-vehicles', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/company-vehicles', async (req: AuthenticatedRequest, res: Response) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem cadastrar veículos próprios.' });
   const tenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user?.tenantId || '';
   if (!tenantId) return res.status(400).json({ error: 'Empresa obrigatória para cadastrar veículo próprio.' });
+  if (!db.tenants.some(tenant => tenant.id === tenantId)) return res.status(400).json({ error: 'Empresa inválida para cadastrar veículo próprio.' });
   const body = req.body || {};
   const plate = normalizePublicPlate(body.plate);
   const renavam = normalizePublicIdentity(body.renavam);
-  if (!plate || !renavam || !body.brand || !body.model || !body.type || !body.bodyType) return res.status(400).json({ error: 'Placa, RENAVAM, tipo, carroceria, marca e modelo são obrigatórios.' });
-  if (db.companyVehicles.some(vehicle => normalizePublicPlate(vehicle.plate) === plate || normalizePublicIdentity(vehicle.renavam) === renavam)) return res.status(409).json({ error: 'Já existe veículo próprio com esta placa ou RENAVAM.' });
+  const chassis = String(body.chassis || '').trim().toUpperCase();
+  if (!plate || !renavam || chassis.length < 5 || !body.brand || !body.model || !body.type || !body.bodyType) return res.status(400).json({ error: 'Placa, RENAVAM, chassi, tipo, carroceria, marca e modelo são obrigatórios.' });
+  if (db.companyVehicles.some(vehicle => vehicle.tenantId === tenantId && (normalizePublicPlate(vehicle.plate) === plate || normalizePublicIdentity(vehicle.renavam) === renavam || (chassis && String(vehicle.chassis || '').trim().toUpperCase() === chassis)))) return res.status(409).json({ error: 'Esta empresa já possui veículo com esta placa, RENAVAM ou chassi.' });
   const now = new Date().toISOString();
-  const vehicle: CompanyVehicle = { id: `company-vehicle-${Date.now()}`, tenantId, type: body.type, brand: String(body.brand).trim(), model: String(body.model).trim(), year: Number(body.year || new Date().getFullYear()), plate: String(body.plate).trim().toUpperCase(), renavam: String(body.renavam).trim(), capacityKg: Number(body.capacityKg || 0), bodyType: body.bodyType, ownerName: String(body.ownerName || '').trim(), ownerCnpj: String(body.ownerCnpj || '').trim(), registrationState: String(body.registrationState || '').trim().toUpperCase(), crlvNumber: String(body.crlvNumber || '').trim(), status: 'ATIVO', notes: String(body.notes || '').trim(), createdAt: now, updatedAt: now };
+  const vehicle: CompanyVehicle = { id: `company-vehicle-${Date.now()}`, tenantId, type: body.type, brand: String(body.brand).trim(), model: String(body.model).trim(), year: Number(body.modelYear || body.year || new Date().getFullYear()), manufactureYear: Number(body.manufactureYear || body.year || new Date().getFullYear()), modelYear: Number(body.modelYear || body.year || new Date().getFullYear()), plate: String(body.plate).trim().toUpperCase(), renavam: String(body.renavam).trim(), chassis, capacityKg: Number(body.capacityKg || 0), bodyType: body.bodyType, color: String(body.color || '').trim(), fuelType: String(body.fuelType || '').trim().toUpperCase(), axleCount: Number(body.axleCount || 0), ownerName: String(body.ownerName || '').trim(), ownerCnpj: String(body.ownerCnpj || '').trim(), registrationState: String(body.registrationState || '').trim().toUpperCase(), crlvNumber: String(body.crlvNumber || '').trim(), insuranceValidUntil: String(body.insuranceValidUntil || '').trim(), status: 'ATIVO', notes: String(body.notes || '').trim(), createdAt: now, updatedAt: now };
   db.companyVehicles.unshift(vehicle);
   db.addAuditLog({ ip: requestIp(req), tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'CRIAR_VEICULO_PROPRIO', entity: 'CompanyVehicle', entityId: vehicle.id, details: `Veículo próprio ${vehicle.plate} cadastrado para documentos e operações da empresa.` });
+  await db.persistNow();
   res.status(201).json(vehicle);
 });
-apiRouter.put('/company-vehicles/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/company-vehicles/:id', async (req: AuthenticatedRequest, res: Response) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem editar veículos próprios.' });
   const vehicle = db.companyVehicles.find(item => item.id === req.params.id);
   if (!vehicle) return res.status(404).json({ error: 'Veículo próprio não encontrado.' });
@@ -3412,19 +3452,22 @@ apiRouter.put('/company-vehicles/:id', (req: AuthenticatedRequest, res: Response
   const body = req.body || {};
   const nextPlate = normalizePublicPlate(body.plate || vehicle.plate);
   const nextRenavam = normalizePublicIdentity(body.renavam || vehicle.renavam);
-  if (db.companyVehicles.some(item => item.id !== vehicle.id && (normalizePublicPlate(item.plate) === nextPlate || normalizePublicIdentity(item.renavam) === nextRenavam))) return res.status(409).json({ error: 'Já existe outro veículo próprio com esta placa ou RENAVAM.' });
-  const allowed = ['type', 'brand', 'model', 'year', 'plate', 'renavam', 'capacityKg', 'bodyType', 'ownerName', 'ownerCnpj', 'registrationState', 'crlvNumber', 'status', 'notes'];
-  for (const key of allowed) if (body[key] !== undefined) (vehicle as any)[key] = key === 'plate' ? String(body[key]).trim().toUpperCase() : body[key];
+  const nextChassis = String(body.chassis || vehicle.chassis || '').trim().toUpperCase();
+  if (db.companyVehicles.some(item => item.id !== vehicle.id && item.tenantId === vehicle.tenantId && (normalizePublicPlate(item.plate) === nextPlate || normalizePublicIdentity(item.renavam) === nextRenavam || (nextChassis && String(item.chassis || '').trim().toUpperCase() === nextChassis)))) return res.status(409).json({ error: 'Esta empresa já possui outro veículo com esta placa, RENAVAM ou chassi.' });
+  const allowed = ['type', 'brand', 'model', 'year', 'manufactureYear', 'modelYear', 'plate', 'renavam', 'chassis', 'capacityKg', 'bodyType', 'color', 'fuelType', 'axleCount', 'ownerName', 'ownerCnpj', 'registrationState', 'crlvNumber', 'insuranceValidUntil', 'status', 'notes'];
+  for (const key of allowed) if (body[key] !== undefined) (vehicle as any)[key] = ['plate', 'chassis', 'fuelType', 'registrationState'].includes(key) ? String(body[key]).trim().toUpperCase() : body[key];
   vehicle.updatedAt = new Date().toISOString();
+  await db.persistNow();
   res.json(vehicle);
 });
-apiRouter.delete('/company-vehicles/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.delete('/company-vehicles/:id', async (req: AuthenticatedRequest, res: Response) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem desativar veículos próprios.' });
   const vehicle = db.companyVehicles.find(item => item.id === req.params.id);
   if (!vehicle) return res.status(404).json({ error: 'Veículo próprio não encontrado.' });
   if (req.user?.role !== 'SUPER_ADMIN' && vehicle.tenantId !== req.user?.tenantId) return res.status(403).json({ error: 'Este veículo pertence a outra empresa.' });
   vehicle.status = 'INATIVO'; vehicle.updatedAt = new Date().toISOString();
   db.addAuditLog({ ip: requestIp(req), tenantId: vehicle.tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'DESATIVAR_VEICULO_PROPRIO', entity: 'CompanyVehicle', entityId: vehicle.id, details: `Veículo próprio ${vehicle.plate} desativado sem apagar histórico.` });
+  await db.persistNow();
   res.json({ success: true, message: 'Veículo próprio desativado; histórico preservado.' });
 });
 /* =========================================================================
@@ -3515,19 +3558,20 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
 
   const tenantId = req.user?.role === 'SUPER_ADMIN' ? (req.body.tenantId || null) : req.user?.tenantId;
   const tenant = db.tenants.find(t => t.id === tenantId);
+  if (!tenantId || !tenant) {
+    return res.status(400).json({ error: 'Empresa inválida.' });
+  }
 
-  if (tenant) {
-    const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
-    const tenantFreightsThisMonth = db.freights.filter(f =>
-      f.tenantId === tenant.id && f.createdAt.startsWith(currentMonth)
-    ).length;
+  const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+  const tenantFreightsThisMonth = db.freights.filter(f =>
+    f.tenantId === tenant.id && f.createdAt.startsWith(currentMonth)
+  ).length;
 
-    const maxLimit = tenant.planLimits?.maxFreightsMonthly || 0;
-    if (tenantFreightsThisMonth >= maxLimit) {
-      return res.status(403).json({
-        error: 'Limite de fretes mensais atingido para o plano atual (' + maxLimit + '). Faça o upgrade para continuar cadastrando.'
-      });
-    }
+  const maxLimit = Number(tenant.planLimits?.maxFreightsMonthly || 0);
+  if (maxLimit > 0 && tenantFreightsThisMonth >= maxLimit) {
+    return res.status(403).json({
+      error: 'Limite de fretes mensais atingido para o plano atual (' + maxLimit + '). Faça o upgrade para continuar cadastrando.'
+    });
   }
 
   const {
@@ -3547,6 +3591,7 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   const requestedBudgetId = customData?.budgetId ? String(customData.budgetId) : '';
   const linkedBudget = requestedBudgetId ? db.budgets.find((budget: any) => budget.id === requestedBudgetId && budget.tenantId === tenantId && !budget.convertedFreightId) : undefined;
   if (requestedBudgetId && !linkedBudget) return res.status(400).json({ error: 'Orçamento selecionado não pertence à empresa, não existe ou já foi convertido.' });
+  if (linkedBudget && linkedBudget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode ser vinculado a um frete.' });
 
   if (!origin?.city || !origin?.state || !destination?.city || !destination?.state || !payment?.price) {
     return res.status(400).json({ error: 'Origem, destino e valor são obrigatórios' });
@@ -3598,6 +3643,7 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
       contactPhone: destination.contactPhone
     },
     distanceKm: Number(distanceKm) || 450,
+    routeGeometry: req.body?.routeGeometry && typeof req.body.routeGeometry === 'object' ? req.body.routeGeometry : undefined,
     cargo: {
       description: cargo?.description || 'Carga geral',
       type: cargo?.type || 'GERAL',
@@ -3634,9 +3680,10 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     ],
     createdByUserId: req.user!.id,
     createdByName: req.user!.name,
+    requestedBudgetId: requestedBudgetId || undefined,
     createdAt: now,
     updatedAt: now,
-    customData: requestedBudgetId ? { ...(customData || {}), budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status } : customData,
+    customData: requestedBudgetId ? { ...(customData || {}), budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status, budgetVersion: linkedBudget?.version, budgetFinancials: linkedBudget?.financials, budgetTaxes: linkedBudget?.taxes, budgetExpenses: linkedBudget?.expenses } : customData,
     companyVehicleId: companyVehicleId || undefined,
     publicListingEnabled: safePublicListing,
     publicPriceVisibleToRegistered: safePublicListing && publicPriceVisibleToRegistered !== false,
@@ -3646,6 +3693,11 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   };
 
   db.freights.unshift(newFreight);
+  if (linkedBudget) {
+    linkedBudget.convertedFreightId = newFreight.id;
+    linkedBudget.status = 'CONVERTIDO';
+    linkedBudget.updatedAt = now;
+  }
 
   db.addAuditLog({ ip: requestIp(req),
     tenantId: tenantId || undefined,
@@ -3726,13 +3778,18 @@ apiRouter.put('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
   };
   const updateLocation = (current: Freight['origin'], incoming: any): Freight['origin'] => {
     if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return current;
+    const lat = Number(incoming.lat);
+    const lng = Number(incoming.lng);
     return {
       ...current,
       zipCode: text(incoming.zipCode, current.zipCode, 20), address: text(incoming.address, current.address, 300),
       number: text(incoming.number, current.number, 30), neighborhood: text(incoming.neighborhood, current.neighborhood || '', 160),
       city: text(incoming.city, current.city, 120), state: text(incoming.state, current.state, 2).toUpperCase(),
       date: text(incoming.date, current.date, 32), timeWindow: text(incoming.timeWindow, current.timeWindow || '', 100),
-      contactName: text(incoming.contactName, current.contactName || '', 160), contactPhone: text(incoming.contactPhone, current.contactPhone || '', 30)
+      contactName: text(incoming.contactName, current.contactName || '', 160), contactPhone: text(incoming.contactPhone, current.contactPhone || '', 30),
+      lat: Number.isFinite(lat) ? lat : current.lat,
+      lng: Number.isFinite(lng) ? lng : current.lng,
+      mapboxPlaceId: typeof incoming.mapboxPlaceId === 'string' ? incoming.mapboxPlaceId.trim().slice(0, 180) || undefined : current.mapboxPlaceId
     };
   };
   const updatedAt = new Date().toISOString();
@@ -3935,6 +3992,7 @@ apiRouter.post('/freights/:id/location', async (req: AuthenticatedRequest, res: 
     lat,
     lng,
     speedKmh: Number.isFinite(Number(req.body?.speedKmh)) ? Math.max(0, Math.min(250, Number(req.body.speedKmh))) : undefined,
+    heading: Number.isFinite(Number(req.body?.heading)) ? Math.max(0, Math.min(360, Number(req.body.heading))) : undefined,
     accuracyMeters: Number.isFinite(Number(req.body?.accuracyMeters)) ? Math.max(0, Math.min(10000, Number(req.body.accuracyMeters))) : undefined,
     label: typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 120) : undefined,
     recordedAt: now
@@ -4727,10 +4785,9 @@ apiRouter.post('/integrations/whatsapp/config', async (req: AuthenticatedRequest
   });
 });
 
-// 3. Read Atendo CRM channel status without exposing provider response or credentials
-apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+async function handleWhatsAppStatus(req: AuthenticatedRequest, res: Response, rawTenantId?: unknown) {
   await db.waitForPersistence();
-  const scope = getWhatsAppScope(req, req.query.tenantId);
+  const scope = getWhatsAppScope(req, rawTenantId);
   if (!scope) {
     return res.status(403).json({ error: 'Você não tem permissão para consultar o status WhatsApp desta empresa.' });
   }
@@ -4787,6 +4844,15 @@ apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest,
     db.addErrorLog({ service: 'whatsapp-gateway', route: 'external-status-channel', method: 'GET', event: 'WHATSAPP_STATUS_ERROR', message: 'Falha de comunicação com o gateway WhatsApp.' });
     return res.status(502).json({ success: false, status: 'ERROR', message: 'Falha de comunicação com o gateway WhatsApp.', config: safeWhatsAppConfig(updated, scope) });
   }
+}
+
+// 3. Read Atendo CRM channel status without exposing provider response or credentials
+apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+  return handleWhatsAppStatus(req, res, req.query.tenantId);
+});
+
+apiRouter.post('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+  return handleWhatsAppStatus(req, res, req.body?.tenantId ?? req.query.tenantId);
 });
 
 // 4. Request a temporary QR Code or pairing code from Atendo CRM; neither is persisted
@@ -6295,10 +6361,54 @@ const clientPayload = (body: any, tenantId: string, existing?: Client): Client =
 
 apiRouter.get('/clients/cnpj/:cnpj/lookup', async (req: AuthenticatedRequest, res: Response) => {
   if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' });
-  const cnpj = clientCnpj(req.params.cnpj); if (cnpj.length !== 14) return res.status(400).json({ error: 'CNPJ inválido.' });
-  const ip = requestIp(req) || 'unknown'; const nowMs = Date.now(); const attempts = (clientLookupRate.get(ip) || []).filter(timestamp => nowMs - timestamp < CLIENT_LOOKUP_WINDOW_MS); if (attempts.length >= CLIENT_LOOKUP_LIMIT) return res.status(429).json({ error: 'Limite de consultas atingido. Tente novamente em alguns instantes.' }); attempts.push(nowMs); clientLookupRate.set(ip, attempts);
-  const cached = clientLookupCache.get(cnpj); if (cached && cached.expiresAt > nowMs) return res.json({ cnpj, data: cached.data, cached: true });
-  try { const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { headers: { Accept: 'application/json', 'X-Forwarded-For': ip, 'X-Real-IP': ip }, signal: AbortSignal.timeout(10000) }); const data: any = await response.json().catch(() => ({})); if (!response.ok) return res.status(response.status === 404 ? 404 : 502).json({ error: data?.detalhes || data?.message || 'Não foi possível consultar o CNPJ.' }); clientLookupCache.set(cnpj, { data, expiresAt: nowMs + 10 * 60_000 }); db.auditLogs.unshift({ id: randomUUID(), tenantId: req.user?.tenantId, tenantName: req.tenant?.name, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'CONSULTA_CNPJ', entity: 'CLIENT', entityId: cnpj, details: `Consulta CNPJ realizada${ip !== 'unknown' ? ` pelo IP ${ip}` : ''}`, ip, createdAt: new Date().toISOString() }); await db.persistNow(); return res.json({ cnpj, data }); } catch (error) { console.error('CNPJ lookup failed', error); return res.status(502).json({ error: 'Serviço de CNPJ indisponível no momento.' }); }
+  const cnpj = clientCnpj(req.params.cnpj);
+  if (cnpj.length !== 14) return res.status(400).json({ error: 'CNPJ inválido.' });
+
+  // O banco é sempre a primeira fonte. Isso evita consultas externas repetidas
+  // quando outra empresa já cadastrou o mesmo CNPJ anteriormente.
+  const stored = db.clients.find(client => client.cnpj === cnpj && client.status !== 'ARQUIVADO');
+  if (stored) {
+    return res.json({
+      cnpj,
+      source: 'DATABASE',
+      cached: true,
+      existingClient: stored.tenantId === req.user?.tenantId ? stored : undefined,
+      data: stored.cnpjData || {
+        razao_social: stored.legalName,
+        nome_fantasia: stored.tradeName,
+        logradouro: stored.address,
+        numero: stored.number,
+        bairro: stored.neighborhood,
+        cep: stored.zipCode,
+        municipio: stored.city,
+        uf: stored.state,
+        email: stored.email,
+        telefone1: stored.phone
+      }
+    });
+  }
+
+  const ip = requestIp(req) || 'unknown';
+  const nowMs = Date.now();
+  const attempts = (clientLookupRate.get(ip) || []).filter(timestamp => nowMs - timestamp < CLIENT_LOOKUP_WINDOW_MS);
+  if (attempts.length >= CLIENT_LOOKUP_LIMIT) return res.status(429).json({ error: 'Limite de consultas atingido. Tente novamente em alguns instantes.' });
+  attempts.push(nowMs);
+  clientLookupRate.set(ip, attempts);
+  const cached = clientLookupCache.get(cnpj);
+  if (cached && cached.expiresAt > nowMs) return res.json({ cnpj, data: cached.data, source: 'CACHE' });
+
+  try {
+    const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { headers: { Accept: 'application/json', 'X-Forwarded-For': ip, 'X-Real-IP': ip }, signal: AbortSignal.timeout(10000) });
+    const data: any = await response.json().catch(() => ({}));
+    if (!response.ok) return res.status(response.status === 404 ? 404 : 502).json({ error: data?.detalhes || data?.message || 'Não foi possível consultar o CNPJ.' });
+    clientLookupCache.set(cnpj, { data, expiresAt: nowMs + 10 * 60_000 });
+    db.auditLogs.unshift({ id: randomUUID(), tenantId: req.user?.tenantId, tenantName: req.tenant?.name, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'CONSULTA_CNPJ', entity: 'CLIENT', entityId: cnpj, details: `Consulta cadastral realizada${ip !== 'unknown' ? ` pelo IP ${ip}` : ''}`, ip, createdAt: new Date().toISOString() });
+    await db.persistNow();
+    return res.json({ cnpj, data, source: 'EXTERNAL' });
+  } catch (error) {
+    console.error('CNPJ lookup failed', error);
+    return res.status(502).json({ error: 'Serviço de consulta cadastral indisponível no momento.' });
+  }
 });
 apiRouter.get('/clients', (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const tenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : String(req.user?.tenantId || ''); const search = String(req.query.search || '').trim().toLowerCase(); return res.json(db.clients.filter(client => (!tenantId || client.tenantId === tenantId) && client.status !== 'ARQUIVADO' && (!search || [client.cnpj, client.legalName, client.tradeName, client.email].some(value => String(value || '').toLowerCase().includes(search))))); });
 apiRouter.post('/clients', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const tenantId = clientTenantId(req); const cnpj = clientCnpj(req.body?.cnpj); if (!tenantId || !db.tenants.some(tenant => tenant.id === tenantId)) return res.status(400).json({ error: 'Empresa inválida.' }); if (cnpj.length !== 14 || !String(req.body?.legalName || req.body?.razaoSocial || '').trim()) return res.status(400).json({ error: 'CNPJ e razão social são obrigatórios.' }); if (db.clients.some(client => client.tenantId === tenantId && client.cnpj === cnpj && client.status !== 'ARQUIVADO')) return res.status(409).json({ error: 'Este CNPJ já está cadastrado.' }); const client = clientPayload(req.body, tenantId); db.clients.unshift(client); await db.persistNow(); return res.status(201).json(client); });
@@ -6336,7 +6446,7 @@ apiRouter.post('/budgets', async (req: AuthenticatedRequest, res: Response) => {
   const tenantId = budgetTenantId(req); if (!tenantId || !db.tenants.some(item => item.id === tenantId)) return res.status(400).json({ error: 'Empresa inválida.' });
   if (req.body?.clientId && !db.clients.some(client => client.id === req.body.clientId && client.tenantId === tenantId && client.status !== 'ARQUIVADO')) return res.status(400).json({ error: 'Cliente inválido para esta empresa.' });
   const now = new Date().toISOString(); const expenses = Array.isArray(req.body?.expenses) ? req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)) : [];
-  const base: any = { id: randomUUID(), tenantId, code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, clientId: req.body?.clientId || undefined, clientName: String(req.body?.clientName || '').trim().slice(0, 180), origin: req.body?.origin || {}, destination: req.body?.destination || {}, date: String(req.body?.date || ''), cargoType: String(req.body?.cargoType || ''), weightKg: Math.max(0, Number(req.body?.weightKg) || 0), quantity: Math.max(0, Number(req.body?.quantity) || 0), vehicleType: String(req.body?.vehicleType || ''), driverId: req.body?.driverId || undefined, distanceKm: Math.max(0, Number(req.body?.distanceKm) || 0), pricePerKm: Math.max(0, Number(req.body?.pricePerKm) || 0), priceTableReference: String(req.body?.priceTableReference || '').slice(0, 160), tolls: Math.max(0, Number(req.body?.tolls) || 0), insurance: Math.max(0, Number(req.body?.insurance) || 0), dailyRate: Math.max(0, Number(req.body?.dailyRate) || 0), dailyCount: Math.max(0, Number(req.body?.dailyCount) || 0), assistantCount: Math.max(0, Number(req.body?.assistantCount) || 0), assistantDailyRate: Math.max(0, Number(req.body?.assistantDailyRate) || 0), estimatedMinutes: Math.max(0, Number(req.body?.estimatedMinutes) || 0), notes: String(req.body?.notes || '').slice(0, 2000), expenses, taxes: Array.isArray(req.body?.taxes) ? req.body.taxes : [], profitType: req.body?.profitType === 'FIXO' ? 'FIXO' : 'PERCENTUAL', profitValue: Number(req.body?.profitValue) || 0, driverPassed: Number(req.body?.driverPassed) || 0, driverPaid: Number(req.body?.driverPaid) || 0, customFields: req.body?.customFields || {}, versions: [], createdAt: now, updatedAt: now };
+  const base: any = { id: randomUUID(), tenantId, code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, clientId: req.body?.clientId || undefined, clientName: String(req.body?.clientName || '').trim().slice(0, 180), origin: req.body?.origin || {}, destination: req.body?.destination || {}, date: String(req.body?.date || ''), cargoType: String(req.body?.cargoType || ''), weightKg: Math.max(0, Number(req.body?.weightKg) || 0), quantity: Math.max(0, Number(req.body?.quantity) || 0), vehicleType: String(req.body?.vehicleType || ''), driverId: req.body?.driverId || undefined, distanceKm: Math.max(0, Number(req.body?.distanceKm) || 0), pricePerKm: Math.max(0, Number(req.body?.pricePerKm) || 0), priceTableReference: String(req.body?.priceTableReference || '').slice(0, 160), tolls: Math.max(0, Number(req.body?.tolls) || 0), insurance: Math.max(0, Number(req.body?.insurance) || 0), dailyRate: Math.max(0, Number(req.body?.dailyRate) || 0), dailyCount: Math.max(0, Number(req.body?.dailyCount) || 0), assistantCount: Math.max(0, Number(req.body?.assistantCount) || 0), assistantDailyRate: Math.max(0, Number(req.body?.assistantDailyRate) || 0), estimatedMinutes: Math.max(0, Number(req.body?.estimatedMinutes) || 0), routeGeometry: req.body?.routeGeometry && typeof req.body.routeGeometry === 'object' ? req.body.routeGeometry : undefined, notes: String(req.body?.notes || '').slice(0, 2000), expenses, taxes: Array.isArray(req.body?.taxes) ? req.body.taxes : [], profitType: req.body?.profitType === 'FIXO' ? 'FIXO' : 'PERCENTUAL', profitValue: Number(req.body?.profitValue) || 0, driverPassed: Number(req.body?.driverPassed) || 0, driverPaid: Number(req.body?.driverPaid) || 0, customFields: req.body?.customFields || {}, versions: [], createdAt: now, updatedAt: now };
   base.financials = calculateBudget(base); const version = { id: randomUUID(), budgetId: base.id, version: 1, snapshot: JSON.parse(JSON.stringify(base)), createdAt: now, createdByUserId: req.user!.id }; base.versions = [version]; db.budgets.unshift(base); await db.persistNow(); res.status(201).json(base);
 });
 apiRouter.get('/budgets/:id', (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget = budgetForRequest(req, req.params.id); return budget ? res.json(budget) : res.status(404).json({ error: 'Orçamento não encontrado.' }); });
@@ -6345,9 +6455,9 @@ apiRouter.put('/budgets/:id', async (req: AuthenticatedRequest, res: Response) =
   const expectedVersion = req.body?.expectedVersion === undefined ? undefined : Number(req.body.expectedVersion);
   if (expectedVersion !== undefined && (!Number.isInteger(expectedVersion) || expectedVersion !== budget.version)) return res.status(409).json({ error: 'Este orçamento foi alterado por outra sessão. Recarregue os dados antes de salvar.', currentVersion: budget.version });
   if (req.body?.clientId !== undefined && !db.clients.some(client => client.id === req.body.clientId && client.tenantId === budget.tenantId && client.status !== 'ARQUIVADO')) return res.status(400).json({ error: 'Cliente inválido para esta empresa.' });
-  const allowed = ['clientId','clientName','origin','destination','date','cargoType','weightKg','quantity','vehicleType','driverId','distanceKm','pricePerKm','priceTableReference','tolls','insurance','dailyRate','dailyCount','assistantCount','assistantDailyRate','estimatedMinutes','notes','taxes','profitType','profitValue','driverPassed','driverPaid','customFields']; for (const key of allowed) if (req.body[key] !== undefined) budget[key] = req.body[key]; if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)); budget.version += 1; budget.updatedAt = new Date().toISOString(); budget.financials = calculateBudget(budget); budget.versions.push({ id: randomUUID(), budgetId: budget.id, version: budget.version, snapshot: JSON.parse(JSON.stringify(budget)), createdAt: budget.updatedAt, createdByUserId: req.user!.id }); await db.persistNow(); res.json(budget);
+  const allowed = ['clientId','clientName','origin','destination','date','cargoType','weightKg','quantity','vehicleType','driverId','distanceKm','pricePerKm','priceTableReference','tolls','insurance','dailyRate','dailyCount','assistantCount','assistantDailyRate','estimatedMinutes','routeGeometry','notes','taxes','profitType','profitValue','driverPassed','driverPaid','customFields']; for (const key of allowed) if (req.body[key] !== undefined) budget[key] = req.body[key]; if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)); budget.version += 1; budget.updatedAt = new Date().toISOString(); budget.financials = calculateBudget(budget); budget.versions.push({ id: randomUUID(), budgetId: budget.id, version: budget.version, snapshot: JSON.parse(JSON.stringify(budget)), createdAt: budget.updatedAt, createdByUserId: req.user!.id }); await db.persistNow(); res.json(budget);
 });
 apiRouter.post('/budgets/:id/status', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const status = String(req.body?.status || ''); if (!validBudgetTransition[budget.status]?.includes(status)) return res.status(409).json({ error: `Transição ${budget.status} → ${status} não permitida.` }); budget.status = status; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });
 apiRouter.post('/budgets/:id/duplicate', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const source: any = budgetForRequest(req, req.params.id); if (!source) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const now = new Date().toISOString(); const copy: any = { ...JSON.parse(JSON.stringify(source)), id: randomUUID(), code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, convertedFreightId: undefined, createdAt: now, updatedAt: now, versions: [] }; copy.expenses = copy.expenses.map((item: any, index: number) => ({ ...item, id: randomUUID() })); copy.financials = calculateBudget(copy); copy.versions = [{ id: randomUUID(), budgetId: copy.id, version: 1, snapshot: JSON.parse(JSON.stringify(copy)), createdAt: now, createdByUserId: req.user!.id }]; db.budgets.unshift(copy); await db.persistNow(); res.status(201).json(copy); });
-apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType, type: 'GERAL', weightKg: budget.weightKg, volumeCount: budget.quantity }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: false }, status: 'RASCUNHO', statusHistory: [], createdByUserId: req.user!.id, createdByName: req.user!.name, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
+apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const inferredCargoType = ['GERAL', 'FRAGIL', 'REFRIGERADA', 'PERIGOSA', 'ALIMENTOS', 'CONSTRUCAO', 'MAQUINARIO', 'GRAOS'].includes(String(budget.cargoType || '').toUpperCase()) ? String(budget.cargoType).toUpperCase() : 'GERAL'; const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType || 'Carga geral', type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: 'RASCUNHO', statusHistory: [], createdByUserId: req.user!.id, createdByName: req.user!.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: 'BUDGET_CONVERSION' }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
 apiRouter.delete('/budgets/:id', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.status === 'CONVERTIDO') return res.status(409).json({ error: 'Orçamento convertido não pode ser apagado.' }); budget.status = 'CANCELADO'; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });

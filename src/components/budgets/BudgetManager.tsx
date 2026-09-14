@@ -4,6 +4,43 @@ import { Budget, BudgetExpense, BudgetStatus } from '../../types';
 import { generateBudgetPdf } from '../../utils/budgetPdfGenerator';
 
 const brl = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const money = (value: unknown) => Math.round((Number(value) || 0) * 100) / 100;
+const previewFinancials = (draft: any) => {
+  const expenses = (draft.expenses || []).map((item: BudgetExpense) => ({ ...item, quantity: Number(item.quantity) || 0, unitPrice: money(item.unitPrice), total: money((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) }));
+  const totalExpenses = money(expenses.reduce((sum: number, item: BudgetExpense) => sum + item.total, 0));
+  const routeCost = money((Number(draft.distanceKm) || 0) * (Number(draft.pricePerKm) || 0));
+  const tolls = money(draft.tolls);
+  const insurance = money(draft.insurance);
+  const lodging = money((Number(draft.dailyRate) || 0) * (Number(draft.dailyCount) || 0));
+  const assistants = money((Number(draft.assistantCount) || 0) * (Number(draft.assistantDailyRate) || 0) * (Number(draft.dailyCount) || 1));
+  const subtotal = money(totalExpenses + routeCost + tolls + insurance + lodging + assistants);
+  const taxes = (draft.taxes || []).map((tax: any) => ({ ...tax, percentage: Number(tax.percentage) || 0, fixedValue: money(tax.fixedValue) }));
+  const fixedAndScopedTaxes = money(taxes.reduce((sum: number, tax: any) => {
+    if (tax.type === 'FIXO') return sum + money(tax.fixedValue);
+    if (tax.base === 'DESPESAS') return sum + money(totalExpenses * tax.percentage / 100);
+    if (tax.base === 'SUBTOTAL') return sum + money(subtotal * tax.percentage / 100);
+    return sum;
+  }, 0));
+  const freightTaxRate = taxes.reduce((sum: number, tax: any) => sum + (tax.type === 'PERCENTUAL' && tax.base === 'VALOR_FRETE' ? tax.percentage / 100 : 0), 0);
+  const calculateProfit = (totalCostValue: number) => draft.profitType === 'FIXO' ? money(draft.profitValue) : money(totalCostValue * (Number(draft.profitValue) || 0) / 100);
+  let totalTaxes = fixedAndScopedTaxes;
+  let cost = money(subtotal + totalTaxes);
+  let profit = calculateProfit(cost);
+  let total = money(cost + profit);
+  if (freightTaxRate > 0) {
+    let previous = total;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const freightBasedTaxes = money(previous * freightTaxRate);
+      totalTaxes = money(fixedAndScopedTaxes + freightBasedTaxes);
+      cost = money(subtotal + totalTaxes);
+      profit = calculateProfit(cost);
+      total = money(cost + profit);
+      if (Math.abs(total - previous) < 0.01) break;
+      previous = total;
+    }
+  }
+  return { expenseTotal: totalExpenses, routeCost, tolls, insurance, lodging, assistants, taxes: totalTaxes, cost, profit, total };
+};
 const empty = { clientName: '', date: new Date().toISOString().slice(0, 10), cargoType: '', weightKg: 0, quantity: 1, distanceKm: 0, pricePerKm: 0, priceTableReference: '', tolls: 0, insurance: 0, dailyRate: 0, dailyCount: 0, assistantCount: 0, assistantDailyRate: 0, estimatedMinutes: 0, expenses: [] as BudgetExpense[], taxes: [], profitType: 'PERCENTUAL' as const, profitValue: 20, driverPassed: 0, driverPaid: 0, origin: { address: '', city: '', state: '' }, destination: { address: '', city: '', state: '' } };
 
 type Side = 'origin' | 'destination';
@@ -23,17 +60,28 @@ export const BudgetManager: React.FC = () => {
   const addressCache = useRef(new Map<string, any[]>());
   const refresh = () => budgetApi.list().then(setItems).catch(e => setError(e.message)).finally(() => setLoading(false));
   useEffect(() => { void refresh(); void clientApi.list().then(setClients).catch(e => setError(e.message)); }, []);
-  const lookupClient = async () => { try { setCnpjLoading(true); setError(''); const result = await clientApi.lookupCnpj(cnpj); const data = result.data; const e = data.estabelecimento || data; const client = { cnpj: result.cnpj, legalName: data.razao_social || data.razaoSocial || '', tradeName: e.nome_fantasia || '', address: e.logradouro || '', number: e.numero || '', neighborhood: e.bairro || '', zipCode: e.cep || '', city: e.cidade?.nome || e.municipio || '', state: e.estado?.sigla || e.uf || '', email: e.email || '', phone: e.telefone1 || '', source: 'CNPJ_WS' as const, cnpjData: data }; const saved = await clientApi.create(client); setClients(current => [saved, ...current]); setDraft((d: any) => ({ ...d, clientId: saved.id, clientName: saved.legalName })); setCnpj(''); } catch (e: any) { setError(e.message); } finally { setCnpjLoading(false); } };
-  const calculateRoute = async () => { const origin = draft.origin?.lat !== undefined && draft.origin?.lng !== undefined ? draft.origin : null; const destination = draft.destination?.lat !== undefined && draft.destination?.lng !== undefined ? draft.destination : null; if (!origin || !destination) return setError('Selecione um endereço de origem e um de destino nas sugestões de endereço.'); try { setRouteLoading(true); setError(''); const route = await budgetApi.directions(origin, destination); setDraft((d: any) => ({ ...d, distanceKm: Number(route.distanceKm.toFixed(2)), estimatedMinutes: Math.round(route.estimatedMinutes) })); } catch (e: any) { setError(e.message); } finally { setRouteLoading(false); } };
-  const preview = useMemo(() => {
-    const expenseTotal = (draft.expenses || []).reduce((s: number, e: BudgetExpense) => s + (Number(e.quantity) || 0) * (Number(e.unitPrice) || 0), 0);
-    const taxes = (draft.taxes || []).reduce((s: number, t: any) => s + (t.type === 'FIXO' ? Number(t.fixedValue || 0) : expenseTotal * Number(t.percentage || 0) / 100), 0);
-    const routeCost = (Number(draft.distanceKm) || 0) * (Number(draft.pricePerKm) || 0);
-    const tolls = Number(draft.tolls) || 0; const insurance = Number(draft.insurance) || 0; const lodging = (Number(draft.dailyRate) || 0) * (Number(draft.dailyCount) || 0); const assistants = (Number(draft.assistantCount) || 0) * (Number(draft.assistantDailyRate) || 0) * (Number(draft.dailyCount) || 1);
-    const cost = expenseTotal + routeCost + tolls + insurance + lodging + assistants + taxes;
-    const profit = draft.profitType === 'FIXO' ? Number(draft.profitValue || 0) : cost * Number(draft.profitValue || 0) / 100;
-    return { expenseTotal, routeCost, tolls, insurance, lodging, assistants, taxes, cost, profit, total: cost + profit };
-  }, [draft]);
+  const lookupClient = async () => {
+    try {
+      setCnpjLoading(true); setError('');
+      const result = await clientApi.lookupCnpj(cnpj);
+      if (result.existingClient) {
+        const existing = result.existingClient;
+        setClients(current => current.some(item => item.id === existing.id) ? current : [existing, ...current]);
+        setDraft((d: any) => ({ ...d, clientId: existing.id, clientName: existing.legalName }));
+        setCnpj('');
+        return;
+      }
+      const data = result.data;
+      const e = data.estabelecimento || data;
+      const client = { cnpj: result.cnpj, legalName: data.razao_social || data.razaoSocial || '', tradeName: e.nome_fantasia || '', address: e.logradouro || '', number: e.numero || '', neighborhood: e.bairro || '', zipCode: e.cep || '', city: e.cidade?.nome || e.municipio || '', state: e.estado?.sigla || e.uf || '', email: e.email || '', phone: e.telefone1 || '', source: 'CNPJ_WS' as const, cnpjData: data };
+      const saved = await clientApi.create(client);
+      setClients(current => [saved, ...current]);
+      setDraft((d: any) => ({ ...d, clientId: saved.id, clientName: saved.legalName }));
+      setCnpj('');
+    } catch (e: any) { setError(e.message); } finally { setCnpjLoading(false); }
+  };
+  const calculateRoute = async () => { const origin = draft.origin?.lat !== undefined && draft.origin?.lng !== undefined ? draft.origin : null; const destination = draft.destination?.lat !== undefined && draft.destination?.lng !== undefined ? draft.destination : null; if (!origin || !destination) return setError('Selecione um endereço de origem e um de destino nas sugestões de endereço.'); try { setRouteLoading(true); setError(''); const route = await budgetApi.directions(origin, destination); setDraft((d: any) => ({ ...d, distanceKm: Number(route.distanceKm.toFixed(2)), estimatedMinutes: Math.round(route.estimatedMinutes), routeGeometry: route.geometry || d.routeGeometry })); } catch (e: any) { setError(e.message); } finally { setRouteLoading(false); } };
+  const preview = useMemo(() => previewFinancials(draft), [draft]);
   const save = async () => { if (saving) return; try { setSaving(true); setError(''); const saved = selected ? await budgetApi.update(selected.id, draft) : await budgetApi.create(draft); setSelected(saved); setDraft(saved); await refresh(); } catch (e: any) { setError(e.message); } finally { setSaving(false); } };
   const addExpense = () => setDraft((d: any) => ({ ...d, expenses: [...(d.expenses || []), { id: crypto.randomUUID(), description: 'Combustível', category: 'ABASTECIMENTO', quantity: 1, unit: 'un', unitPrice: 0, total: 0 }] }));
   const status = async (value: BudgetStatus) => { if (!selected) return; try { const result = await budgetApi.status(selected.id, value); setSelected(result); setDraft(result); await refresh(); } catch (e: any) { setError(e.message); } };
@@ -41,8 +89,8 @@ export const BudgetManager: React.FC = () => {
   const downloadPdf = () => { if (!selected) return; try { const { doc, filename } = generateBudgetPdf(selected); const blob = doc.output('blob'); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.rel = 'noopener'; document.body.appendChild(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } catch (e: any) { setError(`Não foi possível gerar o PDF: ${e?.message || 'erro desconhecido'}`); } };
   const printPdf = () => { if (!selected) return; try { const { doc } = generateBudgetPdf(selected); const printWindow = window.open('', '_blank', 'noopener,noreferrer'); if (!printWindow) throw new Error('Permita pop-ups para imprimir o PDF.'); const dataUrl = doc.output('datauristring'); printWindow.document.write(`<iframe src="${dataUrl}" style="border:0;width:100%;height:100vh"></iframe>`); printWindow.document.close(); printWindow.focus(); window.setTimeout(() => printWindow.print(), 700); } catch (e: any) { setError(`Não foi possível imprimir o PDF: ${e?.message || 'erro desconhecido'}`); } };
   const searchAddress = async (side: Side, value: string) => { setDraft((d: any) => ({ ...d, [side]: { ...d[side], address: value } })); if (addressTimer.current) clearTimeout(addressTimer.current); if (value.trim().length < 3) return setSuggestions({ side, items: [] }); const query = value.trim(); const cached = addressCache.current.get(query.toLowerCase()); if (cached) return setSuggestions({ side, items: cached }); addressTimer.current = setTimeout(async () => { try { const result = await budgetApi.geocode(query); addressCache.current.set(query.toLowerCase(), result); setSuggestions({ side, items: result }); } catch { setSuggestions({ side, items: [] }); } }, 350); };
-  const chooseAddress = (side: Side, item: any) => { setDraft((d: any) => ({ ...d, [side]: { ...d[side], address: item.placeName, city: item.city || d[side].city, state: item.state || d[side].state, lat: item.lat, lng: item.lng, mapboxPlaceId: item.id } })); setSuggestions({ side, items: [] }); };
-  const addressField = (side: Side, label: string, placeholder: string) => <label className="relative text-sm font-semibold">{label}<input value={draft[side]?.address || ''} onChange={e => void searchAddress(side, e.target.value)} placeholder={placeholder} className="mt-1 w-full rounded-lg border p-2" />{suggestions.side === side && suggestions.items.length > 0 && <div className="absolute z-20 mt-1 w-full rounded-lg border bg-white shadow-xl">{suggestions.items.map(item => <button type="button" key={item.id} onClick={() => chooseAddress(side, item)} className="block w-full border-b p-2 text-left text-xs hover:bg-emerald-50">{item.placeName}</button>)}</div>}</label>;
+  const chooseAddress = (side: Side, item: any) => { setDraft((d: any) => ({ ...d, [side]: { ...d[side], address: item.address || item.placeName, number: item.number || d[side].number || '', neighborhood: item.neighborhood || d[side].neighborhood || '', zipCode: item.zipCode || d[side].zipCode || '', city: item.city || d[side].city, state: item.state || d[side].state, lat: item.lat, lng: item.lng, mapboxPlaceId: item.id } })); setSuggestions({ side, items: [] }); };
+  const addressField = (side: Side, label: string, placeholder: string) => <label className="relative text-sm font-semibold">{label}<input value={draft[side]?.address || ''} onChange={e => void searchAddress(side, e.target.value)} placeholder={placeholder} className="mt-1 w-full rounded-lg border p-2" />{suggestions.side === side && suggestions.items.length > 0 && <div className="absolute z-20 mt-1 w-full rounded-lg border bg-white shadow-xl">{suggestions.items.map(item => <button type="button" key={item.id} onClick={() => chooseAddress(side, item)} className="block w-full border-b p-2 text-left text-xs hover:bg-emerald-50"><strong className="block">{item.placeName}</strong><span className="text-[10px] text-slate-500">{[item.address, item.neighborhood, item.city, item.state, item.zipCode].filter(Boolean).join(' · ')}</span></button>)}</div>}</label>;
   return <section className="space-y-6"><div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">Fretes → Orçamentos</p><h1 className="text-2xl font-black">Gerenciamento de Orçamentos</h1></div><button onClick={() => { setSelected(null); setDraft({ ...empty, origin: { ...empty.origin }, destination: { ...empty.destination }, expenses: [] }); }} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Novo orçamento</button></div>
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
     <div className="grid gap-6 lg:grid-cols-[280px_1fr]"><div className="space-y-2">{loading ? <p>Carregando...</p> : items.map(item => <button key={item.id} onClick={() => { setSelected(item); setDraft(item); }} className={`w-full rounded-xl border p-3 text-left ${selected?.id === item.id ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'}`}><div className="font-bold">{item.code}</div><div className="text-xs text-slate-500">{item.clientName || 'Sem cliente'} · {item.status}</div><div className="mt-1 text-sm font-black">{brl(item.financials.totalFreight)}</div></button>)}</div>
