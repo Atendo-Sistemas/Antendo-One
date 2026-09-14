@@ -366,6 +366,7 @@ export const api = {
   async createCompanyVehicle(data: any) { return request<any>('/company-vehicles', { method: 'POST', body: JSON.stringify(data) }); },
   async updateCompanyVehicle(id: string, data: any) { return request<any>(`/company-vehicles/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
   async deleteCompanyVehicle(id: string) { return request<{ success: boolean }>(`/company-vehicles/${id}`, { method: 'DELETE' }); },
+
   // Budgets
   async getBudgets() { return request<any[]>('/budgets'); },
   async getBudget(id: string) { return request<any>(`/budgets/${id}`); },

@@ -1,6 +1,6 @@
-# Atendo One - Plataforma SaaS de Logística & Gestão de Fretes 🚚
+# Elo Log - Plataforma SaaS de Logística & Gestão de Fretes 🚚
 
-O **Atendo One (TransLog Brasil)** é uma plataforma inteligente e moderna para gestão, cotação, publicação e rastreamento de fretes em tempo real. Desenvolvida sob uma arquitetura robusta **Multi-Tenant (SaaS)**, permite que a holding administre múltiplas transportadoras de forma totalmente isolada e segura.
+O **Elo Log (TransLog Brasil)** é uma plataforma inteligente e moderna para gestão, cotação, publicação e rastreamento de fretes em tempo real. Desenvolvida sob uma arquitetura robusta **Multi-Tenant (SaaS)**, permite que a holding administre múltiplas transportadoras de forma totalmente isolada e segura.
 
 ---
 

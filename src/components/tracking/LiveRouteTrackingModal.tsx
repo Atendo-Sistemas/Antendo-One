@@ -37,55 +37,23 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const [geocodedRoute, setGeocodedRoute] = useState<{ origin: { lat: number; lng: number }; destination: { lat: number; lng: number } } | null>(null);
   const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
   const [lastLiveAt, setLastLiveAt] = useState<string | null>(freight.currentLocation?.recordedAt || null);
-  const [geocodingError, setGeocodingError] = useState<string | null>(null);
-  
-  useEffect(() => {
-    let cancelled = false;
-    publicTrackingApi.clientConfig().then(value => {
-      if (!cancelled) setMapboxRuntime(value);
-    }).catch(() => {
-      if (!cancelled) setMapboxRuntime(null);
-    });
-    return () => { cancelled = true; };
-  }, []);
-  
+  useEffect(() => { let cancelled = false; publicTrackingApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
   useEffect(() => {
     if (!mapboxRuntime?.enabled) {
       setGeocodedRoute(null);
-      setGeocodingError(null);
       return;
     }
     let cancelled = false;
     const geocode = async (address: typeof freight.origin) => {
       if (address.lat !== undefined && address.lng !== undefined) return { lat: address.lat, lng: address.lng };
       const query = [address.address, address.number, address.city, address.state, 'Brasil'].filter(Boolean).join(', ');
-      try {
-        const result = await publicTrackingApi.geocode(query);
-        const first = result[0];
-        return first ? { lat: first.lat, lng: first.lng } : null;
-      } catch {
-        if (!cancelled) {
-          setGeocodingError('Erro ao geocodificar endereço. Usando coordenadas locais.');
-        }
-        return null;
-      }
+      const result = await publicTrackingApi.geocode(query);
+      const first = result[0];
+      return first ? { lat: first.lat, lng: first.lng } : null;
     };
-    
     Promise.all([geocode(freight.origin), geocode(freight.destination)]).then(([origin, destination]) => {
-      if (!cancelled) {
-        if (origin && destination) {
-          setGeocodedRoute({ origin, destination });
-          setGeocodingError(null);
-        } else {
-          setGeocodedRoute(null);
-        }
-      }
-    }).catch(() => {
-      if (!cancelled) {
-        setGeocodedRoute(null);
-        setGeocodingError('Não foi possível geocodificar os endereços. Usando coordenadas padrão.');
-      }
-    });
+      if (!cancelled) setGeocodedRoute(origin && destination ? { origin, destination } : null);
+    }).catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -103,7 +71,6 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
     speed: liveLocation.speedKmh || 0,
     accuracy: liveLocation.accuracyMeters || 0
   } : null;
-  
   const [progressPercent, setProgressPercent] = useState<number>(() => {
     if (freight.status === 'ENTREGUE' || freight.status === 'FINALIZADO') return 100;
     if (freight.status === 'EM_TRANSITO') return 48;
@@ -119,7 +86,6 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const kmRemaining = Math.max(0, totalKm - kmTraveled);
   const etaMinutes = Math.round((kmRemaining / 70) * 60); // Assuming 70km/h avg
   const etaFormatted = `${Math.floor(etaMinutes / 60)}h ${etaMinutes % 60}m`;
-  
   const handleCopyLink = () => {
     const trackingUrl = `${window.location.origin}/?rastreio=${encodeURIComponent(trackingToken)}`;
     navigator.clipboard.writeText(trackingUrl);
@@ -186,14 +152,6 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
 
         {/* Content Scrollable */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-
-          {/* Geocoding Error Alert */}
-          {geocodingError && (
-            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-              <span>{geocodingError}</span>
-            </div>
-          )}
 
           {/* Interactive Map Visualizer Canvas */}
           <div className="relative rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-950 flex flex-col justify-between shadow-inner">

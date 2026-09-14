@@ -6,16 +6,16 @@ import { RoleBadge } from '../common/Badge';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { UserProfileModal } from '../common/UserProfileModal';
 import { registerPushNotifications, testPushNotification } from '../../services/pushClient';
-import { 
-  Truck, 
-  Building2, 
-  Bell, 
-  CheckCheck, 
-  Layers, 
-  Users, 
-  FileText, 
-  ShieldCheck, 
-  History, 
+import {
+  Truck,
+  Building2,
+  Bell,
+  CheckCheck,
+  Layers,
+  Users,
+  FileText,
+  ShieldCheck,
+  History,
   SlidersHorizontal,
   ChevronDown,
   Menu,
@@ -35,9 +35,9 @@ interface NavbarProps {
   onOpenNotification?: (notification: { type: string; freightId?: string; message: string; title: string }) => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ 
-  activeTab, 
-  setActiveTab, 
+export const Navbar: React.FC<NavbarProps> = ({
+  activeTab,
+  setActiveTab,
   onOpenCreateFreight,
   onOpenRegisterDriver,
   onOpenNotification
@@ -86,15 +86,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   const canManageBilling = user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN';
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
   const canManageReportTemplates = !isDemo && canManageBilling;
+  const companyNavGroups = [
+    { key: 'operacao', label: 'Operação', items: [['freights', 'Fretes'], ['operations', 'Central'], ['drivers', 'Motoristas'], ...(canManageBilling ? [['company-vehicles', 'Veículos próprios']] : []), ['expenses', 'Prestação de contas']] },
+    { key: 'gestao', label: 'Gestão', items: [['budgets', 'Orçamentos'], ['clients', 'Clientes'], ['forms', 'Formulários'], ['users', 'Usuários'], ['audit', 'Auditoria']] },
+    { key: 'configuracoes', label: 'Configurações', items: [...(canManageBilling ? [['billing', 'Assinatura'], ['company-notification-templates', 'Mensagens']] : []), ...(canManageReportTemplates ? [['company-report-templates', 'Relatórios']] : []), ['notification-preferences', 'Preferências'], ['help', 'Ajuda']] }
+  ];
 
   return (
     <header id="navbar-main-container" className="sticky top-0 z-40 w-full max-w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors">
       <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-1 sm:gap-4">
-          
+
           {/* Brand Logo & Tenant Name */}
           <div className="flex items-center gap-2 min-w-0 shrink">
-            <button 
+            <button
               onClick={() => setActiveTab(isDriver ? 'driver-portal' : 'freights')}
               className="flex items-center gap-2 text-left group cursor-pointer focus:outline-none min-w-0"
             >
@@ -125,7 +130,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Right Action Area */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            
+
             {/* Quick Action Button for Company & Super Admin */}
             {(isCompanyStaff || isSuperAdmin) && onOpenCreateFreight && (
               <button
@@ -159,7 +164,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {/* Notification Popover */}
               {showNotifications && (
                 <>
-                  <div 
+                  <div
                     className="fixed inset-0 z-40 bg-black/20 md:hidden"
                     onClick={() => setShowNotifications(false)}
                   />
@@ -229,8 +234,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                             key={n.id}
                             onClick={() => { markNotificationAsRead(n.id); if (n.targetPath) setActiveTab(n.targetPath); onOpenNotification?.(n); setShowNotifications(false); }}
                             className={`p-3.5 transition-colors cursor-pointer ${
-                              n.read 
-                                ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50' 
+                              n.read
+                                ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50'
                                 : 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
                             }`}
                           >
@@ -437,108 +442,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               </>
             ) : (
               <>
-                <button
-                  onClick={() => setActiveTab('freights')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'freights'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Fretes
-                </button>
-                {canManageBilling && <button
-                  onClick={() => setActiveTab('billing')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'billing' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'}`}
-                >
-                  Assinatura
-                </button>}
-                {canManageBilling && <button
-                  onClick={() => setActiveTab('company-notification-templates')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'company-notification-templates' ? 'bg-amber-600 text-white font-extrabold' : 'text-amber-700 dark:text-amber-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'}`}
-                  title="Editar mensagens de e-mail e WhatsApp da empresa"
-                >
-                  Mensagens
-                </button>}
-                {canManageReportTemplates && <button
-                  onClick={() => setActiveTab('company-report-templates')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'company-report-templates' ? 'bg-emerald-600 text-white font-extrabold' : 'text-emerald-700 dark:text-emerald-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'}`}
-                  title="Editar os modelos de relatórios da empresa"
-                >
-                  Relatórios
-                </button>}
-                <button
-                  onClick={() => setActiveTab('drivers')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'drivers'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Motoristas
-                </button>
-                <button
-                  onClick={() => setActiveTab('expenses')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'expenses'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-emerald-700 dark:text-emerald-400 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  💰 Prestação de Contas
-                </button>
-                <button
-                  onClick={() => setActiveTab('notification-preferences')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'notification-preferences' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
-                >
-                  Preferências
-                </button>
-                <button
-                  onClick={() => setActiveTab('forms')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'forms'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Formulários & Checklists
-                </button>
-                <button
-                  onClick={() => setActiveTab('users')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'users'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Usuários
-                </button>
-                <button
-                  onClick={() => setActiveTab('audit')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'audit'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Auditoria
-                </button>
-                <button
-                  onClick={() => setActiveTab('notification-preferences')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'notification-preferences' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}
-                >
-                  Preferências
-                </button>
-                <button
-                  onClick={() => setActiveTab('help')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'help'
-                      ? 'bg-amber-500 text-white font-semibold shadow-xs'
-                      : 'text-amber-700 dark:text-amber-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  📖 Ajuda
-                </button>
+                {companyNavGroups.map((group) => {
+                  const active = group.items.some(([tab]) => tab === activeTab);
+                  return (
+                    <div key={group.key} className="relative shrink-0">
+                      <button type="button" onClick={() => setOpenNavGroup(openNavGroup === group.key ? null : group.key)} className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs lg:text-sm font-bold whitespace-nowrap transition-colors ${active ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800'}`} aria-expanded={openNavGroup === group.key}>
+                        {group.label}<ChevronDown className={`w-3.5 h-3.5 transition-transform ${openNavGroup === group.key ? 'rotate-180' : ''}`} />
+                      </button>
+                      {openNavGroup === group.key && (
+                        <div className="absolute left-0 top-full mt-1 z-50 min-w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                          {group.items.map(([tab, label]) => (
+                            <button key={tab} type="button" onClick={() => { setActiveTab(tab); setOpenNavGroup(null); }} className={`block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold whitespace-nowrap ${activeTab === tab ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'}`}>{label}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </>
             )}
           </nav>
@@ -699,6 +619,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 🚛 Motoristas
               </button>
+              {canManageBilling && <button
+                onClick={() => { setActiveTab('company-vehicles'); setShowMobileMenu(false); }}
+                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+              >
+                🚚 Veículos próprios
+              </button>}
               <button
                 onClick={() => { setActiveTab('expenses'); setShowMobileMenu(false); }}
                 className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
@@ -764,9 +690,9 @@ export const Navbar: React.FC<NavbarProps> = ({
       )}
 
       {/* Universal User Profile Edit Modal */}
-      <UserProfileModal 
-        isOpen={isProfileOpen} 
-        onClose={() => setIsProfileOpen(false)} 
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
       />
     </header>
   );
