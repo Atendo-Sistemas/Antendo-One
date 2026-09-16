@@ -1,298 +1,534 @@
-import React, { useEffect, useState } from 'react';
-import { api, clientApi } from '../../services/api';
-import { Driver, CustomFormConfig, DocumentAnalysisRequest } from '../../types';
-import { Camera, MapPin, Search, ShieldAlert, Truck, UploadCloud, X, Send, Lock, RotateCcw } from 'lucide-react';
-import { DriverCnhModal } from './DriverCnhModal';
-import { DriverRiskModal } from './DriverRiskModal';
-import { DriverUploadArea } from './DriverUploadArea';
+import React, { useState, useEffect } from 'react';
+import { Driver, Vehicle } from '../../types';
+import { api } from '../../services/api';
+import { useSaaS } from '../../context/SaaSContext';
+import { VehicleBadge } from '../common/Badge';
+import { DriverCompanyLinkPanel } from './DriverCompanyLinkPanel';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
+import { 
+  Users, 
+  Truck, 
+  Search, 
+  Phone, 
+  MapPin, 
+  Award, 
+  ShieldCheck, 
+  CheckCircle, 
+  FileText, 
+  Plus,
+  Car,
+  Trash2,
+  Pencil,
+  X
+} from 'lucide-react';
 
 export const DriverManager: React.FC = () => {
+  const { getField } = useSaaS();
+  const fName = getField('driverForm', 'name') || { label: 'Nome Completo', placeholder: 'Ex: João da Silva', enabled: true, required: true };
+  const fEmail = getField('driverForm', 'email') || { label: 'E-mail', placeholder: 'joao@translog.com', enabled: true, required: true };
+  const fPhone = getField('driverForm', 'phone') || { label: 'Telefone / WhatsApp', placeholder: '(11) 98888-7777', enabled: true, required: true };
+  const fCpf = getField('driverForm', 'cpf') || { label: 'CPF', placeholder: '123.456.789-00', enabled: true, required: true };
+  const fRg = getField('driverForm', 'rg') || { label: 'RG', placeholder: '12.345.678-9', enabled: true, required: false };
+  const fCity = getField('driverForm', 'city') || { label: 'Cidade', placeholder: 'São Paulo', enabled: true, required: true };
+  const fState = getField('driverForm', 'state') || { label: 'Estado (UF)', placeholder: 'SP', enabled: true, required: true };
+  const fCnh = getField('driverForm', 'cnh') || { label: 'CNH', placeholder: 'Nº CNH', enabled: true, required: true };
+  const fCnhCategory = getField('driverForm', 'cnhCategory') || { label: 'Categoria', placeholder: '', enabled: true, required: true };
+
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [formConfig, setFormConfig] = useState<CustomFormConfig | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Edit state
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
+
+  // Form fields
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [cpf, setCpf] = useState('');
   const [rg, setRg] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('SP');
   const [cnh, setCnh] = useState('');
+  const [cnhCategory, setCnhCategory] = useState('E');
   
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [documentAnalysis, setDocumentAnalysis] = useState<any>(null);
-  const [analyzingDoc, setAnalyzingDoc] = useState(false);
+  // Vehicle fields for creation
+  const [vehicleType, setVehicleType] = useState('TRUCK');
+  const [vehicleBrand, setVehicleBrand] = useState('Volkswagen');
+  const [vehicleModel, setVehicleModel] = useState('Constellation');
+  const [vehiclePlate, setVehiclePlate] = useState('');
+  const [capacityKg, setCapacityKg] = useState('14000');
 
-  // Modals
-  const [cnhModalDriver, setCnhModalDriver] = useState<Driver | null>(null);
-  const [riskModalDriver, setRiskModalDriver] = useState<Driver | null>(null);
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  const load = async () => {
-    setLoading(true);
+  const loadData = async () => {
     try {
-      const [d, conf] = await Promise.all([api.getDrivers(), api.getCustomFormConfig()]);
-      setDrivers(d);
-      setFormConfig(conf);
-    } catch (e: any) {
-      setError(e.message);
+      setLoading(true);
+      const [dList, vList] = await Promise.all([api.getDrivers(), api.getVehicles()]);
+      setDrivers(dList);
+      setVehicles(vList);
+    } catch (err) {
+      console.error('Erro ao carregar motoristas:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { void load(); }, []);
-
-  const handleEdit = (driver: Driver) => {
-    setEditingId(driver.id);
-    setName(driver.name);
-    setPhone(driver.phone);
-    setCpf(driver.cpf || '');
-    setRg(driver.rg || '');
-    setCity(driver.city || '');
-    setState(driver.state || 'SP');
-    setCnh(driver.cnh || '');
-    setError('');
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
+  const handleOpenCreate = () => {
+    setEditingDriver(null);
     setName('');
+    setEmail('');
     setPhone('');
     setCpf('');
     setRg('');
     setCity('');
     setState('SP');
     setCnh('');
-    setError('');
-    setDocumentAnalysis(null);
+    setCnhCategory('E');
+    setVehicleType('TRUCK');
+    setVehicleBrand('Volkswagen');
+    setVehicleModel('Constellation');
+    setVehiclePlate('');
+    setCapacityKg('14000');
+    setIsModalOpen(true);
   };
 
-  const save = async () => {
-    if (!editingId) return;
-    setSaving(true);
-    setError('');
-    try {
-      await api.updateDriver(editingId, { name, phone, cpf, rg, city, state, cnh });
-      await load();
-      cancelEdit();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setSaving(false);
-    }
+  const handleOpenEdit = (driver: Driver) => {
+    setEditingDriver(driver);
+    setName(driver.name);
+    setEmail(driver.email || '');
+    setPhone(driver.phone || '');
+    setCpf(driver.cpf || '');
+    setRg(driver.rg || '');
+    setCity(driver.city || '');
+    setState(driver.state || 'SP');
+    setCnh(driver.cnh || '');
+    setCnhCategory(driver.cnhCategory || 'E');
+    setIsModalOpen(true);
   };
 
-  const analyzeDocument = async (base64String: string, type: string) => {
-    if (!editingId) return;
-    setAnalyzingDoc(true);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     try {
-      const payload: DocumentAnalysisRequest = { imageBase64: base64String, documentType: type, driverId: editingId };
-      const analysis = await api.analyzeDriverDocument(payload);
-      setDocumentAnalysis({ ...analysis, type });
-      
-      // Auto-fill fields if they match high confidence extraction
-      if (analysis.extractedFields) {
-        if (analysis.extractedFields.cpf && !cpf) setCpf(analysis.extractedFields.cpf);
-        if (analysis.extractedFields.rg && !rg) setRg(analysis.extractedFields.rg);
-        if (analysis.extractedFields.name && !name) setName(analysis.extractedFields.name);
-        if (analysis.extractedFields.cnh && !cnh && type === 'CNH') setCnh(analysis.extractedFields.cnh);
+      if (editingDriver) {
+        await api.updateDriver(editingDriver.id, {
+          name,
+          email,
+          phone,
+          cpf,
+          rg,
+          city,
+          state,
+          cnh,
+          cnhCategory
+        });
+        alert('Motorista atualizado com sucesso!');
+      } else {
+        await api.registerDriver({
+          name,
+          email,
+          phone,
+          cpf,
+          rg,
+          city,
+          state,
+          cnh,
+          cnhCategory,
+          vehicleType,
+          vehicleBrand,
+          vehicleModel,
+          vehiclePlate,
+          capacityKg: Number(capacityKg)
+        });
+        alert('Motorista cadastrado com sucesso!');
       }
-    } catch (e: any) {
-      setError(`Erro ao analisar documento: ${e.message}`);
-    } finally {
-      setAnalyzingDoc(false);
+      setIsModalOpen(false);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao salvar motorista');
     }
   };
 
-  const getField = (formName: string, fieldKey: string) => formConfig?.forms?.[formName]?.fields?.find(f => f.key === fieldKey);
-
-  const fCity = getField('driverForm', 'city') || { label: 'Cidade', placeholder: 'São Paulo', enabled: true, required: true };
-  const fCnh = getField('driverForm', 'cnh') || { label: 'CNH', placeholder: 'Apenas números', enabled: true, required: false };
+  const handleDeleteDriver = async (id: string, name: string) => {
+    if (!window.confirm(`Tem certeza que deseja excluir o motorista ${name}? Veículos associados também serão removidos.`)) return;
+    try {
+      await api.deleteDriver(id);
+      setDrivers(prev => prev.filter(d => d.id !== id));
+      setVehicles(prev => prev.filter(v => v.driverId !== id));
+    } catch (err: any) {
+      alert(err.message || 'Erro ao excluir motorista');
+    }
+  };
 
   const filtered = drivers.filter(d => {
-    if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
-    return d.name.toLowerCase().includes(term) || 
-      (d.cpf || '').includes(term) || 
-      (d.cnh || '').includes(term) || 
-      (d.city || '').toLowerCase().includes(term);
+    return (
+      d.name.toLowerCase().includes(term) ||
+      d.cpf.includes(term) ||
+      d.city.toLowerCase().includes(term) ||
+      d.state.toLowerCase().includes(term) ||
+      d.cnh.includes(term)
+    );
   });
 
   return (
-    <section className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Gestão Logística</p>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-            <Truck className="w-6 h-6" /> Cadastro de Motoristas
+          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2.5">
+            <Users className="w-6 h-6 text-emerald-600" />
+            <span>Gestão de Motoristas & Frotistas</span>
           </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+            Cadastre, edite e gerencie motoristas autônomos e agregados, CNH, documentos e veículos aptos.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold px-3 py-2 rounded-xl bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+            {drivers.length} motorista(s) habilitado(s)
+          </span>
+          <button
+            onClick={handleOpenCreate}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Cadastrar Novo Motorista</span>
+          </button>
         </div>
       </div>
 
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:border-red-900/30 dark:bg-red-950/20 p-4 text-sm text-red-700 dark:text-red-300 shadow-sm flex items-start gap-2"><ShieldAlert className="w-5 h-5 shrink-0" /> {error}</div>}
+      <DriverCompanyLinkPanel />
+      {/* Search Toolbar */}
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-3">
+        <Search className="w-4 h-4 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Buscar por nome, CPF, CNH ou cidade do motorista..."
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          className="w-full bg-transparent text-xs font-medium text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
+        />
+      </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-        {/* Left Column: List */}
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm flex flex-col h-[75vh]">
-          <div className="p-4 border-b border-slate-100 dark:border-slate-800">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                placeholder="Buscar por nome, CPF, CNH ou cidade do motorista..."
-                className="w-full pl-9 pr-4 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-all"
-              />
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-2">
-            {loading ? (
-              <div className="p-8 text-center text-slate-500 text-sm">Carregando motoristas...</div>
-            ) : filtered.length === 0 ? (
-              <div className="p-8 text-center text-slate-500 text-sm">Nenhum motorista encontrado.</div>
-            ) : (
-              <div className="grid gap-2 p-2">
-                {filtered.map(driver => (
-                  <article key={driver.id} className={`p-4 rounded-xl border transition-all ${editingId === driver.id ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-slate-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700'}`}>
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-extrabold text-slate-900 dark:text-white truncate">{driver.name}</h3>
-                          {driver.systemLocked && <Lock className="w-3.5 h-3.5 text-slate-400" title="Cadastro bloqueado pelo sistema (Demo)" />}
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                          <span className="flex items-center gap-1 shrink-0"><MapPin className="w-3 h-3" /> {driver.city}/{driver.state}</span>
-                          <span className="shrink-0">{driver.phone}</span>
-                          {driver.cpf && <span className="shrink-0 font-medium font-mono text-slate-600 dark:text-slate-400">CPF: {driver.cpf}</span>}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-1.5 shrink-0">
-                        <button onClick={() => handleEdit(driver)} className="px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-200 dark:hover:bg-emerald-800/40 cursor-pointer transition-colors">Editar Perfil</button>
-                        <button onClick={() => setRiskModalDriver(driver)} className="px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 text-xs font-bold hover:bg-amber-100 cursor-pointer transition-colors text-center">Risco / Pamcary</button>
-                        <button onClick={() => setCnhModalDriver(driver)} className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors text-center">Consultar CNH</button>
-                      </div>
+      {/* Driver Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filtered.map(driver => {
+          const driverVehicles = vehicles.filter(v => v.driverId === driver.id);
+
+          return (
+            <div
+              key={driver.id}
+              className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4 hover:border-emerald-500/40 transition-all flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black text-base">
+                      {driver.name.charAt(0)}
                     </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Column: Editor */}
-        {editingId ? (
-          <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900 bg-white dark:bg-slate-900 p-5 shadow-lg relative h-fit sticky top-6">
-            <button onClick={cancelEdit} className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"><X className="w-4 h-4" /></button>
-            <h2 className="text-lg font-black text-slate-900 dark:text-white pr-8">Editar Motorista</h2>
-            <p className="text-xs text-slate-500 mb-5">Atualize os dados, valide documentos e anexe fotos.</p>
-
-            {/* Smart Document Analysis Area */}
-            <div className="mb-6 bg-slate-50 dark:bg-slate-950/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-              <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-1.5"><Camera className="w-4 h-4 text-emerald-600" /> IA Documental (Opcional)</h3>
-              <p className="text-[10px] text-slate-500 mb-3 leading-relaxed">Faça upload de uma foto da CNH ou RG do motorista. A inteligência artificial irá extrair os dados e preencher o formulário automaticamente se a qualidade permitir.</p>
-              
-              <DriverUploadArea onUpload={(base64) => analyzeDocument(base64, 'CNH')} accept="image/*" label="Upload CNH/RG para extração inteligente" icon={<UploadCloud className="w-5 h-5" />} />
-              
-              {analyzingDoc && (
-                <div className="mt-3 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 flex items-center gap-3">
-                  <div className="w-4 h-4 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin shrink-0" />
-                  <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Analisando documento e validando autenticidade com IA...</p>
-                </div>
-              )}
-
-              {documentAnalysis && !analyzingDoc && (
-                <div className="mt-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs">
-                  <div className="flex justify-between items-start mb-2">
-                    <strong className="text-emerald-600">Extração concluída</strong>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${documentAnalysis.authenticityScore > 80 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>Confiança: {documentAnalysis.authenticityScore}%</span>
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">{driver.name}</h3>
+                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                        <MapPin className="w-3 h-3" /> {driver.city}/{driver.state}
+                      </p>
+                    </div>
                   </div>
-                  {documentAnalysis.warnings?.length > 0 && (
-                    <ul className="mb-2 pl-4 list-disc text-amber-600 space-y-1">
-                      {documentAnalysis.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
-                    </ul>
-                  )}
-                  <p className="text-[10px] text-slate-500">Os campos extraídos foram aplicados no formulário abaixo.</p>
+
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                    ★ {driver.rating.toFixed(1)}
+                  </span>
                 </div>
-              )}
+
+                {/* Contact & Docs */}
+                <div className="mt-3 space-y-1.5 text-xs text-slate-600 dark:text-slate-400">
+                  <p className="flex items-center gap-2">
+                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">{driver.phone}</span>
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <FileText className="w-3.5 h-3.5 text-slate-400" />
+                    <span>CNH Cat. {driver.cnhCategory} ({driver.cnh})</span>
+                  </p>
+                  <p className="flex items-center gap-2">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>RNTRC: {driver.rntrc || 'Ativo'}</span>
+                  </p>
+                </div>
+
+                {/* Vehicles list */}
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                    Veículos Vinculados ({driverVehicles.length})
+                  </span>
+                  <div className="space-y-1.5">
+                    {driverVehicles.map(v => (
+                      <div key={v.id} className="p-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg text-xs flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Car className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{v.plate}</span>
+                          <span className="text-slate-500">• {v.brand} {v.model}</span>
+                        </div>
+                        <VehicleBadge type={v.type} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-500 font-medium">
+                  {driver.completedTrips} viagens concluídas
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => handleOpenEdit(driver)}
+                    className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 transition-colors cursor-pointer"
+                    title="Editar motorista"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteDriver(driver.id, driver.name)}
+                    className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors cursor-pointer"
+                    title="Excluir motorista"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Modal Criar / Editar Motorista */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 p-6 space-y-5 my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                {editingDriver ? 'Editar Motorista' : 'Cadastrar Novo Motorista'}
+              </h2>
+              <button onClick={() => setIsModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <form onSubmit={e => { e.preventDefault(); void save(); }} className="space-y-4">
-              <div className="grid grid-cols-1 gap-4">
-                <label className="block">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">Nome Completo <span className="text-red-500">*</span></span>
-                  <input required value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium" />
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">Telefone <span className="text-red-500">*</span></span>
-                    <input required value={phone} onChange={e => setPhone(e.target.value)} placeholder="(11) 99999-9999" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" />
-                  </label>
-                  <label className="block">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">CPF</span>
-                    <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="000.000.000-00" className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium font-mono" />
-                  </label>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {fCity.enabled && (
-                    <label className="block sm:col-span-2">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">
-                        {fCity.label} {fCity.required && <span className="text-red-500">*</span>}
-                      </span>
-                      <AddressAutocomplete
-                        required={fCity.required}
-                        value={city}
-                        onSelect={(data) => {
-                          setCity(data.city || data.address);
-                          if (data.state) setState(data.state);
-                        }}
-                        placeholder="Buscar cidade..."
-                        className="bg-slate-50 dark:bg-slate-800"
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {fName.enabled && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {fName.label} {fName.required && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      required={fName.required}
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder={fName.placeholder}
+                    />
+                  </div>
+                )}
+                {fEmail.enabled && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {fEmail.label} {fEmail.required && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="email"
+                      required={fEmail.required}
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder={fEmail.placeholder}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {fPhone.enabled && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {fPhone.label} {fPhone.required && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      required={fPhone.required}
+                      value={phone}
+                      onChange={e => setPhone(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder={fPhone.placeholder}
+                    />
+                  </div>
+                )}
+                {fCpf.enabled && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {fCpf.label} {fCpf.required && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      required={fCpf.required}
+                      value={cpf}
+                      onChange={e => setCpf(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder={fCpf.placeholder}
+                    />
+                  </div>
+                )}
+                {fRg.enabled && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {fRg.label} {fRg.required && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      required={fRg.required}
+                      value={rg}
+                      onChange={e => setRg(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder={fRg.placeholder}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {fCity.enabled && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {fCity.label} {fCity.required && <span className="text-red-500">*</span>}
+                    </label>
+                    <AddressAutocomplete
+                      required={fCity.required}
+                      value={city}
+                      onSelect={(data) => {
+                        setCity(data.city || data.address);
+                        if (data.state) setState(data.state);
+                      }}
+                      placeholder="Buscar cidade..."
+                      className="bg-slate-50 dark:bg-slate-800"
+                    />
+                  </div>
+                )}
+                {fState.enabled && (
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                      {fState.label} {fState.required && <span className="text-red-500">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      required={fState.required}
+                      maxLength={2}
+                      value={state}
+                      onChange={e => setState(e.target.value.toUpperCase())}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder={fState.placeholder}
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">CNH / Categoria</label>
+                  <div className="flex gap-2">
+                    {fCnh.enabled && (
+                      <input
+                        type="text"
+                        required={fCnh.required}
+                        value={cnh}
+                        onChange={e => setCnh(e.target.value)}
+                        className="w-2/3 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                        placeholder={fCnh.placeholder}
                       />
-                    </label>
-                  )}
-                  <label className="block">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">Estado (UF)</span>
-                    <input maxLength={2} value={state} onChange={e => setState(e.target.value.toUpperCase())} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium uppercase" />
-                  </label>
-                  {fCnh.enabled && (
-                    <label className="block">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">{fCnh.label} {fCnh.required && <span className="text-red-500">*</span>}</span>
-                      <input required={fCnh.required} value={cnh} onChange={e => setCnh(e.target.value)} placeholder={fCnh.placeholder} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium font-mono" />
-                    </label>
-                  )}
-                  <label className="block">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">RG</span>
-                    <input value={rg} onChange={e => setRg(e.target.value)} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium font-mono" />
-                  </label>
+                    )}
+                    {fCnhCategory.enabled && (
+                      <select
+                        value={cnhCategory}
+                        required={fCnhCategory.required}
+                        onChange={e => setCnhCategory(e.target.value)}
+                        className="w-1/3 px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold"
+                      >
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                        <option value="D">D</option>
+                        <option value="E">E</option>
+                      </select>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex gap-3">
-                <button type="submit" disabled={saving} className="flex-1 rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md hover:bg-emerald-700 disabled:opacity-50 transition-colors flex justify-center items-center gap-2 cursor-pointer">
-                  {saving ? 'Salvando...' : <><Send className="w-4 h-4" /> Salvar Edições</>}
+              {!editingDriver && (
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Dados do Veículo Principal</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Tipo de Veículo</label>
+                      <select
+                        value={vehicleType}
+                        onChange={e => setVehicleType(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                      >
+                        <option value="TRUCK">Truck (14t)</option>
+                        <option value="CARRETA">Carreta (25t)</option>
+                        <option value="BITREM">Bitrem (37t)</option>
+                        <option value="TOCO">Toco (8t)</option>
+                        <option value="VAN">Van / Fiorino</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Marca / Modelo</label>
+                      <input
+                        type="text"
+                        value={vehicleModel}
+                        onChange={e => setVehicleModel(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                        placeholder="Ex: Volvo FH / Atego"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">Placa</label>
+                      <input
+                        type="text"
+                        required
+                        value={vehiclePlate}
+                        onChange={e => setVehiclePlate(e.target.value.toUpperCase())}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium uppercase"
+                        placeholder="ABC1D23"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md cursor-pointer"
+                >
+                  {editingDriver ? 'Salvar Alterações' : 'Cadastrar Motorista'}
                 </button>
               </div>
             </form>
           </div>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex flex-col items-center justify-center p-10 text-center h-[75vh]">
-            <Truck className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-4" />
-            <h3 className="text-lg font-bold text-slate-700 dark:text-slate-300">Selecione um motorista</h3>
-            <p className="text-sm text-slate-500 max-w-xs mt-2">Clique em "Editar Perfil" na lista ao lado para alterar os dados ou validar documentos com IA.</p>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {cnhModalDriver && <DriverCnhModal driver={cnhModalDriver} onClose={() => setCnhModalDriver(null)} onUpdated={load} />}
-      {riskModalDriver && <DriverRiskModal driver={riskModalDriver} onClose={() => setRiskModalDriver(null)} />}
-    </section>
+    </div>
   );
 };
