@@ -99,7 +99,7 @@ export const ClientManager: React.FC = () => {
             <button onClick={() => void refresh()} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-bold cursor-pointer hover:bg-slate-50">Buscar</button>
           </div>
           {loading ? (
-            <p className="text-sm text-slate-500 py-4">Carregando...</p>
+            <p>Carregando...</p>
           ) : items.map(item => (
             <button key={item.id} onClick={() => { setSelected(item); setDraft(item); }} className={`w-full rounded-xl border p-3 text-left cursor-pointer transition-colors ${selected?.id === item.id ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 hover:bg-slate-50'}`}>
               <div className="font-bold">{item.legalName}</div>
@@ -145,7 +145,7 @@ export const ClientManager: React.FC = () => {
           
           <div className="mt-5 flex gap-2">
             <button onClick={() => void save()} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-bold text-white cursor-pointer hover:bg-indigo-700">Salvar cliente</button>
-            {selected && <button onClick={() => void archive()} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700 cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30">Arquivar</button>}
+            {selected && <button onClick={() => void archive()} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-bold text-red-700 cursor-pointer hover:bg-red-50">Arquivar</button>}
           </div>
         </div>
       </div>
