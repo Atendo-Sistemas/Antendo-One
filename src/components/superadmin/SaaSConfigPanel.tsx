@@ -617,6 +617,783 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
           {activeSubTab === 'overview' && <AdminSeoOverviewPanel onOpenContentManagement={onOpenContentManagement} onOpenSeoConfig={() => setActiveSubTab('seo')} />}
           {activeSubTab === 'analytics' && <VisitAnalyticsPanel />}
 
+{activeSubTab === 'plans' && config && (
+            <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Planos & Barreiras Limitadoras</h3>
+                <p className="text-[11px] text-slate-400 mt-1">Defina preços mensais e cotas rígidas para evitar sobrecarga ou incentivar upgrades.</p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/20 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-black text-indigo-900 dark:text-indigo-200">Módulo adicional de notificações</h4>
+                    <p className="text-[11px] text-indigo-800/80 dark:text-indigo-300/80 mt-1">Plano gratuito usa o telefone SaaS. O plano pago libera o número WhatsApp próprio da empresa e será cobrado pelo Asaas.</p>
+                  </div>
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer text-[11px] font-bold text-indigo-800 dark:text-indigo-200"><input type="checkbox" checked={config.notificationModule?.enabled ?? true} onChange={e => updateNotificationModuleField('enabled', e.target.checked)} /> Ativo</label>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Nome do plano gratuito<input type="text" value={config.notificationModule?.freePlanName || DEFAULT_NOTIFICATION_MODULE.freePlanName} onChange={e => updateNotificationModuleField('freePlanName', e.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Nome do plano de número próprio<input type="text" value={config.notificationModule?.ownNumberPlanName || DEFAULT_NOTIFICATION_MODULE.ownNumberPlanName} onChange={e => updateNotificationModuleField('ownNumberPlanName', e.target.value)} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Valor mensal do número próprio (R$)<input type="number" min="0" step="0.01" value={config.notificationModule?.ownNumberMonthlyPrice ?? DEFAULT_NOTIFICATION_MODULE.ownNumberMonthlyPrice} onChange={e => updateNotificationModuleField('ownNumberMonthlyPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Ativação assistida (R$)<input type="number" min="0" step="0.01" value={config.notificationModule?.assistedActivationPrice ?? DEFAULT_NOTIFICATION_MODULE.assistedActivationPrice} onChange={e => updateNotificationModuleField('assistedActivationPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300">Número adicional (R$/mês)<input type="number" min="0" step="0.01" value={config.notificationModule?.extraNumberMonthlyPrice ?? DEFAULT_NOTIFICATION_MODULE.extraNumberMonthlyPrice} onChange={e => updateNotificationModuleField('extraNumberMonthlyPrice', Math.max(0, Number(e.target.value) || 0))} className="mt-1 w-full rounded-lg border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 px-3 py-2" /></label>
+                </div>
+                <p className="text-[10px] text-indigo-800/80 dark:text-indigo-300/80">Preço inicial sugerido: número SaaS sem mensalidade adicional; número próprio R$ 89,90/mês; ativação assistida R$ 149,90 uma vez; número extra R$ 29,90/mês. Todos os valores ficam editáveis aqui.</p>
+              </div>
+
+              <div className="space-y-5">
+                {config.plans.map((p, idx) => (
+                  <div key={p.id} className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/50 dark:border-slate-800/50 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                        {p.id}
+                      </span>
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={p.isActive}
+                          onChange={e => updatePlanField(idx, 'isActive', e.target.checked)}
+                          className="rounded text-emerald-600"
+                        />
+                        <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">Ativar Comercialização</span>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="sm:col-span-2">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Nome Comercial</label>
+                        <input
+                          type="text"
+                          required
+                          value={p.name}
+                          onChange={e => updatePlanField(idx, 'name', e.target.value)}
+                          className="w-full px-2.5 py-1.5 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-semibold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Mensalidade (R$)</label>
+                        <div className="relative mt-1">
+                          <input
+                            type="number"
+                            required
+                            value={p.price}
+                            onChange={e => updatePlanField(idx, 'price', parseFloat(e.target.value) || 0)}
+                            className="w-full pl-6 pr-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-bold text-slate-800 dark:text-white"
+                          />
+                          <span className="absolute left-2.5 top-2 text-[10px] text-slate-400 font-bold">R$</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase">Fretes / Mês</label>
+                        <input
+                          type="number"
+                          required
+                          value={p.maxFreightsMonthly}
+                          onChange={e => updatePlanField(idx, 'maxFreightsMonthly', parseInt(e.target.value) || 0)}
+                          className="w-full px-2.5 py-1.5 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-semibold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 text-xs">
+                      <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg flex items-center gap-2">
+                        <Users className="w-4 h-4 text-indigo-500 shrink-0" />
+                        <div className="flex-1">
+                          <label className="text-[9px] font-bold text-slate-400 block uppercase">Limite de Usuários</label>
+                          <input
+                            type="number"
+                            required
+                            value={p.maxUsers}
+                            onChange={e => updatePlanField(idx, 'maxUsers', parseInt(e.target.value) || 0)}
+                            className="w-full bg-transparent border-b border-transparent focus:border-slate-300 outline-hidden font-bold py-0.5 text-slate-800 dark:text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 bg-white dark:bg-slate-800 rounded-lg flex items-center gap-2">
+                        <Truck className="w-4 h-4 text-sky-500 shrink-0" />
+                        <div className="flex-1">
+                          <label className="text-[9px] font-bold text-slate-400 block uppercase">Limite de Motoristas</label>
+                          <input
+                            type="number"
+                            required
+                            value={p.maxDrivers}
+                            onChange={e => updatePlanField(idx, 'maxDrivers', parseInt(e.target.value) || 0)}
+                            className="w-full bg-transparent border-b border-transparent focus:border-slate-300 outline-hidden font-bold py-0.5 text-slate-800 dark:text-white"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? 'Gravando...' : 'Salvar Alterações nos Planos'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* TAB ASAAS: PAYMENTS */}
+          
+
+{activeSubTab === 'asaas' && config && (
+            <AsaasConfigPanel
+              config={config}
+              saving={saving}
+              onUpdateConfig={async (updated) => {
+                const newConfig = { ...config, ...updated };
+                setConfig(newConfig);
+                await api.updateSaaSGlobalConfig(newConfig);
+                setMessage({ text: 'Configuração Asaas salva com segurança!', type: 'success' });
+                setTimeout(() => setMessage(null), 4000);
+              }}
+            />
+          )}
+          
+
+{activeSubTab === 'rules' && config && (
+            <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Configurações de Regra de Negócio</h3>
+                <p className="text-[11px] text-slate-400 mt-1">Ajuste regras operacionais, percentuais de lucro padrão e parâmetros de autenticação OTP.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 text-xs">
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Percentual Padrão de Intermediação (%)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      max={100}
+                      value={config.defaultCommissionPercent}
+                      onChange={e => setConfig({ ...config, defaultCommissionPercent: parseFloat(e.target.value) || 0 })}
+                      className="w-full pr-8 pl-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold focus:outline-emerald-500"
+                    />
+                    <span className="absolute right-3 top-2.5 text-slate-400 font-bold">%</span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">Percentual descontado de cada frete intermediado por padrão na criação.</p>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Idade Mínima para Cadastro de Motoristas</label>
+                  <input
+                    type="number"
+                    required
+                    min={18}
+                    value={config.minDriverAge}
+                    onChange={e => setConfig({ ...config, minDriverAge: parseInt(e.target.value) || 18 })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold focus:outline-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Idade civil legal para permitir o registro de motoristas de carga.</p>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Tempo de Validade do Código OTP (Minutos)</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={config.otpExpirationMinutes}
+                    onChange={e => setConfig({ ...config, otpExpirationMinutes: parseInt(e.target.value) || 5 })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold focus:outline-emerald-500"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Tempo em minutos até que os códigos OTP enviados expirem.</p>
+                </div>
+
+                <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl">
+                  <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Políticas Estritas</span>
+                  
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.requireChecklistPhotos}
+                      onChange={e => setConfig({ ...config, requireChecklistPhotos: e.target.checked })}
+                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Exigir fotos no checklist de trânsito</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.allowSelfRegistration}
+                      onChange={e => setConfig({ ...config, allowSelfRegistration: e.target.checked })}
+                      className="rounded text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Permitir auto-cadastro de empresas</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={!!config.showDemoSwitcher}
+                      onChange={e => setConfig({ ...config, showDemoSwitcher: e.target.checked })}
+                      className="rounded text-purple-600 focus:ring-purple-500"
+                    />
+                    <div>
+                      <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 block">Exibir Barra de Perfis Demo (Ambiente de Teste)</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400 block">Exibe a barra superior para troca rápida entre perfis. Desative em produção para clientes finais.</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? 'Gravando...' : 'Salvar Regras Operacionais'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          
+
+{activeSubTab === 'layout' && config && config.layout && (
+            <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Aparência & Identidade do Frontend</h3>
+                <p className="text-[11px] text-slate-400 mt-1">Personalize toda a interface visual dos seus clientes. Cores, arredondamento de bordas, fontes e navegação são aplicados instantaneamente em tempo real sem precisar de recarregamento.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-xs">
+                {/* Cor Principal */}
+                <div className="space-y-3">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">Cor Principal do Sistema (Primary)</label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      value={config.layout.primaryColor}
+                      onChange={e => setConfig({
+                        ...config,
+                        layout: { ...config.layout!, primaryColor: e.target.value }
+                      })}
+                      className="w-10 h-10 p-1 rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer bg-transparent"
+                    />
+                    <input
+                      type="text"
+                      maxLength={7}
+                      value={config.layout.primaryColor}
+                      onChange={e => setConfig({
+                        ...config,
+                        layout: { ...config.layout!, primaryColor: e.target.value }
+                      })}
+                      className="w-28 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg font-mono font-bold text-center text-slate-700 dark:text-slate-300"
+                    />
+                  </div>
+                  
+                  {/* Presets de Cor */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Presets de Marca Sugeridos</span>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {[
+                        { name: 'Atendo One Green', value: '#059669' },
+                        { name: 'Safira Blue', value: '#2563eb' },
+                        { name: 'Esmeralda', value: '#10b981' },
+                        { name: 'Obsidiana', value: '#334155' },
+                        { name: 'Ruby', value: '#dc2626' },
+                        { name: 'Solar Amber', value: '#d97706' },
+                        { name: 'Ametista', value: '#7c3aed' }
+                      ].map(preset => (
+                        <button
+                          key={preset.value}
+                          type="button"
+                          onClick={() => setConfig({
+                            ...config,
+                            layout: { ...config.layout!, primaryColor: preset.value }
+                          })}
+                          className={`px-2 py-1 rounded-md border text-[10px] font-bold transition-all ${
+                            config.layout!.primaryColor === preset.value
+                              ? 'border-slate-800 dark:border-white bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white'
+                              : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-850'
+                          }`}
+                        >
+                          <span className="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-middle" style={{ backgroundColor: preset.value }} />
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Texto do Logo */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Título/Marca do Topo da Página (Logo)</label>
+                  <input
+                    type="text"
+                    required
+                    value={config.layout.logoText || ''}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, logoText: e.target.value }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
+                    placeholder="Ex: ATENDO ONE"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Nome de exibição em destaque no cabeçalho e na tela de login.</p>
+                </div>
+
+                {/* Imagens públicas da marca */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/40 dark:bg-indigo-950/20 p-4">
+                  <div className="sm:col-span-2"><h4 className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Imagens do site e do aplicativo</h4><p className="text-[10px] text-slate-500 mt-1">Informe URLs HTTPS de imagens hospedadas. As alterações são persistidas ao salvar o layout.</p></div>
+                  {([
+                    ['logoImageUrl', 'Logo em imagem (PNG/SVG/WebP)'],
+                    ['faviconUrl', 'Favicon do navegador'],
+                    ['appIconUrl', 'Ícone do aplicativo/PWA'],
+                    ['homeHeroImageUrl', 'Imagem principal da página inicial']
+                  ] as const).map(([key, label]) => <label key={key} className="text-xs font-bold text-slate-700 dark:text-slate-300">{label}<input type="url" value={(config.layout as any)[key] || ''} onChange={e => setConfig({ ...config, layout: { ...config.layout!, [key]: e.target.value } })} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="https://..." /></label>)}
+                </div>
+                {/* Nome da Aba do Navegador */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Nome da Aba do Navegador (Browser Tab Title)</label>
+                  <input
+                    type="text"
+                    value={config.layout.browserTabTitle || ''}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, browserTabTitle: e.target.value }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
+                    placeholder="Ex: Atendo One - Gestão e Publicação de Fretes"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Título exibido na aba superior do navegador (document.title).</p>
+                </div>
+
+                {/* Texto do Rodapé */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Texto do Rodapé da Aplicação (Footer Text)</label>
+                  <input
+                    type="text"
+                    value={config.layout.footerText || ''}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, footerText: e.target.value }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
+                    placeholder="Ex: Atendo One • Gestão Logística Integrada © 2026"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Texto exibido no rodapé das páginas públicas e autenticadas.</p>
+                </div>
+
+                {/* Arredondamento de Cantos */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Borda & Arredondamento das Caixas (Border Radius)</label>
+                  <select
+                    value={config.layout.borderRadius}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, borderRadius: e.target.value as any }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                  >
+                    <option value="none">Reto / Sem Arredondamento (Estilo Clássico)</option>
+                    <option value="sm">Mínimo / Suave (4px)</option>
+                    <option value="md">Médio (8px)</option>
+                    <option value="lg">Arredondado Elegante (12px)</option>
+                    <option value="xl">Bordas Largas (16px - Padrão)</option>
+                    <option value="2xl">Super Arredondado / Bold (24px)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">Define as curvas de botões, modais, cartões e campos de entrada.</p>
+                </div>
+
+                {/* Tipografia */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Família Tipográfica (Fonte Principal)</label>
+                  <select
+                    value={config.layout.fontFamily}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, fontFamily: e.target.value as any }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                  >
+                    <option value="sans">Plus Jakarta Sans / Sans-Serif (Moderna & Legível)</option>
+                    <option value="display">Montserrat / Display (Robusta & Tecnológica)</option>
+                    <option value="serif">Playfair Display / Serif (Clássica & Sofisticada)</option>
+                    <option value="mono">Fira Code / Monospace (Técnica & Industrial)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">A fonte padrão utilizada nos menus, títulos e conteúdos.</p>
+                </div>
+
+                {/* Estilo do Navbar */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Estilo do Cabeçalho (Navbar Style)</label>
+                  <select
+                    value={config.layout.navbarStyle}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, navbarStyle: e.target.value as any }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                  >
+                    <option value="dark">Escuro de Alto Contraste (Fundo Escuro, Letras Claras)</option>
+                    <option value="light">Claro Minimalista (Fundo Branco, Letras Escuras)</option>
+                    <option value="colored">Injetar Cor Principal (Usa a cor de marca definida ao lado)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">Define o comportamento visual da barra superior do sistema.</p>
+                </div>
+
+                {/* Tom de Fundo do Sistema */}
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Fundo Base da Aplicação (System Background)</label>
+                  <select
+                    value={config.layout.systemBackground}
+                    onChange={e => setConfig({
+                      ...config,
+                      layout: { ...config.layout!, systemBackground: e.target.value as any }
+                    })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
+                  >
+                    <option value="minimal">Modo Neutro (Off-White Claro / Preto puro no Escuro)</option>
+                    <option value="warm">Modo Acolhedor (Creme Quente / Fundo sépia escuro)</option>
+                    <option value="slate">Modo Corporativo (Slate Azulado / Slate Escuro de alta legibilidade)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">Ajusta o tom de preenchimento das páginas de fundo do dashboard.</p>
+                </div>
+              </div>
+
+              {/* Seção Nova: Conteúdo do Site Institucional */}
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-5 mt-6 space-y-4">
+                <div className="pb-2">
+                  <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Conteúdo da Página Inicial (Site Institucional / Home)</h4>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Customize os slogans e informações de captação de clientes na tela de entrada do sistema.</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  {/* Badge de destaque */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Texto do Distintivo (Badge Superior)</label>
+                    <input
+                      type="text"
+                      required
+                      value={config.layout.homeBadgeText || ''}
+                      onChange={e => setConfig({
+                        ...config,
+                        layout: { ...config.layout!, homeBadgeText: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
+                      placeholder="Ex: Solução de Carga Inteligente"
+                    />
+                  </div>
+
+                  {/* Título Principal */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Título de Introdução (Parte 1)</label>
+                    <input
+                      type="text"
+                      required
+                      value={config.layout.homeTitle || ''}
+                      onChange={e => setConfig({
+                        ...config,
+                        layout: { ...config.layout!, homeTitle: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
+                      placeholder="Ex: Gestão e Publicação de Fretes em"
+                    />
+                  </div>
+
+                  {/* Título Principal (Destacado em Verde) */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Título Destacado (Parte 2 - Cor Primária)</label>
+                    <input
+                      type="text"
+                      required
+                      value={config.layout.homeTitleAccent || ''}
+                      onChange={e => setConfig({
+                        ...config,
+                        layout: { ...config.layout!, homeTitleAccent: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-emerald-500"
+                      placeholder="Ex: Tempo Real"
+                    />
+                  </div>
+
+                  {/* Subtítulo ou Parágrafo explicativo */}
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">Texto de Apresentação (Subtítulo da Landing Page)</label>
+                    <textarea
+                      required
+                      rows={3}
+                      value={config.layout.homeSubtitle || ''}
+                      onChange={e => setConfig({
+                        ...config,
+                        layout: { ...config.layout!, homeSubtitle: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium focus:outline-emerald-500"
+                      placeholder="Descreva o propósito da sua plataforma de fretes e as vantagens competitivas da sua marca..."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? 'Gravando...' : 'Salvar Alterações de Layout'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          
+
+{activeSubTab === 'fields' && config && config.formFields && (
+            <div className="space-y-6">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Customização de Campos de Formulários</h3>
+                <p className="text-[11px] text-slate-400 mt-1">Selecione e edite os formulários em uso no sistema. Mude rótulos, adicione placeholders, ative ou desative campos e controle a obrigatoriedade de preenchimento.</p>
+              </div>
+
+              {/* Form Selector Header */}
+              <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl w-fit">
+                {[
+                  { id: 'freightForm', name: 'Cadastro de Frete' },
+                  { id: 'driverForm', name: 'Cadastro de Motorista' },
+                  { id: 'userForm', name: 'Cadastro de Usuário' },
+                  { id: 'expenseForm', name: 'Prestação de Contas (Despesas)' }
+                ].map(formOpt => (
+                  <button
+                    key={formOpt.id}
+                    type="button"
+                    onClick={() => setSelectedForm(formOpt.id as any)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      selectedForm === formOpt.id
+                        ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    {formOpt.name}
+                  </button>
+                ))}
+              </div>
+
+              {/* Add New Field */}
+              <button
+                type="button"
+                onClick={() => {
+                  const id = prompt('Digite o ID interno do novo campo (ex: obs1):');
+                  const label = prompt('Digite o nome exibido do campo:');
+                  if (id && label) {
+                    const updated = { ...config };
+                    updated.formFields![selectedForm].push({
+                      id,
+                      originalLabel: label,
+                      label,
+                      placeholder: '',
+                      enabled: true,
+                      required: false
+                    });
+                    setConfig(updated);
+                  }
+                }}
+                className="mb-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-2 cursor-pointer"
+              >
+                + Adicionar Novo Campo
+              </button>
+
+              {/* Fields List */}
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-xs">
+                <table className="w-full text-left text-xs min-w-[600px]">
+                  <thead className="bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase font-black tracking-wider text-slate-500">
+                    <tr>
+                      <th className="py-3 px-4">Campo Original (Interno)</th>
+                      <th className="py-3 px-4">Rótulo Personalizado (Label)</th>
+                      <th className="py-3 px-4">Placeholder (Texto de Ajuda)</th>
+                      <th className="py-3 px-4 text-center">Ativo</th>
+                      <th className="py-3 px-4 text-center">Obrigatório</th>
+                      <th className="py-3 px-4 text-center">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {config.formFields[selectedForm].map((field, idx) => (
+                      <tr key={field.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10">
+                        {/* ID & Original Label */}
+                        <td className="py-3 px-4 font-bold text-slate-700 dark:text-slate-300">
+                          <div>{field.originalLabel}</div>
+                          <span className="text-[10px] text-slate-400 font-mono font-medium">{field.id}</span>
+                        </td>
+                        
+                        {/* Custom Label */}
+                        <td className="py-2 px-4">
+                          <input
+                            type="text"
+                            required
+                            value={field.label}
+                            onChange={e => {
+                              const updated = { ...config };
+                              updated.formFields![selectedForm][idx].label = e.target.value;
+                              setConfig(updated);
+                            }}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-semibold focus:outline-emerald-500"
+                          />
+                        </td>
+
+                        {/* Custom Placeholder */}
+                        <td className="py-2 px-4">
+                          <input
+                            type="text"
+                            value={field.placeholder || ''}
+                            onChange={e => {
+                              const updated = { ...config };
+                              updated.formFields![selectedForm][idx].placeholder = e.target.value;
+                              setConfig(updated);
+                            }}
+                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md font-medium focus:outline-emerald-500"
+                            placeholder="Digite um texto de instrução..."
+                          />
+                        </td>
+
+                        {/* Enabled Switch */}
+                        <td className="py-2 px-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={field.enabled}
+                            onChange={e => {
+                              const updated = { ...config };
+                              updated.formFields![selectedForm][idx].enabled = e.target.checked;
+                              setConfig(updated);
+                            }}
+                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          />
+                        </td>
+
+                        {/* Required Switch */}
+                        <td className="py-2 px-4 text-center">
+                          <input
+                            type="checkbox"
+                            checked={field.required}
+                            onChange={e => {
+                              const updated = { ...config };
+                              updated.formFields![selectedForm][idx].required = e.target.checked;
+                              setConfig(updated);
+                            }}
+                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          />
+                        </td>
+
+                        {/* Actions */}
+                        <td className="py-2 px-4 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm('Deseja realmente excluir este campo?')) {
+                                const updated = { ...config };
+                                updated.formFields![selectedForm].splice(idx, 1);
+                                setConfig(updated);
+                              }
+                            }}
+                            className="text-rose-600 hover:text-rose-800 font-bold"
+                          >
+                            Excluir
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Save Button */}
+              <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleSaveSaaSConfig}
+                  disabled={saving}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {saving ? 'Gravando...' : 'Salvar Mapeamento de Campos'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          
+
+{activeSubTab === 'help' && (
+            <div className="space-y-6">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <BookOpen className="w-5 h-5 text-emerald-500" />
+                  Editor do Módulo de Ajuda
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Gerencie o conteúdo de ajuda exibido para cada perfil de usuário do sistema.
+                </p>
+              </div>
+              <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+                {(['ADMIN', 'SUPERVISOR', 'USER', 'DRIVER'] as const).map(role => (
+                  <button
+                    key={role}
+                    onClick={() => setHelpRole(role)}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm shrink-0 cursor-pointer transition-colors ${helpRole === role ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-xl">
+                <ReactQuill 
+                  theme="snow"
+                  placeholder={`Escreva as instruções, regras ou guias de ajuda com suporte a imagens e HTML para o perfil ${helpRole}...`}
+                  value={helpContent[helpRole] || ''}
+                  onChange={value => setHelpContent(prev => ({ ...prev, [helpRole]: value }))}
+                  className="h-80 mb-12"
+                  modules={{
+                    toolbar: [
+                      [{ 'header': [1, 2, 3, false] }],
+                      ['bold', 'italic', 'underline', 'strike', 'blockquote'],
+                      [{'list': 'ordered'}, {'list': 'bullet'}, {'indent': '-1'}, {'indent': '+1'}],
+                      ['link', 'image'],
+                      ['clean']
+                    ],
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="text-xs text-slate-500 max-w-md">
+                  <span>Para visualizar o resultado final, acesse a opção <strong>"Ajuda"</strong> no menu principal. O conteúdo exibido respeitará o perfil do usuário logado.</span>
+                </div>
+                <button 
+                  onClick={async () => {
+                    setSaving(true);
+                    try {
+                      await api.saveHelp(helpRole, helpContent[helpRole]);
+                      setMessage({ text: `Ajuda para o perfil ${helpRole} salva com sucesso!`, type: 'success' });
+                      setTimeout(() => setMessage(null), 4000);
+                    } catch (err) {
+                      setMessage({ text: 'Erro ao salvar ajuda', type: 'error' });
+                      setTimeout(() => setMessage(null), 4000);
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                  disabled={saving}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer disabled:opacity-50 transition-colors shadow-xs"
+                >
+                  {saving ? 'Gravando...' : `Salvar Ajuda para ${helpRole}`}
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeSubTab === 'branding' && config && (
             <form onSubmit={handleSaveSaaSConfig} className="space-y-6 rounded-2xl border border-slate-200 p-5 dark:border-slate-800">
               <div className="space-y-1">
@@ -901,6 +1678,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
               </form>
 
               <NotificationTemplatesPanel />
+              <NotificationDeliveryLedger />
             </div>
           )}
 

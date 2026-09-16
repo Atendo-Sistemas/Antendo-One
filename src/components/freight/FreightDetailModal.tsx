@@ -88,13 +88,11 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`Cancelar o frete ${currentFreight.code}?`)) return;
+    if (!window.confirm(`Excluir definitivamente o frete ${currentFreight.code}? Esta ação removerá o frete e os dados operacionais relacionados.`)) return;
     setPendingAction('delete');
     setError(null);
     try {
-      const updated = await api.updateFreightStatus(currentFreight.id, 'CANCELADO');
-      setCurrentFreight(updated);
-      onUpdateSuccess?.(updated);
+      await api.deleteFreight(currentFreight.id);
       onDeleteSuccess?.(currentFreight.id);
       onClose();
     } catch (err: any) {

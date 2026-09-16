@@ -91,6 +91,18 @@ export const Navbar: React.FC<NavbarProps> = ({
     { key: 'gestao', label: 'Gestão', items: [['budgets', 'Orçamentos'], ['clients', 'Clientes'], ['forms', 'Formulários'], ['users', 'Usuários'], ['audit', 'Auditoria']] },
     { key: 'configuracoes', label: 'Configurações', items: [...(canManageBilling ? [['billing', 'Assinatura'], ['company-notification-templates', 'Mensagens']] : []), ...(canManageReportTemplates ? [['company-report-templates', 'Relatórios']] : []), ['notification-preferences', 'Preferências'], ['help', 'Ajuda']] }
   ];
+  const renderMobileCompanyGroups = () => companyNavGroups.map((group) => (
+    <div key={group.key} className="mt-3 first:mt-0">
+      <div className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">{group.label}</div>
+      <div className="space-y-1">
+        {group.items.map(([tab, label]) => (
+          <button key={tab} type="button" onClick={() => { setActiveTab(tab); setShowMobileMenu(false); }} className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${activeTab === tab ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  ));
 
   return (
     <header id="navbar-main-container" className="sticky top-0 z-40 w-full max-w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors">
@@ -408,7 +420,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <>
                 {[
                   { key: 'saas', label: '👑 SaaS', color: 'purple', items: [['saas-tenants', 'Empresas'], ['content-management', 'Conteúdos']] },
-                  { key: 'operacao', label: 'Operação', color: 'indigo', items: [['freights', 'Fretes'], ['clients', 'Clientes'], ['budgets', 'Orçamentos'], ['drivers', 'Motoristas']] },
+                  { key: 'operacao', label: 'Operação', color: 'indigo', items: [['freights', 'Fretes'], ['clients', 'Clientes'], ['budgets', 'Orçamentos'], ['drivers', 'Motoristas'], ['company-vehicles', 'Veículos próprios']] },
                   { key: 'controle', label: 'Controle', color: 'slate', items: [['expenses', 'Contas'], ['forms', 'Formulários'], ['users', 'Usuários'], ['audit', 'Auditoria']] },
                   { key: 'sistema', label: 'Configurações', color: 'emerald', items: [['saas-config', 'SaaS'], ['notification-preferences', 'Notificações'], ['help', 'Ajuda']] }
                 ].map((group) => {
@@ -428,17 +440,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                   );
                 })}
-              </>
-            ) : isDemo ? (
-              <>
-                <button onClick={() => setActiveTab('freights')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'freights' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Fretes</button>
-                <button onClick={() => setActiveTab('drivers')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'drivers' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Motoristas</button>
-                <button onClick={() => setActiveTab('company-vehicles')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'company-vehicles' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Veículos</button>
-                <button onClick={() => setActiveTab('expenses')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'expenses' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Prestação de contas</button>
-                <button onClick={() => setActiveTab('forms')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'forms' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Formulários</button>
-                <button onClick={() => setActiveTab('users')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'users' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Usuários</button>
-                <button onClick={() => setActiveTab('audit')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'audit' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Auditoria</button>
-                <button onClick={() => setActiveTab('help')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'help' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'}`}>Ajuda</button>
               </>
             ) : (
               <>
@@ -582,92 +583,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                 📖 Ajuda
               </button>
             </>
-          ) : isDemo ? (
-            <>
-              <button onClick={() => { setActiveTab('freights'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">📦 Fretes</button>
-              <button onClick={() => { setActiveTab('drivers'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">🚛 Motoristas</button>
-              <button onClick={() => { setActiveTab('company-vehicles'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Veículos</button>
-              <button onClick={() => { setActiveTab('expenses'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Prestação de contas</button>
-              <button onClick={() => { setActiveTab('forms'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Formulários</button>
-              <button onClick={() => { setActiveTab('users'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Usuários</button>
-              <button onClick={() => { setActiveTab('audit'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Auditoria</button>
-              <button onClick={() => { setActiveTab('help'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Ajuda</button>
-            </>
           ) : (
-            <>
-              <button
-                onClick={() => { setActiveTab('freights'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                📦 Fretes
-              </button>
-              {canManageBilling && <button
-                onClick={() => { setActiveTab('billing'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
-              >
-                Assinatura e financeiro
-              </button>}
-              {canManageReportTemplates && <button
-                onClick={() => { setActiveTab('company-report-templates'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-              >
-                Modelos de relatórios
-              </button>}
-              <button
-                onClick={() => { setActiveTab('drivers'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                🚛 Motoristas
-              </button>
-              {canManageBilling && <button
-                onClick={() => { setActiveTab('company-vehicles'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-              >
-                🚚 Veículos próprios
-              </button>}
-              <button
-                onClick={() => { setActiveTab('expenses'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-              >
-                💰 Prestação de Contas & Despesas
-              </button>
-              <button
-                onClick={() => { setActiveTab('notification-preferences'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
-              >
-                Preferências de notificações
-              </button>
-              <button
-                onClick={() => { setActiveTab('forms'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                📝 Formulários & Checklists
-              </button>
-              <button
-                onClick={() => { setActiveTab('users'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                👥 Usuários da Empresa
-              </button>
-              <button
-                onClick={() => { setActiveTab('audit'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                🛡️ Logs de Auditoria
-              </button>
-              <button
-                onClick={() => { setActiveTab('notification-preferences'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
-              >
-                Preferências de notificações
-              </button>
-              <button
-                onClick={() => { setActiveTab('help'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950"
-              >
-                📖 Ajuda
-              </button>
-            </>
+            <div className="space-y-1">
+              {renderMobileCompanyGroups()}
+            </div>
           )}
 
           <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1">

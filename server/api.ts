@@ -5224,24 +5224,33 @@ apiRouter.delete('/freights/:id', async (req: AuthenticatedRequest, res: Respons
     return res.status(403).json({ error: 'Acesso não autorizado. Este frete pertence a outra empresa.' });
   }
   const now = new Date().toISOString();
-  freight.status = 'CANCELADO';
-  freight.publicListingEnabled = false;
-  freight.publicPublishedAt = undefined;
-  freight.updatedAt = now;
+  const freightId = freight.id;
+  const linkedBudget = db.budgets.find((budget: any) => budget.convertedFreightId === freightId);
+  db.freights = db.freights.filter(item => item.id !== freightId);
+  db.freightLocations = db.freightLocations.filter(item => item.freightId !== freightId);
+  db.formResponses = db.formResponses.filter(item => item.freightId !== freightId);
+  db.tripExpenses = db.tripExpenses.filter(item => item.freightId !== freightId);
+  db.notifications = db.notifications.filter(item => item.freightId !== freightId);
+  db.notificationDeliveries = db.notificationDeliveries.filter(item => (item as any).freightId !== freightId);
+  db.freightInterests = db.freightInterests.filter(item => item.freightId !== freightId);
+  db.driverCompanyLinks = db.driverCompanyLinks.filter(item => item.freightId !== freightId);
+  if (linkedBudget) {
+    linkedBudget.convertedFreightId = undefined;
+    if (linkedBudget.status === 'CONVERTIDO') linkedBudget.status = 'APROVADO';
+    linkedBudget.updatedAt = now;
+  }
   db.addAuditLog({ ip: requestIp(req),
     tenantId: freight.tenantId,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
     userRole: req.user?.role || 'ADMIN',
-    action: 'CANCELAR_FRETE',
+    action: 'EXCLUIR_FRETE',
     entity: 'Freight',
     entityId: freight.id,
-    details: `Frete ${freight.code} cancelado sem apagar documentos ou histórico.`
+    details: `Frete ${freight.code} excluído definitivamente; registros operacionais relacionados removidos.`
   });
-  const relevantUsers = db.users.filter(user => user.tenantId === freight.tenantId);
-  void dispatchConfiguredNotification('FRETE_CANCELADO', relevantUsers, { codigo: freight.code, empresa: db.tenants.find(item => item.id === freight.tenantId)?.name || '', link: process.env.APP_URL || '' });
   await db.persistNow();
-  res.json({ success: true, message: 'Frete cancelado; documentos e histórico preservados.' });
+  res.json({ success: true, message: 'Frete excluído definitivamente.' });
 });
 
 apiRouter.delete('/drivers/:id', async (req: AuthenticatedRequest, res: Response) => {
@@ -5872,6 +5881,20 @@ apiRouter.post('/saas/config', async (req: AuthenticatedRequest, res: Response) 
   });
   await db.persistNow();
   res.json({ success: true, config: exposeSafeSaaSConfig(db.saasGlobalConfig) });
+});
+apiRouter.post('/saas/mapbox/test', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const incoming = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '';
+  const token = incoming && incoming !== '********' ? incoming : String(db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '').trim();
+  if (!token || !token.startsWith('pk.')) return res.status(400).json({ error: 'Insira um token público do Mapbox válido (iniciado por pk.).' });
+  try {
+    const response = await fetch(`https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${encodeURIComponent(token)}`);
+    if (response.ok) return res.json({ success: true, message: 'Token do Mapbox verificado com sucesso! Conexão estabelecida.' });
+    if (response.status === 401) return res.status(401).json({ error: 'Token inválido ou não autorizado pelo Mapbox.' });
+    return res.status(502).json({ error: `Mapbox respondeu com status ${response.status}.` });
+  } catch {
+    return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
+  }
 });
 /* =========================================================================
    13.1. SQL DATABASE & INSTALLATION MANAGEMENT (SUPER_ADMIN ONLY)

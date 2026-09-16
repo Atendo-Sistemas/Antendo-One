@@ -98,13 +98,13 @@ const AppContent: React.FC = () => {
         setActiveTab('driver-portal');
       }
     } else if (user?.role === 'SUPER_ADMIN') {
-      const validSuperAdminTabs = ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences'];
+      const validSuperAdminTabs = ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences'];
       if (!validSuperAdminTabs.includes(activeTab)) {
         setActiveTab('saas-tenants');
       }
     } else {
       // Company roles (ADMIN, SUPERVISOR, USUARIO)
-      if (activeTab === 'driver-portal' || activeTab === 'driver-profile' || activeTab === 'saas-tenants' || activeTab === 'company-notification-templates' || activeTab === 'company-report-templates') {
+      if (activeTab === 'driver-portal' || activeTab === 'driver-profile' || activeTab === 'saas-tenants') {
         setActiveTab('freights');
       }
     }

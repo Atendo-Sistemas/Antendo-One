@@ -23,5 +23,5 @@ assert.match(ui, /Chassi/);
 assert.match(ui, /Combustível/);
 assert.match(ui, /Número do CRLV/);
 assert.match(ui, /Proprietário\/razão social/);
-assert.match(version, /APP_VERSION = 'v1\.8\.24'/);
+assert.match(version, /APP_VERSION = 'v1\.8\.31'/);
 console.log('COMPANY_VEHICLES_INVARIANTS_OK');

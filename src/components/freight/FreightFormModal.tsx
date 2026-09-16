@@ -247,7 +247,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
     else { setDestAddress(value); setDestinationCoordinates({}); }
     if (addressTimer.current) clearTimeout(addressTimer.current);
     if (value.trim().length < 3) return setAddressSuggestions({ side, items: [] });
-    const query = value.trim();
+    const query = [value.trim(), side === 'origin' ? originCity : destCity, side === 'origin' ? originState : destState, 'Brasil'].filter(Boolean).join(', ');
     const cached = addressCache.current.get(query.toLowerCase());
     if (cached) return setAddressSuggestions({ side, items: cached });
     addressTimer.current = setTimeout(async () => {
@@ -271,13 +271,23 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   };
 
   const calculateFreightRoute = async () => {
-    if (originCoordinates.lat === undefined || originCoordinates.lng === undefined || destinationCoordinates.lat === undefined || destinationCoordinates.lng === undefined) {
-      setMapboxMessage('Selecione um endereço de origem e um de destino nas sugestões de endereço.');
-      return;
-    }
     try {
       setRouteLoading(true); setMapboxMessage('');
-      const route = await budgetApi.directions({ lat: originCoordinates.lat, lng: originCoordinates.lng }, { lat: destinationCoordinates.lat, lng: destinationCoordinates.lng });
+      let origin = originCoordinates;
+      let destination = destinationCoordinates;
+      if (origin.lat === undefined || origin.lng === undefined) {
+        const result = await budgetApi.geocode([originAddress, originNumber, originCity, originState, 'Brasil'].filter(Boolean).join(', '));
+        if (result[0]) { origin = { lat: result[0].lat, lng: result[0].lng, mapboxPlaceId: result[0].id }; setOriginCoordinates(origin); }
+      }
+      if (destination.lat === undefined || destination.lng === undefined) {
+        const result = await budgetApi.geocode([destAddress, destNumber, destCity, destState, 'Brasil'].filter(Boolean).join(', '));
+        if (result[0]) { destination = { lat: result[0].lat, lng: result[0].lng, mapboxPlaceId: result[0].id }; setDestinationCoordinates(destination); }
+      }
+      if (origin.lat === undefined || origin.lng === undefined || destination.lat === undefined || destination.lng === undefined) {
+        setMapboxMessage('Informe endereços válidos de origem e destino para calcular a rota.');
+        return;
+      }
+      const route = await budgetApi.directions({ lat: origin.lat, lng: origin.lng }, { lat: destination.lat, lng: destination.lng });
       setMapboxMessage(`Rota calculada: ${route.distanceKm.toFixed(2)} km · aproximadamente ${Math.round(route.estimatedMinutes)} min.`);
       setRouteDistanceKm(Number(route.distanceKm.toFixed(2))); setRouteGeometry(route.geometry || null);
     } catch (err: any) { setMapboxMessage(err.message || 'Não foi possível calcular a rota.'); }
@@ -728,7 +738,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
               <button type="button" onClick={() => void calculateFreightRoute()} disabled={routeLoading} className="rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-700 disabled:opacity-50">{routeLoading ? 'Calculando rota…' : 'Calcular rota'}</button>
               {routeDistanceKm !== null && <span className="text-xs font-bold text-sky-800">{routeDistanceKm.toFixed(2)} km</span>}
             </div>
-            <p className="mt-2 text-[11px] text-sky-700">Digite o endereço e selecione uma sugestão de endereço para origem e destino antes de calcular.</p>
+            <p className="mt-2 text-[11px] text-sky-700">Digite os endereços e selecione as sugestões de endereço para origem e destino antes de calcular. Selecione um endereço quando houver mais de uma opção.</p>
             {mapboxMessage && <p className="mt-1 text-[11px] font-semibold text-sky-800">{mapboxMessage}</p>}
           </div>
 
