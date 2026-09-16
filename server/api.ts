@@ -47,7 +47,7 @@ import {
 } from '../src/types';
 
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_insecure_secret_for_local_testing' : undefined);
 if (!JWT_SECRET) {
   console.error('FATAL ERROR: JWT_SECRET environment variable is missing or insecure.');
   process.exit(1);
