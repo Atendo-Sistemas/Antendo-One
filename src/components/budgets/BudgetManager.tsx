@@ -64,7 +64,7 @@ export const BudgetManager: React.FC = () => {
     if (!selected) return;
     setError('');
     try {
-      await budgetApi.updateStatus(selected.id, s);
+      await budgetApi.status(selected.id, s);
       const updated = { ...selected, status: s };
       setSelected(updated);
       setDraft(updated);
@@ -93,7 +93,7 @@ export const BudgetManager: React.FC = () => {
     if (!draft.origin?.city || !draft.destination?.city) return setError('Informe as cidades de origem e destino.');
     setRouteLoading(true);
     try {
-      const r = await budgetApi.calculateRoute(draft.origin, draft.destination);
+      const r = await budgetApi.directions(draft.origin, draft.destination);
       setDraft({ ...draft, distanceKm: r.distanceKm, tolls: r.estimatedTolls });
     } catch (e: any) { setError(e.message); }
     finally { setRouteLoading(false); }
@@ -102,7 +102,7 @@ export const BudgetManager: React.FC = () => {
   const convert = async () => {
     if (!selected) return;
     try {
-      await budgetApi.convertToFreight(selected.id);
+      await budgetApi.convert(selected.id);
       await refresh();
     } catch (e: any) { setError(e.message); }
   };
