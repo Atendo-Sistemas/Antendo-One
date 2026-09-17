@@ -1,4 +1,4 @@
-import { User, Tenant, Driver, Vehicle, Freight, Tenant as TenantType } from '../types';
+import { User, Tenant, Driver, Vehicle, Freight, Tenant as TenantType, Metrics, Invoice } from '../types';
 
 type OfflineResponse = { formId: string; freightId?: string; responseId: string; stage: string; isDraft: boolean; answers: Record<string, any> };
 
@@ -388,7 +388,7 @@ export const api = {
 };
 
 export const budgetApi = {
-  list: () => request<any[]>('/budgets'),
+  list: (search?: string) => request<any[]>(search ? `/budgets?search=${encodeURIComponent(search)}` : '/budgets'),
   get: (id: string) => request<any>(`/budgets/${id}`),
   create: (data: any) => request<any>('/budgets', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: any) => request<any>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify({ ...data, expectedVersion: (data as any).version }) }),
@@ -422,4 +422,7 @@ export const tenantApi = {
   createTenant: (data: any) => request<Tenant>('/tenants', { method: 'POST', body: JSON.stringify(data) }),
   updateTenant: (id: string, data: any) => request<Tenant>(`/tenants/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteTenant: (id: string) => request<{ success: boolean }>(`/tenants/${id}`, { method: 'DELETE' }),
+  getMetrics: () => request<Metrics>('/admin/metrics'),
+  listTenants: () => request<Tenant[]>('/tenants'),
+  listInvoices: () => Promise.resolve([] as Invoice[]), // request<Invoice[]>('/admin/invoices'),
 };
