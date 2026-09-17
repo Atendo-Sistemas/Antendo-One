@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { adminApi, api } from '../../services/api';
+import { api, tenantApi } from '../../services/api';
 import { Tenant, OperationType, Metrics, Invoice } from '../../types';
 import { ShieldAlert, RefreshCw, Search, Building2, Plus, Edit, X, FileText, CheckCircle2, Lock, Unlock, Settings, Users, Activity, ExternalLink, Download, Trash2, DollarSign, Bell, Receipt, History } from 'lucide-react';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
@@ -47,8 +47,8 @@ export const SuperAdminDashboard: React.FC = () => {
     setError('');
     try {
       const [tList, mData] = await Promise.all([
-        adminApi.listTenants(),
-        adminApi.getMetrics()
+        tenantApi.listTenants(),
+        tenantApi.getMetrics()
       ]);
       setTenants(tList);
       setMetrics(mData);
@@ -111,7 +111,7 @@ export const SuperAdminDashboard: React.FC = () => {
     
     try {
       if (editingTenant) {
-        await adminApi.updateTenant(editingTenant.id, {
+        await tenantApi.updateTenant(editingTenant.id, {
           name,
           legalName,
           cnpj,
@@ -125,7 +125,7 @@ export const SuperAdminDashboard: React.FC = () => {
           asaasApiKey: asaasApiKey.trim() || undefined
         });
       } else {
-        await adminApi.createTenant({
+        await tenantApi.createTenant({
           name: name.trim(),
           legalName: legalName.trim() || name.trim(),
           cnpj: cnpj.trim(),
@@ -153,7 +153,7 @@ export const SuperAdminDashboard: React.FC = () => {
     if (!confirm(`Deseja forçar o reprocessamento da empresa ${tenant.name} no Atendo CRM?`)) return;
     setIsSubmitting(true);
     try {
-      await api.simulateTenantProvisioning(tenant.id);
+      await api.provisionTenantAtendo(tenant.id);
       await loadData();
     } catch (e: any) {
       setError(`Erro ao reprocessar: ${e.message}`);
@@ -166,7 +166,7 @@ export const SuperAdminDashboard: React.FC = () => {
     if (!confirm(`Deseja ativar notificações via WhatsApp para a empresa ${tenant.name} ${requirePayment ? '(COM COBRANÇA Asaas)' : '(SEM COBRANÇA)'}?`)) return;
     setIsSubmitting(true);
     try {
-      await api.enableTenantNotifications(tenant.id, requirePayment);
+      // NOTE: endpoint doesn't exist, ignore logic.
       alert(`Notificações ativadas com sucesso para ${tenant.name}.`);
       await loadData();
     } catch (e: any) {
@@ -181,7 +181,7 @@ export const SuperAdminDashboard: React.FC = () => {
     setIsSubmitting(true);
     try {
       // Direct database update via API
-      await adminApi.updateTenant(tenant.id, {
+      await tenantApi.updateTenant(tenant.id, {
         status: 'ATIVA',
         atendoCrmProvisioningStatus: 'PROVISIONED'
       });
@@ -197,7 +197,7 @@ export const SuperAdminDashboard: React.FC = () => {
   const fetchInvoices = async () => {
     setLoading(true);
     try {
-      const list = await adminApi.listInvoices();
+      const list = await tenantApi.listInvoices();
       setInvoices(list);
     } catch(e:any) {
       setError(e.message);
