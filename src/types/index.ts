@@ -133,6 +133,7 @@ export interface Client {
 }
 
 export interface Tenant {
+  asaasApiKey?: string;
   id: string;
   name: string;
   legalName: string;
@@ -1071,3 +1072,17 @@ export interface TripExpenseReport {
 }
 
 export * from './budgets';
+
+export interface Metrics {
+  totalTenants: number;
+  activeTenants: number;
+  totalUsers: number;
+  recentProvisionings: number;
+}
+export interface Invoice {
+  id: string;
+  value: number;
+  status: string;
+  dueDate: string;
+  invoiceUrl: string;
+}
