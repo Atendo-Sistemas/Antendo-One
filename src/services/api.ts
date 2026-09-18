@@ -397,7 +397,7 @@ export const api = {
 };
 
 export const budgetApi = {
-  list: (search?: string) => request<any[]>(search ? `/budgets?search=${encodeURIComponent(search)}` : '/budgets'),
+  list: (search?: string, tenantId?: string) => request<any[]>(`/budgets?${new URLSearchParams({ ...(search ? { search } : {}), ...(tenantId ? { tenantId } : {}) }).toString()}`),
   get: (id: string) => request<any>(`/budgets/${id}`),
   create: (data: any) => request<any>('/budgets', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: any) => request<any>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify({ ...data, expectedVersion: (data as any).version }) }),
@@ -418,9 +418,9 @@ export const publicTrackingApi = {
 };
 
 export const clientApi = {
-  list: (search = '') => request<any[]>(`/clients${search ? `?search=${encodeURIComponent(search)}` : ''}`),
-  lookupCnpj: (cnpj: string) => request<any>(`/clients/cnpj/${encodeURIComponent(cnpj)}/lookup`),
-  create: (data: any) => request<any>('/clients', { method: 'POST', body: JSON.stringify(data) }),
+  list: (search = '', tenantId?: string) => request<any[]>(`/clients?${new URLSearchParams({ ...(search ? { search } : {}), ...(tenantId ? { tenantId } : {}) }).toString()}`),
+  lookupCnpj: (cnpj: string, tenantId?: string) => request<any>(`/clients/cnpj/${encodeURIComponent(cnpj)}/lookup${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`),
+  create: (data: any, tenantId?: string) => request<any>('/clients', { method: 'POST', body: JSON.stringify({ ...data, ...(tenantId ? { tenantId } : {}) }) }),
   update: (id: string, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   remove: (id: string) => request<any>(`/clients/${id}`, { method: 'DELETE' })
 };

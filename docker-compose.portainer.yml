@@ -62,6 +62,9 @@ services:
       - DB_USER=${DB_USER:-elolog_user}
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - DATABASE_URL=postgresql://${DB_USER:-elolog_user}:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/${DB_NAME:-elolog}
+      # app_state permanece em transição; só ativar após migração relacional validada.
+      - RLS_DOMAIN_MODE=${RLS_DOMAIN_MODE:-snapshot}
+      - NORMALIZED_DOMAIN_RLS=${NORMALIZED_DOMAIN_RLS:-false}
       # Otimização e Compressão de Fotos / Imagens
       - IMAGE_COMPRESSION_ENABLED=true
       - IMAGE_QUALITY=0.8

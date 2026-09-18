@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { budgetApi, clientApi } from '../../services/api';
+import { budgetApi, clientApi, tenantApi } from '../../services/api';
 import { Budget, Client, BudgetExpense } from '../../types';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
+import { useAuth } from '../../context/AuthContext';
 
 const empty = { clientId: undefined, clientName: '', date: new Date().toISOString().substring(0, 10), origin: { address: '', city: '', state: '' }, destination: { address: '', city: '', state: '' }, distanceKm: 0, pricePerKm: 0, tolls: 0, insurance: 0, cargoType: '', dailyRate: 0, dailyCount: 0, assistantCount: 0, assistantDailyRate: 0, driverPassed: 0, driverPaid: 0, priceTableReference: '', status: 'RASCUNHO' as const, profitValue: 15, expenses: [] };
 
 export const BudgetManager: React.FC = () => {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const [items, setItems] = useState<Budget[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [selected, setSelected] = useState<Budget | null>(null);
@@ -17,19 +20,28 @@ export const BudgetManager: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [cnpjLoading, setCnpjLoading] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState(user?.tenantId || '');
   const [preview, setPreview] = useState({ routeCost: 0, expenseTotal: 0, subtotal: 0, taxes: 0, cost: 0, profit: 0, total: 0 });
 
   const refresh = async () => {
     setLoading(true);
     try {
-      const [b, c] = await Promise.all([budgetApi.list(search), clientApi.list()]);
+      const tenantId = isSuperAdmin ? selectedTenantId : undefined;
+      const [b, c] = await Promise.all([budgetApi.list(search, tenantId), clientApi.list('', tenantId)]);
       setItems(b);
       setClients(c);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { void refresh(); }, [search]);
+  useEffect(() => {
+    if (isSuperAdmin) void tenantApi.getTenants().then(setTenants).catch((e: any) => setError(e.message));
+  }, [isSuperAdmin]);
+  useEffect(() => {
+    if (!isSuperAdmin && user?.tenantId) setSelectedTenantId(user.tenantId);
+  }, [isSuperAdmin, user?.tenantId]);
+  useEffect(() => { void refresh(); }, [search, selectedTenantId]);
 
   useEffect(() => {
     if (!draft) return;
@@ -49,7 +61,7 @@ export const BudgetManager: React.FC = () => {
     setSaving(true);
     setError('');
     try {
-      const payload = { ...draft, totalValue: preview.total };
+      const payload = { ...draft, ...(isSuperAdmin ? { tenantId: selectedTenantId } : {}), totalValue: preview.total };
       const item = selected ? await budgetApi.update(selected.id, payload) : await budgetApi.create(payload);
       setSelected(item);
       setDraft(item);
@@ -72,15 +84,19 @@ export const BudgetManager: React.FC = () => {
 
   const lookupClient = async () => {
     if (!cnpj) return;
+    if (isSuperAdmin && !selectedTenantId) {
+      setError('Selecione a empresa do orçamento antes de consultar o CNPJ.');
+      return;
+    }
     setCnpjLoading(true);
     try {
-      const r = await clientApi.lookupCnpj(cnpj);
+      const r = await clientApi.lookupCnpj(cnpj, isSuperAdmin ? selectedTenantId : undefined);
       const data = r.data;
-      const c = await clientApi.create({
+      const c = r.existingClient || await clientApi.create({
         cnpj: r.cnpj, legalName: data.razao_social, tradeName: data.estabelecimento?.nome_fantasia,
         email: data.estabelecimento?.email, phone: data.estabelecimento?.telefone1,
         city: data.estabelecimento?.cidade?.nome, state: data.estabelecimento?.estado?.sigla
-      });
+      }, isSuperAdmin ? selectedTenantId : undefined);
       setDraft({ ...draft, clientId: c.id, clientName: c.legalName });
       await refresh();
     } catch (e: any) { setError(e.message); }
@@ -213,7 +229,7 @@ export const BudgetManager: React.FC = () => {
           <p className="text-xs font-black uppercase tracking-widest text-indigo-600">Comercial</p>
           <h1 className="text-2xl font-black">Orçamentos</h1>
         </div>
-        <button onClick={() => { setSelected(null); setDraft(empty); }} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white cursor-pointer hover:bg-indigo-700">
+        <button onClick={() => { setSelected(null); setDraft(empty); if (isSuperAdmin) setSelectedTenantId(''); }} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white cursor-pointer hover:bg-indigo-700">
           Novo orçamento
         </button>
       </div>
@@ -231,7 +247,7 @@ export const BudgetManager: React.FC = () => {
             items.map(item => (
               <button
                 key={item.id}
-                onClick={() => { setSelected(item); setDraft(item); }}
+                onClick={() => { setSelected(item); setDraft(item); if (isSuperAdmin) setSelectedTenantId(item.tenantId || ''); }}
                 className={`w-full rounded-xl border p-3 text-left cursor-pointer transition-colors ${selected?.id === item.id ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
               >
                 <div className="font-bold flex items-center justify-between">
@@ -249,6 +265,15 @@ export const BudgetManager: React.FC = () => {
 
         <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 p-5 shadow-sm space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
+            {isSuperAdmin && (
+              <label className="text-sm font-semibold">Empresa do orçamento
+                <select value={selectedTenantId} onChange={e => { setSelectedTenantId(e.target.value); setDraft({ ...draft, tenantId: e.target.value, clientId: undefined }); }} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2">
+                  <option value="">Selecione a empresa</option>
+                  {tenants.map(tenant => <option key={tenant.id} value={tenant.id}>{tenant.legalName || tenant.name} · {tenant.cnpj}</option>)}
+                </select>
+                <span className="mt-1 block text-xs font-normal text-slate-500">O CNPJ será cadastrado somente nesta empresa.</span>
+              </label>
+            )}
             <label className="text-sm font-semibold">Cliente
               <select value={draft.clientId || ''} onChange={e => {
                 const c = clients.find(x => x.id === e.target.value);

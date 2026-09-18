@@ -387,6 +387,9 @@ async function startServer() {
 
   if (process.env.NODE_ENV === 'production') {
     if (!process.env.DATABASE_URL && !process.env.DB_HOST) throw new Error('PostgreSQL é obrigatório em produção; configure DATABASE_URL ou DB_HOST.');
+    if (process.env.NORMALIZED_DOMAIN_RLS === 'true') {
+      throw new Error('NORMALIZED_DOMAIN_RLS deve permanecer false até a migração relacional do domínio ser validada.');
+    }
     if (process.env.RLS_DOMAIN_MODE === 'active' && process.env.NORMALIZED_DOMAIN_RLS !== 'true') {
       throw new Error('RLS_DOMAIN_MODE=active exige NORMALIZED_DOMAIN_RLS=true; o domínio app_state ainda está em transição.');
     }

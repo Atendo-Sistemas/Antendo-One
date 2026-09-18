@@ -53,6 +53,9 @@ services:
       - DB_USER=${DB_USER:?DB_USER is required}
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
       - DATABASE_URL=postgresql://${DB_USER:?DB_USER is required}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:?DB_NAME is required}
+      # app_state permanece em transição; só ativar após migração relacional validada.
+      - RLS_DOMAIN_MODE=${RLS_DOMAIN_MODE:-snapshot}
+      - NORMALIZED_DOMAIN_RLS=${NORMALIZED_DOMAIN_RLS:-false}
       # Compressão Automática de Imagens
       - IMAGE_COMPRESSION_ENABLED=true
       - IMAGE_QUALITY=0.8

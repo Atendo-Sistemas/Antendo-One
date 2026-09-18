@@ -6458,6 +6458,8 @@ apiRouter.get('/clients/cnpj/:cnpj/lookup', async (req: AuthenticatedRequest, re
   if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' });
   const cnpj = clientCnpj(req.params.cnpj);
   if (cnpj.length !== 14) return res.status(400).json({ error: 'CNPJ inválido.' });
+  const targetTenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : String(req.user?.tenantId || '');
+  if (req.user?.role === 'SUPER_ADMIN' && targetTenantId && !db.tenants.some(tenant => tenant.id === targetTenantId)) return res.status(400).json({ error: 'Empresa inválida.' });
 
   // O banco é sempre a primeira fonte. Isso evita consultas externas repetidas
   // quando outra empresa já cadastrou o mesmo CNPJ anteriormente.
@@ -6467,7 +6469,7 @@ apiRouter.get('/clients/cnpj/:cnpj/lookup', async (req: AuthenticatedRequest, re
       cnpj,
       source: 'DATABASE',
       cached: true,
-      existingClient: stored.tenantId === req.user?.tenantId ? stored : undefined,
+      existingClient: targetTenantId && stored.tenantId === targetTenantId ? stored : undefined,
       data: stored.cnpjData || {
         razao_social: stored.legalName,
         nome_fantasia: stored.tradeName,
