@@ -1,0 +1,43 @@
+const fs = require('fs');
+const path = require('path');
+
+const root = path.resolve(__dirname, '..');
+const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const api = read('server/api.ts');
+const db = read('server/db.ts');
+const types = read('src/types/index.ts');
+const modal = read('src/components/common/WhatsAppConfigModal.tsx');
+const home = read('src/components/common/GuestInstitutionalPage.tsx');
+const saasPanel = read('src/components/superadmin/SaaSConfigPanel.tsx');
+const pkg = JSON.parse(read('package.json'));
+
+if (!types.includes("export type NotificationModulePlan = 'SAAS_FREE' | 'OWN_NUMBER';")) throw new Error('Tipos do módulo não encontrados.');
+if (!types.includes('notificationBillingStatus?: NotificationBillingStatus')) throw new Error('Tenant não possui estado de cobrança do módulo.');
+if (!types.includes('ownNumberMonthlyPrice: number')) throw new Error('Preço do número próprio não está tipado.');
+if (!types.includes('notificationConsents?: NotificationConsent')) throw new Error('Consentimento de notificações não está tipado.');
+if (!db.includes("freePlanName: 'WhatsApp SaaS — Gratuito'")) throw new Error('Plano gratuito SaaS não possui padrão persistente.');
+if (!db.includes('ownNumberMonthlyPrice: 89.90')) throw new Error('Preço padrão do número próprio não encontrado.');
+if (!api.includes("/billing/asaas/notification-module/free")) throw new Error('Rota gratuita do módulo não encontrada.');
+if (!api.includes("/billing/asaas/notification-module/subscribe")) throw new Error('Rota de assinatura do módulo não encontrada.');
+if (!api.includes("/billing/asaas/notification-module/cancel")) throw new Error('Cancelamento do módulo não encontrado.');
+if (!api.includes("/notification-consent")) throw new Error('Rotas de consentimento não encontradas.');
+if (!api.includes("status: 'IGNORADO'")) throw new Error('Bloqueio sem consentimento não é registrado.');
+if (!api.includes("externalReference = `${tenant!.id}:WHATSAPP_OWN_NUMBER`")) throw new Error('Referência externa idempotente do módulo não encontrada.');
+if (!api.includes("isNotificationSubscription(subscription)")) throw new Error('Webhook não reconhece assinatura do módulo.');
+if (!api.includes("tenant.notificationBillingStatus = event === 'PAYMENT_RECEIVED' ? 'ACTIVE'")) throw new Error('Webhook não libera o módulo após pagamento.');
+if (!api.includes("tenant?.notificationPlan === 'SAAS_FREE'")) throw new Error('Regra de telefone SaaS gratuito não encontrada.');
+if (!api.includes("tenant.notificationBillingStatus !== 'ACTIVE'")) throw new Error('Número próprio pode ser liberado sem pagamento.');
+if (!api.includes("'asaas-access-token'")) throw new Error('Webhook não valida o header Asaas.');
+if (api.includes('asaasApiKey=')) throw new Error('API Key não pode ser transportada em query string.');
+if (!modal.includes('Contratar número próprio')) throw new Error('Modal não oferece contratação do número próprio.');
+if (!modal.includes('Plano gratuito selecionado')) throw new Error('Modal não oferece ativação do plano gratuito.');
+if (!modal.includes('api.createNotificationModuleSubscription')) throw new Error('Modal não está ligada ao fluxo Asaas do módulo.');
+if (!modal.includes('handleCancelOwnNumber')) throw new Error('Modal não oferece cancelamento do módulo.');
+if (!read('src/components/common/NotificationConsentPanel.tsx').includes('consentimento explícito')) throw new Error('Painel de consentimento WhatsApp não foi criado.');
+if (!home.includes('Planos comerciais')) throw new Error('Home não publica os planos de venda.');
+if (!home.includes('WhatsApp SaaS — Gratuito')) throw new Error('Home não publica o plano gratuito de notificações.');
+if (!home.includes('Cobrança recorrente pelo Asaas')) throw new Error('Home não informa o vínculo do número próprio ao Asaas.');
+if (!saasPanel.includes('Módulo adicional de notificações')) throw new Error('Painel SaaS não edita o catálogo do módulo.');
+if (!pkg.scripts.test.includes('notification-module.invariants.cjs')) throw new Error('Invariante não foi incluída na suíte.');
+
+console.log('NOTIFICATION_MODULE_INVARIANTS_OK');

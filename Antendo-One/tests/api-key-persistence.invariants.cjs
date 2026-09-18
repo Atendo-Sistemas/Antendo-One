@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const api = fs.readFileSync(path.resolve(__dirname, '../server/api.ts'), 'utf8');
+const client = fs.readFileSync(path.resolve(__dirname, '../src/services/api.ts'), 'utf8');
+assert.match(api, /keepSecret/);
+assert.match(api, /mapboxConfig[\s\S]{0,240}apiKey: keepSecret/);
+assert.match(api, /webhookToken: keepSecret/);
+assert.match(api, /await db\.persistNow\(\);\n  res\.json\(\{ success: true, config: exposeSafeSaaSConfig/);
+assert.match(api, /normalizedToken[\s\S]{0,180}existingConfig\.token/);
+assert.match(client, /updateSaaSGlobalConfig\(data: any\).*method: 'POST'/);
+console.log('API_KEY_PERSISTENCE_INVARIANTS_OK');

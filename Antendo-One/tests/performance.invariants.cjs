@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const app = fs.readFileSync(path.join(root, 'src/App.tsx'), 'utf8');
+const vite = fs.readFileSync(path.join(root, 'vite.config.ts'), 'utf8');
+assert.match(app, /import React, \{ lazy, Suspense, useState, useEffect \}/);
+assert.match(app, /<Suspense fallback=/);
+assert.match(app, /import\('\.\/components\/superadmin\/SaaSConfigPanel'\)/);
+assert.match(app, /import\('\.\/components\/expenses\/ExpenseManager'\)/);
+assert.match(app, /import\('\.\/components\/superadmin\/ContentManagementPanel'\)/);
+assert.match(vite, /manualChunks\(id\)/);
+assert.match(vite, /vendor-mapbox/);
+assert.match(vite, /vendor-documents/);
+assert.match(app, /import\('\.\/components\/forms\/FormBuilder'\)/);
+assert.ok(!app.includes("import { SaaSConfigPanel } from './components/superadmin/SaaSConfigPanel';"));
+assert.ok(!app.includes("import { ExpenseManager } from './components/expenses/ExpenseManager';"));
+console.log('FIRST_LOAD_SPLITTING_INVARIANTS_OK');

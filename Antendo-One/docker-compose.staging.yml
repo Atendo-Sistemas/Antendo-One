@@ -1,0 +1,47 @@
+services:
+  postgres-staging:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: elolog_staging
+      POSTGRES_USER: elolog_staging
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:?Defina STAGING_DB_PASSWORD fora do repositório}
+    volumes:
+      - elolog_staging_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elolog_staging -d elolog_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+    ports:
+      - "${STAGING_PORT:-3100}:3000"
+    environment:
+      NODE_ENV: staging
+      PORT: 3000
+      APP_URL: ${STAGING_APP_URL:-http://localhost:3100}
+      CORS_ALLOWED_ORIGINS: ${STAGING_CORS_ALLOWED_ORIGINS:-http://localhost:3100}
+      DB_TYPE: postgres
+      DB_HOST: postgres-staging
+      DB_PORT: 5432
+      DB_USER: elolog_staging
+      DB_PASSWORD: ${STAGING_DB_PASSWORD:?Defina STAGING_DB_PASSWORD fora do repositório}
+      DB_NAME: elolog_staging
+      JWT_SECRET: ${STAGING_JWT_SECRET:?Defina STAGING_JWT_SECRET fora do repositório}
+      CONFIG_ENCRYPTION_KEY: ${STAGING_CONFIG_ENCRYPTION_KEY:?Defina CONFIG_ENCRYPTION_KEY fora do repositório}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  elolog_staging_postgres_data:
