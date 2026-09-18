@@ -6,7 +6,7 @@ services:
   # ============================================================================
   postgres:
     image: postgres:16-alpine
-    container_name: atendo-one-postgres
+    container_name: elo-log-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
@@ -19,7 +19,7 @@ services:
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     networks:
-      - atendo-one-network
+      - elo-log-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${DB_USER} -d $${DB_NAME}"]
       interval: 5s
@@ -29,11 +29,11 @@ services:
   # ============================================================================
   # APLICAÇÃO ELO LOG (SAAS MULTI-TENANT + COMPRESSÃO DE IMAGENS)
   # ============================================================================
-  atendo-one:
+  elo-log:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: atendo-one-app
+    container_name: elo-log-app
     restart: unless-stopped
     depends_on:
       postgres:
@@ -63,13 +63,13 @@ services:
     secrets:
       - elolog_config_encryption_key
     networks:
-      - atendo-one-network
+      - elo-log-network
       # Caso use um proxy reverso global rodando em outra rede, descomente a rede abaixo:
       # - proxy-network
 
 networks:
-  atendo-one-network:
-    name: atendo-one-network
+  elo-log-network:
+    name: elo-log-network
     driver: bridge
   # Caso use rede externa para conectar com Nginx Proxy Manager, Traefik ou Caddy, descomente abaixo:
   # proxy-network:

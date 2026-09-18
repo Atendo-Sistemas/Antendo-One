@@ -1,4 +1,4 @@
-# Manual de Instalação e Configuração: Atendo One & Gestão de Frota
+# Manual de Instalação e Configuração: Elo Log & Gestão de Frota
 
 Este manual descreve o processo completo de instalação, implantação automatizada (1-Click via SSH ou Portainer) e parametrização de banco de dados relacional PostgreSQL e otimização de imagens.
 
@@ -9,16 +9,14 @@ Este manual descreve o processo completo de instalação, implantação automati
 Em sua VPS (Ubuntu / Debian / Rocky / CentOS 22.04+ com Docker e Docker Compose instalados), execute o comando abaixo para realizar a instalação e migração completa de forma totalmente autônoma:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Atendo-Sistemas/Antendo-One/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/elolog/elolog/main/install.sh | sudo bash
 ```
 
 O script acima executa automaticamente:
 1. Verificação do ambiente Docker e Docker Compose.
 2. Criação da rede isolada e container do **PostgreSQL 16**.
 3. Inicialização e migração do schema SQL (`schema.sql`).
-4. Build e start do container principal da aplicação Atendo One na porta configurada.
-
-Após o primeiro start, a ordem operacional recomendada é: confirmar o backup do PostgreSQL, executar o `server/db/schema.sql`, executar as migrations em ordem lexicográfica (incluindo `010_tenant_rls_policies.sql`), validar isolamento com `npm run test:rls` em um banco de teste e somente então liberar a aplicação para uso. A role de runtime não deve ser proprietária das tabelas nem possuir `BYPASSRLS`; mantenha uma role administrativa separada para migrations e backup.
+4. Build e start do container principal da aplicação Elo Log na porta configurada.
 
 ---
 
@@ -29,7 +27,7 @@ Antes de criar a stack, gere uma senha aleatória (`openssl rand -base64 32`) e 
 Se você gerencia sua VPS utilizando o painel **Portainer**:
 
 1. Acesse seu painel Portainer e clique em **Stacks** > **Add stack**.
-2. Defina o nome da stack como `atendo-one`.
+2. Defina o nome da stack como `elo-log`.
 3. Selecione a aba **Web editor** e cole o seguinte conteúdo (`docker-compose.portainer.yml`):
 
 ```yaml
@@ -42,7 +40,7 @@ networks:
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: atendo-one-postgres
+    container_name: elolog-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: elolog
@@ -61,7 +59,7 @@ services:
 
   app:
     build: .
-    container_name: atendo-one-app
+    container_name: elolog-app
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -141,10 +139,10 @@ Para economizar largura de banda e espaço de armazenamento em fotos tiradas pel
 ```bash
 docker ps
 ```
-*Deve listar `atendo-one-postgres` e `atendo-one-app` como "Up".*
+*Deve listar `elolog-postgres` e `elolog-app` como "Up".*
 
 ### Verificar Logs
 ```bash
-docker logs -f atendo-one-app
-docker logs -f atendo-one-postgres
+docker logs -f elolog-app
+docker logs -f elolog-postgres
 ```

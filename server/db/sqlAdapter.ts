@@ -1,19 +1,7 @@
 import { Pool, PoolConfig } from 'pg';
-import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'fs';
 import path from 'path';
 import { SqlDatabaseConfig } from '../../src/types';
-
-export interface TenantDbContext {
-  tenantId: string | null;
-  isSuperAdmin: boolean;
-}
-
-export const tenantDbContext = new AsyncLocalStorage<TenantDbContext>();
-
-export function runWithTenantDbContext<T>(context: TenantDbContext, callback: () => T): T {
-  return tenantDbContext.run(context, callback);
-}
 
 export class SqlAdapter {
   private pool: Pool | null = null;
@@ -50,23 +38,7 @@ export class SqlAdapter {
     if (!this.pool) {
       throw new Error('PostgreSQL pool is not initialized');
     }
-    const context = tenantDbContext.getStore();
-    if (!context) return this.pool.query(text, values) as Promise<{ rows: T[] }>;
-
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('SELECT set_config($1, $2, true)', ['app.tenant_id', context.tenantId || '']);
-      await client.query('SELECT set_config($1, $2, true)', ['app.is_super_admin', context.isSuperAdmin ? 'true' : 'false']);
-      const result = await client.query<T>(text, values);
-      await client.query('COMMIT');
-      return result as { rows: T[] };
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw error;
-    } finally {
-      client.release();
-    }
+    return this.pool.query(text, values) as Promise<{ rows: T[] }>;
   }
 
   public isEnabled(): boolean {

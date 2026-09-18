@@ -5,7 +5,7 @@ version: '3.8'
 # ==============================================================================
 # Como implantar no Portainer:
 # 1. No painel do Portainer, vá em: Stacks -> Add stack
-# 2. Nome da Stack: "atendo-one"
+# 2. Nome da Stack: "elo-log"
 # 3. No campo "Web editor", cole todo o conteúdo deste arquivo.
 # 4. Ajuste as variáveis em "Environment variables" se desejar personalizar senhas.
 # 5. Clique em "Deploy the stack". O banco e as tabelas serão criados sozinhos!
@@ -17,7 +17,7 @@ services:
   # ============================================================================
   postgres:
     image: postgres:16-alpine
-    container_name: atendo-one-postgres
+    container_name: elo-log-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-elolog}
@@ -29,7 +29,7 @@ services:
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     networks:
-      - atendo-one-network
+      - elo-log-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-elolog_user} -d ${DB_NAME:-elolog}"]
       interval: 5s
@@ -39,9 +39,9 @@ services:
   # ============================================================================
   # APLICAÇÃO ELO LOG (SAAS MULTI-TENANT COM COMPRESSÃO E API)
   # ============================================================================
-  atendo-one:
+  elo-log:
     image: node:20-alpine
-    container_name: atendo-one-app
+    container_name: elo-log-app
     restart: unless-stopped
     working_dir: /app
     command: sh -c "npm install --production=false && npm run build && npm start"
@@ -72,11 +72,11 @@ services:
       - WHATSAPP_API_URL=${WHATSAPP_API_URL:-}
       - WHATSAPP_API_TOKEN=${WHATSAPP_API_TOKEN:-}
     networks:
-      - atendo-one-network
+      - elo-log-network
 
 networks:
-  atendo-one-network:
-    name: atendo-one-network
+  elo-log-network:
+    name: elo-log-network
     driver: bridge
 
 volumes:

@@ -1,6 +1,6 @@
-# Guia de Implantação do Atendo One em VPS (Docker & Multi-Sistemas) 🚚
+# Guia de Implantação do Elo Log em VPS (Docker & Multi-Sistemas) 🚚
 
-Este guia fornece o passo a passo para implantar a plataforma **Atendo One** em uma VPS (Virtual Private Server) rodando Linux (Ubuntu/Debian) que já possui outros sistemas ou contêineres Docker em execução.
+Este guia fornece o passo a passo para implantar a plataforma **Elo Log** em uma VPS (Virtual Private Server) rodando Linux (Ubuntu/Debian) que já possui outros sistemas ou contêineres Docker em execução. 
 
 Para evitar conflitos de portas ou redes, seguiremos uma estratégia modular e isolada com suporte a Proxies Reversos (como Nginx Proxy Manager, Traefik, Caddy ou Nginx nativo).
 
@@ -79,7 +79,7 @@ sudo netstat -tulnp | grep LISTEN
 ```
 
 **O que analisar:**
-* A aplicação Atendo One usa por padrão a porta interna **`3000`**.
+* A aplicação Elo Log usa por padrão a porta interna **`3000`**.
 * Se você encontrar uma linha listando `:3000` na saída (ex: `127.0.0.1:3000` ou `0.0.0.0:3000`), significa que **a porta 3000 já está sendo usada por outro sistema**.
 * Escolha uma porta alternativa livre (ex: `3001`, `8080`, `8585`) para mapear no arquivo `.env`.
 
@@ -96,16 +96,16 @@ docker network ls
 * `traefik-public` / `web` (Traefik)
 * `caddy` (Caddy Server)
 
-Guarde o nome dessa rede! Se ela existir, conectaremos o Atendo One a ela para facilitar o roteamento.
+Guarde o nome dessa rede! Se ela existir, conectaremos o Elo Log a ela para facilitar o roteamento.
 
 ---
 
 ## ⚙️ Passo 3: Configuração dos Arquivos na VPS
 
-1. Crie uma pasta para o projeto em sua VPS (ex: `/var/www/atendo-one` ou no diretório de preferência):
+1. Crie uma pasta para o projeto em sua VPS (ex: `/var/www/elo-log` ou no diretório de preferência):
    ```bash
-   mkdir -p /var/www/atendo-one
-   cd /var/www/atendo-one
+   mkdir -p /var/www/elo-log
+   cd /var/www/elo-log
    ```
 
 2. Transfira os arquivos do projeto para essa pasta (via Git ou ZIP) garantindo que os seguintes arquivos principais estejam na raiz:
@@ -122,7 +122,7 @@ Guarde o nome dessa rede! Se ela existir, conectaremos o Atendo One a ela para f
 
 4. Cole e configure as variáveis de acordo com a varredura do **Passo 2**:
    ```env
-   # Porta da VPS que será mapeada para o Atendo One.
+   # Porta da VPS que será mapeada para o Elo Log.
    # Se a porta 3000 estiver livre na VPS, mantenha 3000. Caso contrário, altere (ex: 3005).
    APP_PORT=3000
 
@@ -148,7 +148,7 @@ Verifique se o contêiner subiu corretamente e se não há erros na inicializaç
 docker ps
 
 # Ver os logs em tempo real da aplicação
-docker logs -f atendo-one-app
+docker logs -f elo-log-app
 ```
 
 Você deverá ver a mensagem indicando sucesso:
@@ -168,7 +168,7 @@ Se você gerencia múltiplos sites na VPS com o Nginx Proxy Manager (NPM):
 1. **Ajuste de Rede (Opcional, mas recomendado para segurança)**:
    Se o NPM estiver em uma rede Docker chamada `npm_default`, configure seu `docker-compose.yml` para se juntar a ela descomentando o bloco de redes:
    ```yaml
-   # No docker-compose.yml do atendo-one:
+   # No docker-compose.yml do elo-log:
    networks:
      - npm_default
    ```
@@ -176,7 +176,7 @@ Se você gerencia múltiplos sites na VPS com o Nginx Proxy Manager (NPM):
    * Clique em **Hosts** -> **Proxy Hosts** -> **Add Proxy Host**.
    * **Domain Names**: Insira o seu domínio (ex: `log.suaempresa.com.br`).
    * **Scheme**: `http`
-   * **Forward Name/IP**: `atendo-one-app` (se estiverem na mesma rede Docker) ou o IP interno da VPS (`172.17.0.1` ou seu IP público).
+   * **Forward Name/IP**: `elo-log-app` (se estiverem na mesma rede Docker) ou o IP interno da VPS (`172.17.0.1` ou seu IP público).
    * **Forward Port**: A porta que você configurou no `.env` (ex: `3000`).
    * Marque **Websockets Support** (necessário para atualizações rápidas).
    * Na aba **SSL**, selecione **Request a new SSL Certificate** (Let's Encrypt) e marque **Force SSL** para ativar o HTTPS.
@@ -185,7 +185,7 @@ Se você gerencia múltiplos sites na VPS com o Nginx Proxy Manager (NPM):
 Se você possui o Nginx rodando diretamente na máquina (sem Docker), crie um arquivo de configuração de bloco de servidor:
 
 ```bash
-sudo nano /etc/nginx/sites-available/atendo-one
+sudo nano /etc/nginx/sites-available/elo-log
 ```
 
 Cole a configuração abaixo (substituindo pelo seu domínio e porta configurada):
@@ -211,7 +211,7 @@ server {
 
 Ative o site e reinicie o Nginx:
 ```bash
-sudo ln -s /etc/nginx/sites-available/atendo-one /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/elo-log /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
 ```
@@ -236,4 +236,4 @@ Como a plataforma é um **Progressive Web App (PWA)**, ela precisa obrigatoriame
 **Como testar na URL Final:**
 1. Abra o navegador (ex: Google Chrome ou Microsoft Edge) e acesse a sua URL (ex: `https://log.suaempresa.com.br`).
 2. Verifique se o ícone de instalação (um monitor com uma seta para baixo) aparece no canto superior direito da barra de endereços.
-3. Clique em instalar para rodar o **Atendo One** de forma standalone e offline-ready em seu computador ou smartphone!
+3. Clique em instalar para rodar o **Elo Log** de forma standalone e offline-ready em seu computador ou smartphone!

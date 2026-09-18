@@ -10,6 +10,3 @@ coverage/
 # Generated packages and local reports
 *.zip
 *.tar.gz
-
-*.tar
-*.7z
