@@ -36,19 +36,19 @@ A migration RLS é idempotente e não destrutiva. A ordem é: executar o schema 
 
 | Comando | Resultado |
 |---|---|
-| `npm ci --ignore-scripts` | Passou na validação final |
-| `npm run lint` | Passou na validação final |
-| `npm test` | Passou na validação final, incluindo cookies/CSRF |
-| `npm run build` | Passou; o build ainda emite avisos de chunks grandes para Mapbox e documentos |
-| `npm audit --omit=dev` | Passou, sem vulnerabilidades reportadas |
+| `npm ci --ignore-scripts` | Passou em validação anterior; não é uma afirmação sobre o commit remoto |
+| `npm run lint` | Passou no working tree atual; não é uma afirmação sobre um commit publicado |
+| `npm test` | Passou no working tree atual, incluindo cookies/CSRF |
+| `npm run build` | Passou no working tree atual; o build ainda emite avisos de chunks grandes para Mapbox e documentos |
+| `npm audit --omit=dev` | Passou no working tree atual, sem vulnerabilidades reportadas |
 | `node tests/secret-scan.cjs` | Passou |
 | Verificação de senha fixa | A ocorrência informada foi removida |
 | Verificação de tokens em localStorage | Não há persistência de tokens de sessão no código de produção |
 | `npm run test:auth-cookie` | Passou contra servidor local |
-| `npm run test:rls` | Pulado de forma segura sem `RLS_TEST_DATABASE_URL` |
-| PostgreSQL real | Não validado localmente: Docker, Docker Compose e `psql` não estão disponíveis |
+| `npm run test:rls` | Pulado de forma segura neste sandbox sem `RLS_TEST_DATABASE_URL` |
+| PostgreSQL real | Ainda não validado neste sandbox: Docker, Docker Compose e `psql` não estão disponíveis |
 
-A execução final apresentou `ci=0`, `lint=0`, `test=0`, `build=0`, `audit=0`, `secret=0` e `rls=0` (o último representa skip seguro sem URL de banco). A verificação de arquivos compactados rastreados não retornou resultados; a senha fixa e o uso de localStorage para tokens também não retornaram resultados.
+Na validação local do working tree atual, `npm run lint`, `npm test`, `npm run build` e `npm audit --omit=dev` retornaram código zero. Isso não deve ser interpretado como confirmação do workflow GitHub, nem como validação de um commit remoto específico. O teste RLS local continua sendo skip seguro sem URL de banco.
 
 ## Pendências reais
 
@@ -89,3 +89,11 @@ Quando as divergências permanecerem em zero durante a janela definida, migrar l
 ## Artefato de entrega
 
 O pacote final foi criado fora da árvore do projeto, sem segredos, dependências instaladas, build gerado, `.git` ou ZIPs anteriores. O conteúdo deve ser instalado no servidor e reconstruído conforme `INSTALLATION.md`; o deploy em produção não foi executado.
+
+## Revisão de prioridade — 18/09/2026
+
+O caminho original `src/components/AddressAutocomplete.tsx` foi restaurado como entrypoint de compatibilidade, reexportando a implementação consolidada em `src/components/common/AddressAutocomplete.tsx`. Assim, imports antigos não quebram, enquanto os componentes atuais continuam usando o caminho compartilhado correto.
+
+O lint foi iniciado novamente após essa correção. O workflow GitHub Actions está configurado para iniciar PostgreSQL 16, executar schema, migration idempotente, criar uma role dinâmica `NOSUPERUSER NOBYPASSRLS`, executar isolamento por tenant e verificar a constraint de associação motorista/veículo. Este sandbox não possui Docker, PostgreSQL ou `psql`, portanto não é possível executar o workflow hospedado nem afirmar `RLS_INTEGRATION_PASS` localmente sem publicar/executar o workflow em um runner GitHub. O comando local confirma apenas o skip seguro sem `RLS_TEST_DATABASE_URL`.
+
+Os aliases `elo-log`, `elolog` e nomes de serviço históricos em documentos de deploy foram mantidos onde representam rotas, diretórios ou recursos reais de compatibilidade/produção; referências de identidade visível e defaults foram padronizadas para Atendo One. Os vendors Mapbox e documentos já estão em chunks separados; o carregamento de PDF foi tornado dinâmico, e qualquer redução adicional deve ser medida contra o fluxo visual antes de alterar dependências.
