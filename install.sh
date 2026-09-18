@@ -2,7 +2,7 @@
 # ==============================================================================
 # 🚚 ELO LOG - INSTALADOR AUTOMATIZADO PARA VPS (SSH / DOCKER & POSTGRESQL)
 # ==============================================================================
-# Este script realiza a instalação completa e autônoma do Elo Log em sua VPS Linux:
+# Este script realiza a instalação completa e autônoma do Atendo One em sua VPS Linux:
 #  1. Instalação e verificação do Docker & Docker Compose
 #  2. Criação automática do container PostgreSQL 16 com volume persistente
 #  3. Criação e migração de todas as tabelas SQL e sementes iniciais
@@ -44,7 +44,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Diretório de instalação
-INSTALL_DIR="/opt/elo-log"
+INSTALL_DIR="/opt/atendo-one"
 if [ -d "./server" ] && [ -f "./package.json" ]; then
   INSTALL_DIR="$(pwd)"
   echo -e "${GREEN}[OK] Detectado diretório local da aplicação: ${INSTALL_DIR}${NC}"
@@ -144,7 +144,7 @@ ENVFILE
 chmod 600 "$INSTALL_DIR/.env"
 echo -e "${GREEN}[OK] Arquivo .env configurado com credenciais seguras.${NC}"
 
-echo -e "${BLUE}${BOLD}==> [5/7] Configurando Docker Compose com PostgreSQL e Elo Log...${NC}"
+echo -e "${BLUE}${BOLD}==> [5/7] Configurando Docker Compose com PostgreSQL e Atendo One...${NC}"
 
 # Garantir pasta do schema SQL
 mkdir -p "$INSTALL_DIR/server/db"
@@ -158,7 +158,7 @@ services:
   # ============================================================================
   postgres:
     image: postgres:16-alpine
-    container_name: elo-log-postgres
+    container_name: atendo-one-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-elolog}
@@ -171,7 +171,7 @@ services:
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     networks:
-      - elo-log-network
+      - atendo-one-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-elolog_user} -d ${DB_NAME:-elolog}"]
       interval: 5s
@@ -181,11 +181,11 @@ services:
   # ============================================================================
   # APLICAÇÃO ELO LOG (SAAS MULTI-TENANT + COMPRESSÃO DE IMAGENS + API)
   # ============================================================================
-  elo-log:
+  atendo-one:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: elo-log-app
+    container_name: atendo-one-app
     restart: unless-stopped
     depends_on:
       postgres:
@@ -208,11 +208,11 @@ services:
       - IMAGE_MAX_WIDTH=${IMAGE_MAX_WIDTH:-1600}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     networks:
-      - elo-log-network
+      - atendo-one-network
 
 networks:
-  elo-log-network:
-    name: elo-log-network
+  atendo-one-network:
+    name: atendo-one-network
     driver: bridge
 
 volumes:
@@ -237,7 +237,7 @@ done
 
 # Build e inicialização da aplicação
 echo -e "${CYAN}[INFO] Compilando e iniciando os containers...${NC}"
-docker compose up -d --build elo-log
+docker compose up -d --build atendo-one
 
 echo -e "${BLUE}${BOLD}==> [7/7] Validando status dos serviços...${NC}"
 sleep 3
@@ -265,5 +265,5 @@ echo -e "${YELLOW}${BOLD}Comandos úteis de gerenciamento:${NC}"
 echo -e "  • Ver logs:       ${CYAN}cd ${INSTALL_DIR} && docker compose logs -f${NC}"
 echo -e "  • Reiniciar:      ${CYAN}cd ${INSTALL_DIR} && docker compose restart${NC}"
 echo -e "  • Status:         ${CYAN}cd ${INSTALL_DIR} && docker compose ps${NC}"
-echo -e "  • Backup do DB:   ${CYAN}docker exec -t elo-log-postgres pg_dump -U ${DB_USER} ${DB_NAME} > backup.sql${NC}"
+echo -e "  • Backup do DB:   ${CYAN}docker exec -t atendo-one-postgres pg_dump -U ${DB_USER} ${DB_NAME} > backup.sql${NC}"
 echo -e "${GREEN}========================================================================${NC}"

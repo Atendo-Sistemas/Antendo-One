@@ -292,10 +292,10 @@ export const SqlAndInstallationConfig: React.FC<SqlAndInstallationConfigProps> =
 
             <div className="relative flex items-center">
               <div className="w-full bg-slate-950 text-emerald-400 font-mono text-xs p-4 rounded-xl border border-slate-800 overflow-x-auto shadow-inner select-all">
-                curl -fsSL https://raw.githubusercontent.com/elolog/elolog/main/install.sh | sudo bash
+                curl -fsSL https://raw.githubusercontent.com/Atendo-Sistemas/Antendo-One/main/install.sh | sudo bash
               </div>
               <button
-                onClick={() => handleCopy('curl -fsSL https://raw.githubusercontent.com/elolog/elolog/main/install.sh | sudo bash', 'ssh-cmd')}
+                onClick={() => handleCopy('curl -fsSL https://raw.githubusercontent.com/Atendo-Sistemas/Antendo-One/main/install.sh | sudo bash', 'ssh-cmd')}
                 className="absolute right-3 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
               >
                 {copiedScript === 'ssh-cmd' ? (
@@ -385,7 +385,7 @@ export const SqlAndInstallationConfig: React.FC<SqlAndInstallationConfigProps> =
           <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 flex items-start gap-3">
             <Layers className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
             <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
-              <strong className="font-bold">Instalação Visual via Portainer CE / Business:</strong> Utilize a stack pré-configurada abaixo. Ela contém o serviço do banco de dados relacional PostgreSQL e a aplicação Elo Log interconectados via rede interna isolada.
+              <strong className="font-bold">Instalação Visual via Portainer CE / Business:</strong> Utilize a stack pré-configurada abaixo. Ela contém o serviço do banco de dados relacional PostgreSQL e a aplicação Atendo One interconectados via rede interna isolada.
             </div>
           </div>
 
@@ -396,7 +396,7 @@ export const SqlAndInstallationConfig: React.FC<SqlAndInstallationConfigProps> =
             </h4>
             <ol className="text-xs text-slate-600 dark:text-slate-300 space-y-2 list-decimal list-inside leading-relaxed">
               <li>Acesse seu painel Portainer e clique no menu lateral em <strong>Stacks</strong> &gt; <strong>Add stack</strong>.</li>
-              <li>Defina o nome da stack como <code className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded font-mono text-emerald-600">elo-log</code>.</li>
+              <li>Defina o nome da stack como <code className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded font-mono text-emerald-600">atendo-one</code>.</li>
               <li>Selecione o método <strong>Web editor</strong> e cole o conteúdo YAML abaixo.</li>
               <li>(Opcional) Altere a senha padrão do banco na variável <code className="font-mono text-blue-500">DB_PASSWORD</code>.</li>
               <li>Clique no botão inferior <strong>Deploy the stack</strong>. O banco e as tabelas serão provisionados automaticamente!</li>

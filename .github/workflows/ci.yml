@@ -31,6 +31,7 @@ jobs:
       DB_PASSWORD: ci-only-password
       JWT_SECRET: ci-jwt-secret-not-for-production
       CONFIG_ENCRYPTION_KEY: ci-config-key-not-for-production
+      RLS_TEST_DATABASE_URL: postgresql://postgres:ci-only-password@localhost:5432/elolog
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +48,8 @@ jobs:
         run: npm run lint
       - name: Unit and invariant tests
         run: npm test
+      - name: PostgreSQL RLS integration test
+        run: npm run test:rls
       - name: Build
         run: npm run build
       - name: Production audit

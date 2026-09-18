@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db, PUBLIC_DEMO_TENANT_ID, PUBLIC_DEMO_PRIMARY_USER_ID } from './db';
 import { sqlAdapter } from './db/sqlAdapter';
+import { runWithTenantDbContext } from './db/sqlAdapter';
 import webpush from 'web-push';
 import nodemailer from 'nodemailer';
 import bcrypt from 'bcryptjs';
@@ -988,6 +989,20 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
 });
 // Apply auth middleware to all authenticated /api routes.
 apiRouter.use(authMiddleware);
+// Every PostgreSQL query started by a request receives a server-derived tenant context.
+// Super-admin global access is granted only to explicit global API namespaces.
+apiRouter.use((req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+  const globalSuperAdminRoute = req.user?.role === 'SUPER_ADMIN' && (
+    req.path.startsWith('/saas/') ||
+    req.path.startsWith('/tenants') ||
+    req.path.startsWith('/analytics/') ||
+    req.path === '/health/detailed'
+  );
+  runWithTenantDbContext({
+    tenantId: req.user?.tenantId || null,
+    isSuperAdmin: Boolean(globalSuperAdminRoute)
+  }, next);
+});
 apiRouter.get('/health/detailed', async (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Apenas Super Admin.' });
   const sqlStatus = await sqlAdapter.getStatus();
@@ -1100,6 +1115,7 @@ apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => 
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const excludePaths = [
       '/auth/login',
+      '/auth/logout',
       '/auth/request-otp',
       '/auth/verify-otp',
       '/auth/register-company',
