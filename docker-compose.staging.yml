@@ -23,10 +23,10 @@ services:
       postgres-staging:
         condition: service_healthy
     ports:
-      - "${STAGING_PORT:-3100}:3000"
+      - "${STAGING_PORT:-3100}:${PORT:-3000}"
     environment:
       NODE_ENV: staging
-      PORT: 3000
+      PORT: ${PORT:-3000}
       APP_URL: ${STAGING_APP_URL:-http://localhost:3100}
       CORS_ALLOWED_ORIGINS: ${STAGING_CORS_ALLOWED_ORIGINS:-http://localhost:3100}
       DB_TYPE: postgres

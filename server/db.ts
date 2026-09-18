@@ -736,6 +736,7 @@ class DatabaseStore {
       this.ensureSystemContent();
       if (process.env.DISABLE_RETENTION_CLEANUP !== 'true') await this.pruneOperationalData();
     } catch (error: any) {
+      if (process.env.NODE_ENV === 'production') throw error;
       if (!String(error?.message || '').includes('relation "app_state" does not exist')) {
         console.warn('PostgreSQL state hydration skipped:', error?.message || error);
       }
@@ -1088,11 +1089,12 @@ class DatabaseStore {
           ['default', JSON.stringify(this.serializeState())]
         );
       } catch (error: any) {
+        if (process.env.NODE_ENV === 'production') throw error;
         if (!String(error?.message || '').includes('relation "app_state" does not exist')) {
           console.warn('PostgreSQL state persistence failed:', error?.message || error);
         }
       }
-    }).catch(() => {});
+    });
     await this.persistenceQueue;
   }
 

@@ -2,47 +2,34 @@ import { User, Tenant, Driver, Vehicle, Freight, Tenant as TenantType, Metrics, 
 
 type OfflineResponse = { formId: string; freightId?: string; responseId: string; stage: string; isDraft: boolean; answers: Record<string, any> };
 
-// Auth Token Management
-export const setAuthToken = (token: string) => {
-  localStorage.setItem('elolog_auth_token', token);
-};
-
-export const getAuthToken = (): string => {
-  return localStorage.getItem('elolog_auth_token') || '';
-};
+// Session tokens are HttpOnly cookies. These compatibility helpers intentionally do not persist tokens in browser storage.
+export const setAuthToken = (_token: string) => undefined;
+export const getAuthToken = (): string => '';
 
 export const clearAuthToken = () => {
-  localStorage.removeItem('elolog_auth_token');
-  localStorage.removeItem('elolog_refresh_token');
+  // Cookies are invalidated by the server logout endpoint.
 };
 
 export const setAuthSession = (token: string, refreshToken?: string) => {
-  setAuthToken(token);
-  if (refreshToken) {
-    localStorage.setItem('elolog_refresh_token', refreshToken);
-  }
+  void token;
+  void refreshToken;
 };
 
-const getRefreshToken = (): string => {
-  return localStorage.getItem('elolog_refresh_token') || '';
-};
+const getCsrfToken = (): string => document.cookie.split('; ').find(item => item.startsWith('atendo_csrf='))?.split('=').slice(1).join('=') || '';
 
 let refreshPromise: Promise<boolean> | null = null;
 
 const refreshAuthSession = async (): Promise<boolean> => {
   if (refreshPromise) return refreshPromise;
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
   refreshPromise = (async () => {
     try {
       const refreshResponse = await fetch('/api/auth/refresh', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ refreshToken })
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': getCsrfToken() }
       });
       const refreshData = await refreshResponse.json().catch(() => ({}));
-      if (refreshResponse.ok && refreshData.token && refreshData.refreshToken) {
-        setAuthSession(refreshData.token, refreshData.refreshToken);
+      if (refreshResponse.ok && (refreshData.user || refreshData.success)) {
         return true;
       }
       return false;
@@ -82,15 +69,14 @@ export const setSimulatedOffline = (offline: boolean) => {
 };
 
 async function request<T>(endpoint: string, options: RequestInit = {}, allowRefresh = true): Promise<T> {
-  const token = getAuthToken();
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
+  const method = String(options.method || 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers.set('X-CSRF-Token', getCsrfToken());
 
   const res = await fetch(`/api${endpoint}`, {
     ...options,
+    credentials: 'include',
     headers
   });
 
@@ -106,10 +92,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}, allowRefr
   }
 
   if (!res.ok) {
-    if (res.status === 401 && token && allowRefresh && !endpoint.startsWith('/auth/refresh') && !endpoint.startsWith('/auth/logout') && getRefreshToken()) {
+    if (res.status === 401 && allowRefresh && !endpoint.startsWith('/auth/refresh') && !endpoint.startsWith('/auth/logout')) {
       if (await refreshAuthSession()) return request<T>(endpoint, options, false);
       clearAuthToken();
-    } else if (res.status === 401 && token) clearAuthToken();
+    } else if (res.status === 401) clearAuthToken();
     const error = new Error(data.message || data.error || `Erro ${res.status}: Ocorreu um erro na requisição`) as Error & { status?: number };
     error.status = res.status;
     throw error;

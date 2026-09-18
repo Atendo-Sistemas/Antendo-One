@@ -49,11 +49,11 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_PORT:-3000}:${PORT:-3000}"
     environment:
       - NODE_ENV=production
-      - PORT=3000
-      - JWT_SECRET=${JWT_SECRET:-elolog_jwt_secret_token_change_in_prod}
+      - PORT=${PORT:-3000}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       # Conexão com o banco SQL PostgreSQL
       - DB_TYPE=postgres
       - DB_HOST=postgres

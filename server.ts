@@ -12,7 +12,10 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number.parseInt(process.env.PORT || '3000', 10);
+  if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+    throw new Error('PORT inválida.');
+  }
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
@@ -40,10 +43,17 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID, asaas-access-token');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID, X-CSRF-Token, asaas-access-token');
       res.setHeader('Vary', 'Origin');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(origin && allowedOrigins.has(origin) ? 204 : 403);
+    next();
+  });
+  app.use((req, res, next) => {
+    if (!String(req.headers.cookie || '').split(';').some(cookie => cookie.trim().startsWith('atendo_csrf='))) {
+      const secure = process.env.NODE_ENV === 'production' || String(process.env.APP_URL || '').startsWith('https://');
+      res.append('Set-Cookie', `atendo_csrf=${encodeURIComponent(randomUUID())}; Path=/; SameSite=Lax${secure ? '; Secure' : ''}`);
+    }
     next();
   });
   app.use((_req, res, next) => {
@@ -113,8 +123,8 @@ async function startServer() {
   app.use('/api', async (req, res, next) => {
     try {
       await db.waitForPersistence();
-      res.once('finish', () => {
-        void db.persistNow();
+        res.once('finish', () => {
+        void db.persistNow().catch(error => console.error('PERSISTENCE_FAILURE', error instanceof Error ? error.message : error));
       });
       next();
     } catch (error) {
@@ -375,6 +385,10 @@ async function startServer() {
     res.status(Number(error?.status || 500)).json({ error: 'Ocorreu um erro interno. Consulte o suporte com o identificador de atendimento.', correlationId });
   });
 
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.DATABASE_URL && !process.env.DB_HOST) throw new Error('PostgreSQL é obrigatório em produção; configure DATABASE_URL ou DB_HOST.');
+    await db.waitForPersistence();
+  }
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚚 Portal de Fretes SaaS Server running on http://0.0.0.0:${PORT}`);
   });

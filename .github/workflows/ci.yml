@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: elolog
+          POSTGRES_USER: elolog_user
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U elolog_user -d elolog"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://elolog_user:ci-only-password@localhost:5432/elolog
+      DB_PASSWORD: ci-only-password
+      JWT_SECRET: ci-jwt-secret-not-for-production
+      CONFIG_ENCRYPTION_KEY: ci-config-key-not-for-production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.14.0
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Secret scan
+        run: node tests/secret-scan.cjs
+      - name: Typecheck
+        run: npm run lint
+      - name: Unit and invariant tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Production audit
+        run: npm audit --omit=dev
+      - name: Validate Dockerfile
+        run: docker build --check .

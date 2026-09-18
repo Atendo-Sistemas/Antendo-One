@@ -39,11 +39,11 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      # Mapeia a porta interna 3000 do container para a porta 3000 (ou outra porta livre) da sua VPS
-      - "${APP_PORT:-3000}:3000"
+      # APP_PORT controla a porta externa; PORT controla a porta interna da aplicação.
+      - "${APP_PORT:-3000}:${PORT:-3000}"
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=${PORT:-3000}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       # Conexão com o banco SQL PostgreSQL
       - DB_TYPE=postgres

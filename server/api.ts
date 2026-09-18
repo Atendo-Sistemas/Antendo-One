@@ -225,6 +225,28 @@ const USER_SESSION_TTL_MS = 10 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const activeSupportSessions = new Map<string, SupportSessionRecord>();
 const activeRefreshFamilies = new Map<string, string>();
+const ACCESS_COOKIE = 'atendo_access';
+const REFRESH_COOKIE = 'atendo_refresh';
+const CSRF_COOKIE = 'atendo_csrf';
+
+function parseCookies(req: Request): Record<string, string> {
+  return Object.fromEntries(String(req.headers.cookie || '').split(';').map(item => {
+    const index = item.indexOf('=');
+    return index > 0 ? [item.slice(0, index).trim(), decodeURIComponent(item.slice(index + 1).trim())] : ['', ''];
+  }).filter(([key]) => key));
+}
+
+function setSessionCookies(res: Response, token: string, refreshToken?: string): void {
+  const secure = process.env.NODE_ENV === 'production' || String(process.env.APP_URL || '').startsWith('https://');
+  const base = `Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  res.append('Set-Cookie', `${ACCESS_COOKIE}=${encodeURIComponent(token)}; Max-Age=600; ${base}`);
+  if (refreshToken) res.append('Set-Cookie', `${REFRESH_COOKIE}=${encodeURIComponent(refreshToken)}; Max-Age=${Math.floor(REFRESH_TOKEN_TTL_MS / 1000)}; ${base}`);
+}
+
+function clearSessionCookies(res: Response): void {
+  res.append('Set-Cookie', `${ACCESS_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+  res.append('Set-Cookie', `${REFRESH_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+}
 
 function issueUserSession(user: User) {
   const sessionId = randomUUID();
@@ -275,7 +297,10 @@ const VALID_STATUS_TRANSITIONS: Record<FreightStatus, FreightStatus[]> = {
 
 // Auth / Identity Middleware
 export function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const cookies = parseCookies(req);
   const authHeader = req.headers.authorization;
+  const cookieToken = cookies[ACCESS_COOKIE];
+  const suppliedToken = cookieToken || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '');
   const path = req.path;
 
   // Explicit public / unauthenticated routes
@@ -308,8 +333,8 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     return res.status(404).json({ error: 'Rota não encontrada.' });
   }
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1]?.trim();
+  if (suppliedToken) {
+    const token = suppliedToken;
 
     if (token) {
       // 1. Attempt JWT verification
@@ -346,6 +371,11 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
           }
           req.user = foundUser;
           req.authToken = token;
+          if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !isPublicRoute) {
+            const csrfCookie = cookies[CSRF_COOKIE] || '';
+            const csrfHeader = String(req.headers['x-csrf-token'] || '');
+            if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) return res.status(403).json({ error: 'Token CSRF ausente ou inválido.' });
+          }
           req.tenant = foundUser.tenantId ? db.tenants.find(t => t.id === foundUser.tenantId) || null : null;
           return next();
         }
@@ -1952,7 +1982,7 @@ apiRouter.get('/auth/me', (req: AuthenticatedRequest, res: Response) => {
 });
 
 apiRouter.post('/auth/logout', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Não autenticado' });
+  if (!req.user) { clearSessionCookies(res); return res.status(401).json({ error: 'Não autenticado' }); }
   if (req.authToken) db.revokeAuthToken(req.authToken);
   const refreshFamilyId = activeRefreshFamilies.get(req.user.id);
   if (refreshFamilyId) {
@@ -1963,6 +1993,7 @@ apiRouter.post('/auth/logout', async (req: AuthenticatedRequest, res: Response) 
   delete req.user.activeSessionExpiresAt;
   db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'LOGOUT', entity: 'User', entityId: req.user.id, details: 'Sessão atual revogada pelo próprio usuário.' });
   await db.persistNow();
+  clearSessionCookies(res);
   return res.json({ success: true });
 });
 
@@ -2010,9 +2041,9 @@ apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) =
     details: `Acesso assistido iniciado para ${targetUser.name} (${targetUser.role}); expira em 30 minutos.`
   });
 
+  setSessionCookies(res, token);
   return res.json({
     ...getSessionDataForUser(targetUser),
-    token,
     supportSession: {
       id: supportSession.id,
       targetUser: safeSupportIdentity(targetUser),
@@ -2047,7 +2078,8 @@ apiRouter.post('/support/sessions/end', (req: AuthenticatedRequest, res: Respons
     details: `Acesso assistido encerrado para ${req.user.name}. Retorno ao Super Admin.`
   });
 
-  return res.json({ ...getSessionDataForUser(actorUser), token });
+  setSessionCookies(res, token);
+  return res.json({ ...getSessionDataForUser(actorUser) });
 });
 
 // Login endpoint
@@ -2088,6 +2120,7 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
 
   // Um novo login substitui a sessão anterior do mesmo usuário.
   const { token, refreshToken } = issueUserSession(targetUser);
+  setSessionCookies(res, token, refreshToken);
 
   db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
@@ -2101,15 +2134,11 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
     details: `Login realizado com sucesso via perfil ${targetUser.role}`
   });
 
-  res.json({
-    user: sanitizeUser(targetUser),
-    token,
-    refreshToken
-  });
+  res.json({ user: sanitizeUser(targetUser) });
 });
 
 apiRouter.post('/auth/refresh', (req: AuthenticatedRequest, res: Response) => {
-  const rawRefreshToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : '';
+  const rawRefreshToken = parseCookies(req)[REFRESH_COOKIE] || (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : '');
   if (!rawRefreshToken) return res.status(401).json({ error: 'Refresh token ausente.' });
   try {
     const decoded = jwt.verify(rawRefreshToken, SAFE_JWT_SECRET) as { userId?: string; jti?: string; familyId?: string; typ?: string };
@@ -2124,7 +2153,8 @@ apiRouter.post('/auth/refresh', (req: AuthenticatedRequest, res: Response) => {
     if (!user) return res.status(401).json({ error: 'Usuário inválido ou inativo.' });
     const issued = issueUserSession(user);
     db.addAuditLog({ ip: requestIp(req), tenantId: user.tenantId || undefined, userId: user.id, userName: user.name, userRole: user.role, action: 'REFRESH_ROTATED', entity: 'UserSession', entityId: user.id, details: 'Refresh token consumido uma única vez e substituído por nova sessão.' });
-    return res.json({ user: sanitizeUser(user), token: issued.token, refreshToken: issued.refreshToken });
+    setSessionCookies(res, issued.token, issued.refreshToken);
+    return res.json({ user: sanitizeUser(user) });
   } catch {
     auditAuthFailure(req, 'REFRESH_FAILED', undefined, 'Refresh token inválido ou expirado.');
     return res.status(401).json({ error: 'Refresh token inválido ou expirado.' });
@@ -2156,7 +2186,8 @@ apiRouter.post('/auth/demo-session', async (req: AuthenticatedRequest, res: Resp
     details: `Sessão pública de demonstração iniciada no perfil ${targetUser.role}, com dados fictícios e permissões restritas.`
   });
   await db.persistNow();
-  return res.json({ ...getSessionDataForUser(targetUser), token, demo: true });
+  setSessionCookies(res, token);
+  return res.json({ ...getSessionDataForUser(targetUser), demo: true });
 });
 
 // Demo switching remains development-only and can target only fixed TEST users from the demo tenant.
@@ -2177,7 +2208,8 @@ apiRouter.post('/auth/switch-demo', (req: AuthenticatedRequest, res: Response) =
   targetUser.lastLoginAt = new Date().toISOString();
   const { token } = issueUserSession(targetUser);
 
-  res.json({ ...getSessionDataForUser(targetUser), token });
+  setSessionCookies(res, token);
+  res.json({ ...getSessionDataForUser(targetUser) });
 });
 
 // Active WhatsApp Login OTPs Map with rate limiting & attempt tracking
@@ -2380,11 +2412,8 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
     details: `Login realizado com sucesso via WhatsApp OTP`
   });
 
-  res.json({
-    user: sanitizeUser(targetUser),
-    token,
-    refreshToken
-  });
+  setSessionCookies(res, token, refreshToken);
+  res.json({ user: sanitizeUser(targetUser) });
 });
 
 interface AtendoProvisionResult {

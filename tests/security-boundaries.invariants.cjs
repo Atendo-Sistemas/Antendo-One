@@ -1,0 +1,24 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const api = fs.readFileSync(path.join(root, 'server/api.ts'), 'utf8');
+const server = fs.readFileSync(path.join(root, 'server.ts'), 'utf8');
+const client = fs.readFileSync(path.join(root, 'src/services/api.ts'), 'utf8');
+const rls = fs.readFileSync(path.join(root, 'server/db/migrations/010_tenant_rls_policies.sql'), 'utf8');
+
+assert.match(api, /atendo_access/);
+assert.match(api, /atendo_refresh/);
+assert.match(api, /HttpOnly/);
+assert.match(api, /X-CSRF-Token/);
+assert.match(server, /atendo_csrf=/);
+assert.match(server, /X-CSRF-Token/);
+assert.match(client, /credentials: 'include'/);
+assert.ok(!client.includes("localStorage.setItem('elolog_auth_token'"));
+assert.ok(!client.includes("localStorage.setItem('elolog_refresh_token'"));
+assert.match(rls, /ENABLE ROW LEVEL SECURITY/);
+assert.match(rls, /current_setting\('app\.tenant_id'/);
+assert.match(rls, /WITH CHECK/);
+assert.match(rls, /vehicles_driver_same_tenant/);
+assert.match(rls, /freights_driver_same_tenant/);
+console.log('SECURITY_BOUNDARIES_INVARIANTS_OK');

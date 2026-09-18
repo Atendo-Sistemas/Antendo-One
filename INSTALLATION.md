@@ -22,6 +22,8 @@ O script acima executa automaticamente:
 
 ## 🐳 Método 2: Instalação Visual via Portainer (Stack)
 
+Antes de criar a stack, gere uma senha aleatória (`openssl rand -base64 32`) e cadastre-a como `DB_PASSWORD` em um Secret do Portainer ou em um arquivo `.env` fora do Git. Nunca coloque a senha diretamente neste documento, no Compose ou em uma imagem Docker.
+
 Se você gerencia sua VPS utilizando o painel **Portainer**:
 
 1. Acesse seu painel Portainer e clique em **Stacks** > **Add stack**.
@@ -43,7 +45,7 @@ services:
     environment:
       POSTGRES_DB: elolog
       POSTGRES_USER: elolog_user
-      POSTGRES_PASSWORD: elolog_secret_password_2026
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -68,7 +70,7 @@ services:
       - DB_PORT=5432
       - DB_NAME=elolog
       - DB_USER=elolog_user
-      - DB_PASSWORD=elolog_secret_password_2026
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
     networks:
       - elolog-net
     depends_on:
@@ -144,4 +146,3 @@ docker ps
 docker logs -f elolog-app
 docker logs -f elolog-postgres
 ```
-

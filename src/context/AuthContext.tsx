@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { User, Tenant, Driver, Vehicle, AppNotification, SupportSessionInfo } from '../types';
-import { api, setAuthToken, getAuthToken, clearAuthToken } from '../services/api';
+import { api, setAuthToken, clearAuthToken } from '../services/api';
 
 interface DemoAccount {
   id: string;
@@ -194,21 +194,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     const init = async () => {
-      const token = getAuthToken();
-      if (token && token !== '') {
-        await refreshProfile();
-        await refreshNotifications();
-      }
+      await refreshProfile();
+      await refreshNotifications();
       setLoading(false);
     };
     init();
 
     // Notification polling interval
     const interval = setInterval(() => {
-      const token = getAuthToken();
-      if (token && token !== '') {
-        refreshNotifications();
-      }
+      if (user) refreshNotifications();
     }, 30000);
 
     return () => clearInterval(interval);
