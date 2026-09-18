@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { budgetApi, clientApi } from '../../services/api';
 import { Budget, Client, BudgetExpense } from '../../types';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
 
 const empty = { clientId: undefined, clientName: '', date: new Date().toISOString().substring(0, 10), origin: { address: '', city: '', state: '' }, destination: { address: '', city: '', state: '' }, distanceKm: 0, pricePerKm: 0, tolls: 0, insurance: 0, cargoType: '', dailyRate: 0, dailyCount: 0, assistantCount: 0, assistantDailyRate: 0, driverPassed: 0, driverPaid: 0, priceTableReference: '', status: 'RASCUNHO' as const, profitValue: 15, expenses: [] };
@@ -107,9 +105,10 @@ export const BudgetManager: React.FC = () => {
     } catch (e: any) { setError(e.message); }
   };
 
-  const downloadPdf = () => {
+  const downloadPdf = async () => {
     if (!selected) return;
-    const doc = new jsPDF();
+    const [{ default: JsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+    const doc = new JsPDF();
     doc.setFontSize(20);
     doc.text(`Orçamento #${selected.id.substring(0, 8)}`, 14, 20);
     doc.setFontSize(12);
@@ -129,9 +128,10 @@ export const BudgetManager: React.FC = () => {
     doc.save(`orcamento-${selected.id.substring(0, 8)}.pdf`);
   };
 
-  const printPdf = () => {
+  const printPdf = async () => {
     if (!selected) return;
-    const doc = new jsPDF();
+    const [{ default: JsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+    const doc = new JsPDF();
     doc.setFontSize(20);
     doc.text(`Orçamento #${selected.id.substring(0, 8)}`, 14, 20);
     doc.setFontSize(12);

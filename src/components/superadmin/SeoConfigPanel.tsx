@@ -9,8 +9,8 @@ interface Props {
 }
 
 const defaults: SeoConfig = {
-  siteName: 'Elo Log',
-  title: 'Elo Log — Gestão e publicação de fretes',
+  siteName: 'Atendo One',
+  title: 'Atendo One — Gestão e publicação de fretes',
   description: 'Plataforma de gestão logística para transportadoras, motoristas e operações de fretes.',
   keywords: 'gestão de fretes, transportadora, logística, rastreamento',
   canonicalUrl: 'https://gestor.atendo.log.br',

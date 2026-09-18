@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -31,6 +35,7 @@ jobs:
       DB_PASSWORD: ci-only-password
       JWT_SECRET: ci-jwt-secret-not-for-production
       CONFIG_ENCRYPTION_KEY: ci-config-key-not-for-production
+      RLS_TEST_DATABASE_URL: postgresql://elolog_user:ci-only-password@localhost:5432/elolog
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +52,8 @@ jobs:
         run: npm run lint
       - name: Unit and invariant tests
         run: npm test
+      - name: PostgreSQL RLS integration test
+        run: node tests/rls.integration.cjs
       - name: Build
         run: npm run build
       - name: Production audit

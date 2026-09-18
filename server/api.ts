@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db, PUBLIC_DEMO_TENANT_ID, PUBLIC_DEMO_PRIMARY_USER_ID } from './db';
 import { sqlAdapter } from './db/sqlAdapter';
+import { runWithTenantDbContext } from './db/sqlAdapter';
 import webpush from 'web-push';
 import nodemailer from 'nodemailer';
 import bcrypt from 'bcryptjs';
@@ -988,11 +989,25 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
 });
 // Apply auth middleware to all authenticated /api routes.
 apiRouter.use(authMiddleware);
+// Every PostgreSQL query started by a request receives a server-derived tenant context.
+// Super-admin global access is granted only to explicit global API namespaces.
+apiRouter.use((req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+  const globalSuperAdminRoute = req.user?.role === 'SUPER_ADMIN' && (
+    req.path.startsWith('/saas/') ||
+    req.path.startsWith('/tenants') ||
+    req.path.startsWith('/analytics/') ||
+    req.path === '/health/detailed'
+  );
+  runWithTenantDbContext({
+    tenantId: req.user?.tenantId || null,
+    isSuperAdmin: Boolean(globalSuperAdminRoute)
+  }, next);
+});
 apiRouter.get('/health/detailed', async (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Apenas Super Admin.' });
   const sqlStatus = await sqlAdapter.getStatus();
   const postgresConnected = sqlAdapter.isEnabled() && sqlStatus.status === 'CONNECTED';
-  return res.json({ status: 'ok', version: process.env.APP_VERSION || APP_VERSION, uptimeSeconds: Math.floor(process.uptime()), counts: { tenants: db.tenants.length, users: db.users.length, freights: db.freights.length, budgets: db.budgets.length, clients: db.clients.length, gpsLocations: db.freightLocations.length, notifications: db.notifications.length }, integrations: { mapboxConfigured: Boolean(db.saasGlobalConfig.mapboxConfig?.apiKey), cnpjWsConfigured: true, postgresConfigured: postgresConnected }, persistence: { mode: postgresConnected ? 'postgresql' : 'memory-with-snapshot', lastCheckedAt: new Date().toISOString() }, generatedAt: new Date().toISOString() });
+  return res.json({ status: 'ok', version: process.env.APP_VERSION || APP_VERSION, uptimeSeconds: Math.floor(process.uptime()), counts: { tenants: db.tenants.length, users: db.users.length, freights: db.freights.length, budgets: db.budgets.length, clients: db.clients.length, gpsLocations: db.freightLocations.length, notifications: db.notifications.length }, integrations: { mapboxConfigured: Boolean(db.saasGlobalConfig.mapboxConfig?.apiKey), cnpjWsConfigured: true, postgresConfigured: postgresConnected }, persistence: { mode: postgresConnected ? 'postgresql' : 'memory-with-snapshot', lastCheckedAt: new Date().toISOString() }, domainIsolation: { mode: process.env.RLS_DOMAIN_MODE === 'active' && process.env.NORMALIZED_DOMAIN_RLS === 'true' ? 'normalized-rls-active' : 'snapshot-transition', transactionalContext: true, appStateProtectedByRls: false }, generatedAt: new Date().toISOString() });
 });
 apiRouter.post('/freights/:id/public-tracking/revoke', async (req: AuthenticatedRequest, res: Response) => {
   const freight = db.freights.find(item => item['id'] === req.params.id);
@@ -1100,6 +1115,7 @@ apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => 
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const excludePaths = [
       '/auth/login',
+      '/auth/logout',
       '/auth/request-otp',
       '/auth/verify-otp',
       '/auth/register-company',
@@ -3171,7 +3187,7 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
   const tenantUsers = targetTenantId ? db.users.filter(user => user.tenantId === targetTenantId && ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user.role)) : [];
   void dispatchConfiguredNotification('USUARIO_CADASTRADO', [newUser, ...tenantUsers], {
     nome: newUser.name,
-    empresa: targetTenantId ? (db.tenants.find(tenant => tenant.id === targetTenantId)?.name || '') : 'Elo Log',
+    empresa: targetTenantId ? (db.tenants.find(tenant => tenant.id === targetTenantId)?.name || '') : 'Atendo One',
     email: newUser.email,
     telefone: newUser.phone,
     tenantId: targetTenantId || undefined,
@@ -3249,7 +3265,7 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
     const tenantAdmins = user.tenantId ? db.users.filter(item => item.tenantId === user.tenantId && ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(item.role)) : [];
     void dispatchConfiguredNotification('USUARIO_STATUS_ATUALIZADO', [user, ...tenantAdmins], {
       nome: user.name,
-      empresa: user.tenantId ? (db.tenants.find(tenant => tenant.id === user.tenantId)?.name || '') : 'Elo Log',
+      empresa: user.tenantId ? (db.tenants.find(tenant => tenant.id === user.tenantId)?.name || '') : 'Atendo One',
       status: user.status,
       email: user.email,
       telefone: user.phone,
@@ -3771,7 +3787,7 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
       link: process.env.APP_URL || ''
     });
     sendPushNotificationToAll({
-      title: '🚚 Novo Frete Disponível na Elo Log!',
+      title: '🚚 Novo Frete Disponível no Atendo One!',
       body: `${newFreight.origin.city}/${newFreight.origin.state} ➡️ ${newFreight.destination.city}/${newFreight.destination.state} | R$ ${newFreight.payment.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
       url: '/'
     }).catch(console.error);
@@ -4959,7 +4975,7 @@ apiRouter.post('/integrations/whatsapp/qr', async (req: AuthenticatedRequest, re
 // 5. Test WhatsApp Gateway Connection. It remains an explicit real-message operation.
 apiRouter.post('/integrations/whatsapp/test', async (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role !== 'SUPER_ADMIN') {
-    return res.status(403).json({ error: 'Permissão exclusiva do Super Admin do Elo Log.' });
+    return res.status(403).json({ error: 'Permissão exclusiva do Super Admin do Atendo One.' });
   }
 
   const tenantId = getOperationalWhatsAppTenantId(req, req.body?.tenantId);

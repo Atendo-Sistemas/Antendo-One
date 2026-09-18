@@ -493,13 +493,13 @@ class DatabaseStore {
   private ensureAnalyticsTermsDisclosure(): void {
     const terms = this.pages.find(item => item.tenantId === null && item.slug === 'termos-de-uso');
     if (!terms || terms.content.includes('Finalidade da medição de visitas')) return;
-    terms.content += '<h2>Finalidade da medição de visitas</h2><p>O Elo Log poderá medir de forma agregada e proporcional as visitas às páginas públicas para entender quais conteúdos e canais despertam interesse. Saber de onde vêm as visitas ajuda a melhorar os conteúdos, corrigir problemas de navegação, avaliar campanhas e aprimorar as informações oferecidas a transportadoras e motoristas. A medição não registra formulários, não armazena o endereço IP completo, não cria fingerprint individual e não vende dados pessoais. Parâmetros de campanha e referenciadores podem ser agrupados para fins estatísticos, observando as configurações de privacidade aplicáveis.</p>';
+    terms.content += '<h2>Finalidade da medição de visitas</h2><p>O Atendo One poderá medir de forma agregada e proporcional as visitas às páginas públicas para entender quais conteúdos e canais despertam interesse. Saber de onde vêm as visitas ajuda a melhorar os conteúdos, corrigir problemas de navegação, avaliar campanhas e aprimorar as informações oferecidas a transportadoras e motoristas. A medição não registra formulários, não armazena o endereço IP completo, não cria fingerprint individual e não vende dados pessoais. Parâmetros de campanha e referenciadores podem ser agrupados para fins estatísticos, observando as configurações de privacidade aplicáveis.</p>';
     terms.updatedAt = new Date().toISOString();
   }
   private ensureAnalyticsPrivacyDisclosure(): void {
     const privacy = this.pages.find(item => item.tenantId === null && item.slug === 'politica-de-privacidade');
     if (!privacy || privacy.content.includes('Dados de acesso e analytics')) return;
-    privacy.content += '<h2>Dados de acesso e analytics</h2><p>Para melhorar o conteúdo, a navegação e as campanhas, o Elo Log poderá registrar estatísticas agregadas de acesso às páginas públicas. Essas estatísticas podem incluir a rota acessada, a data, a origem geral, o referenciador apenas pelo domínio, parâmetros de campanha, tipo de dispositivo e, quando fornecido pelo proxy, o país. O endereço IP completo, formulários, senhas, códigos e fingerprint individual não são registrados por este mecanismo. Os registros técnicos são mantidos por no máximo 366 dias, com acesso restrito ao Super Admin, e não são vendidos a terceiros.</p>';
+    privacy.content += '<h2>Dados de acesso e analytics</h2><p>Para melhorar o conteúdo, a navegação e as campanhas, o Atendo One poderá registrar estatísticas agregadas de acesso às páginas públicas. Essas estatísticas podem incluir a rota acessada, a data, a origem geral, o referenciador apenas pelo domínio, parâmetros de campanha, tipo de dispositivo e, quando fornecido pelo proxy, o país. O endereço IP completo, formulários, senhas, códigos e fingerprint individual não são registrados por este mecanismo. Os registros técnicos são mantidos por no máximo 366 dias, com acesso restrito ao Super Admin, e não são vendidos a terceiros.</p>';
     privacy.updatedAt = new Date().toISOString();
   }
   private ensureDriverDataDisclosure(): void {
@@ -720,10 +720,10 @@ class DatabaseStore {
         };
         const layout: any = this.saasGlobalConfig.layout || {};
         const legacyBranding: Record<string, [string, string]> = {
-          logoText: ['ELO LOG', 'ATENDO ONE'],
+          logoText: ['ATENDO ONE', 'ATENDO ONE'],
           homeBadgeText: ['Solução Completa Multi-Tenant de Carga', 'Gestão completa para sua operação de transporte'],
-          homeSubtitle: ['O Elo Log conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.', 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.'],
-          footerText: ['Elo Log • Gestão Logística Integrada © 2026', 'Atendo One • Gestão Logística Integrada © 2026']
+          homeSubtitle: ['O Atendo One conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.', 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.'],
+          footerText: ['Atendo One • Gestão Logística Integrada © 2026', 'Atendo One • Gestão Logística Integrada © 2026']
         };
         let brandingChanged = false;
         for (const [key, [legacy, current]] of Object.entries(legacyBranding)) {
@@ -1961,7 +1961,7 @@ class DatabaseStore {
       {
         id: 'form-checklist-elolog',
         tenantId: 'tenant-translog-01',
-        title: 'Checklist / Vistoria de Entrega e Retirada de Veículo e Carga (Modelo Elo Log)',
+        title: 'Checklist / Vistoria de Entrega e Retirada de Veículo e Carga (Modelo Atendo One)',
         description: 'Modelo oficial de vistoria e checklist de entrega/retirada com conferência de documentos, avarias, 17 itens de equipamentos, odômetro (KM) e assinaturas de origem/destino.',
         category: 'CHECKLIST_ENTREGA',
         triggerEvent: 'NA_ENTREGA',

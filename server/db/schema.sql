@@ -1,8 +1,8 @@
 -- ==============================================================================
--- ELO LOG - SCHEMA DE BANCO DE DADOS RELACIONAL SQL (POSTGRESQL 14+ / 16+)
+-- ATENDO ONE - SCHEMA DE BANCO DE DADOS RELACIONAL SQL (POSTGRESQL 14+ / 16+)
 -- ==============================================================================
 -- Este arquivo DDL inicializa todas as tabelas, tipos enumerados, índices, chaves
--- estrangeiras e sementes iniciais para a plataforma SaaS Multi-Tenant Elo Log.
+-- estrangeiras e sementes iniciais para a plataforma SaaS Multi-Tenant Atendo One.
 -- ==============================================================================
 
 -- 1. EXTENSÕES

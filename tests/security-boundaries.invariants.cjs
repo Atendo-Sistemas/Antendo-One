@@ -10,9 +10,10 @@ const rls = fs.readFileSync(path.join(root, 'server/db/migrations/010_tenant_rls
 assert.match(api, /atendo_access/);
 assert.match(api, /atendo_refresh/);
 assert.match(api, /HttpOnly/);
-assert.match(api, /X-CSRF-Token/);
+assert.match(api, /x-csrf-token/i);
 assert.match(server, /atendo_csrf=/);
-assert.match(server, /X-CSRF-Token/);
+assert.match(server, /RLS_DOMAIN_MODE === 'active'/);
+assert.match(server, /NORMALIZED_DOMAIN_RLS !== 'true'/);
 assert.match(client, /credentials: 'include'/);
 assert.ok(!client.includes("localStorage.setItem('elolog_auth_token'"));
 assert.ok(!client.includes("localStorage.setItem('elolog_refresh_token'"));
@@ -21,4 +22,5 @@ assert.match(rls, /current_setting\('app\.tenant_id'/);
 assert.match(rls, /WITH CHECK/);
 assert.match(rls, /vehicles_driver_same_tenant/);
 assert.match(rls, /freights_driver_same_tenant/);
+assert.match(api, /appStateProtectedByRls: false/);
 console.log('SECURITY_BOUNDARIES_INVARIANTS_OK');

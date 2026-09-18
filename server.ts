@@ -140,7 +140,7 @@ async function startServer() {
     res.setHeader('Cache-Control', 'no-store');
     res.json({ 
       status: 'ok', 
-      service: 'Portal de Fretes e Motoristas SaaS API',
+      service: 'Atendo One SaaS API',
       timestamp: new Date().toISOString() 
     });
   });
@@ -212,8 +212,8 @@ async function startServer() {
     };
     const normalizeSeoBrand = (value: string, siteName: string) => String(value || '').replace(/Elo Log|Atendo One/gi, siteName).replace(/\s{2,}/g, ' ').trim();
     const publicSeo = () => ({
-      siteName: db.saasGlobalConfig.seo?.siteName || db.saasGlobalConfig.systemName || 'Elo Log',
-      title: db.saasGlobalConfig.seo?.title || `${db.saasGlobalConfig.systemName || 'Elo Log'} — Gestão e publicação de fretes`,
+      siteName: db.saasGlobalConfig.seo?.siteName || db.saasGlobalConfig.systemName || 'Atendo One',
+      title: db.saasGlobalConfig.seo?.title || `${db.saasGlobalConfig.systemName || 'Atendo One'} — Gestão e publicação de fretes`,
       description: db.saasGlobalConfig.seo?.description || 'Plataforma de gestão logística para transportadoras, motoristas e operações de fretes.',
       keywords: db.saasGlobalConfig.seo?.keywords || '',
       canonicalUrl: safeHttpsUrl(db.saasGlobalConfig.seo?.canonicalUrl || process.env.APP_URL, 'https://gestor.atendo.log.br'),
@@ -374,7 +374,7 @@ async function startServer() {
     const correlationId = String(req.headers['x-request-id'] || `corr-${Date.now()}-${randomUUID().slice(0, 8)}`);
     db.addErrorLog({
       correlationId,
-      service: 'elolog-app',
+      service: 'atendo-one-app',
       route: req.path,
       method: req.method,
       statusCode: Number(error?.status || 500),
@@ -387,10 +387,13 @@ async function startServer() {
 
   if (process.env.NODE_ENV === 'production') {
     if (!process.env.DATABASE_URL && !process.env.DB_HOST) throw new Error('PostgreSQL é obrigatório em produção; configure DATABASE_URL ou DB_HOST.');
+    if (process.env.RLS_DOMAIN_MODE === 'active' && process.env.NORMALIZED_DOMAIN_RLS !== 'true') {
+      throw new Error('RLS_DOMAIN_MODE=active exige NORMALIZED_DOMAIN_RLS=true; o domínio app_state ainda está em transição.');
+    }
     await db.waitForPersistence();
   }
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚚 Portal de Fretes SaaS Server running on http://0.0.0.0:${PORT}`);
+    console.log(`🚚 Atendo One Server running on http://0.0.0.0:${PORT}`);
   });
 }
 

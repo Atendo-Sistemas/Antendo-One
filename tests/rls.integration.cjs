@@ -7,7 +7,7 @@ const { Client } = require('pg');
 const databaseUrl = process.env.RLS_TEST_DATABASE_URL;
 if (!databaseUrl) {
   console.log('RLS_INTEGRATION_SKIPPED: RLS_TEST_DATABASE_URL não configurada');
-  process.exit(0);
+  process.exit(process.env.CI === 'true' ? 1 : 0);
 }
 
 const root = path.resolve(__dirname, '..');
