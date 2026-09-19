@@ -33,7 +33,8 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -55,6 +56,7 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
     onSelect({ address: text, city: '', state: '' }); // Atualiza o form pai com o texto puro inicialmente
 
     if (timerRef.current) clearTimeout(timerRef.current);
+    abortRef.current?.abort();
 
     if (text.trim().length < 4) {
       setSuggestions([]);
@@ -64,15 +66,19 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
 
     setLoading(true);
     timerRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
-        const results = await api.geocode(`${text}, Brasil`);
+        const results = await api.geocode(`${text}, Brasil`, { signal: controller.signal });
         setSuggestions(results || []);
         setIsOpen(true);
       } catch (error) {
-        console.error('Erro ao buscar endereço:', error);
-        setSuggestions([]);
+        if ((error as DOMException)?.name !== 'AbortError') {
+          console.error('Erro ao buscar endereço:', error);
+          setSuggestions([]);
+        }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }, 400);
   };
@@ -89,7 +95,7 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       lat: item.lat,
       lng: item.lng
     };
-    
+
     setQuery(data.address);
     setSuggestions([]);
     setIsOpen(false);
