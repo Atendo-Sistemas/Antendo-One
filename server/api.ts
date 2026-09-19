@@ -820,39 +820,60 @@ const isPublicFreight = (freight: Freight) => {
 };
 const isPublicTrackingFreight = (freight: Freight) => freight.publicTrackingEnabled !== false && !['RASCUNHO', 'CANCELADO'].includes(freight.status);
 const trackingSubscribers = new Map<string, Set<Response>>();
-apiRouter.get('/mapbox/geocode', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
-  const query = String(req.query.q || '').trim().slice(0, 180);
-  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
-  if (query.length < 3) return res.json([]);
-  if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
-  try {
-    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
-    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
-    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; address?: string; properties?: { address?: string }; context?: Array<{ id: string; text: string }> }> };
-    return res.json((data.features || []).filter(item => item.center).map(item => { const context = item.context || []; const find = (prefix: string) => context.find(c => c.id.startsWith(prefix))?.text; return { id: item.id, placeName: item.place_name, address: item.properties?.address || item.address || item.text || item.place_name, number: item.properties?.address?.match(/\d+/)?.[0], neighborhood: find('neighborhood') || find('locality'), zipCode: find('postcode'), city: find('place') || find('district'), state: find('region'), lng: item.center![0], lat: item.center![1] }; }));
-  } catch {
-    return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
-  }
-});
-apiRouter.get('/mapbox/geocode-tracking', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
-  const query = String(req.query.q || '').trim().slice(0, 180);
-  if (query.length < 3) return res.json([]);
-  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
-  if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
-  try {
-    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
-    const data: any = await response.json().catch(() => ({}));
-    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
-    return res.json((data.features || []).filter((item: any) => item.center).map((item: any) => {
-      const context = item.context || [];
-      const find = (prefix: string) => context.find((c: any) => c.id.startsWith(prefix))?.text;
-      const address = item.properties?.address || item.address || item.text || item.place_name;
-      return { id: item.id, placeName: item.place_name, address, number: item.properties?.address?.match(/\d+/)?.[0], neighborhood: find('neighborhood') || find('locality'), zipCode: find('postcode'), city: find('place') || find('district'), state: find('region'), lng: item.center[0], lat: item.center[1] };
-    }));
-  } catch { return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' }); }
-});
+  const normalizeMapboxFeatures = (features: any[]) => features.filter((item: any) => {
+    const coordinates = item.geometry?.coordinates || item.center;
+    return Array.isArray(coordinates) && coordinates.length >= 2 && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1]));
+  }).map((item: any) => {
+    const properties = item.properties || {};
+    const context = properties.context || item.context || {};
+    const getContext = (key: string, legacyPrefix: string) => {
+      if (Array.isArray(context)) return context.find((entry: any) => entry.id?.startsWith(legacyPrefix))?.text;
+      return context[key]?.name || context[key]?.text || context[key]?.address;
+    };
+    const coordinates = item.geometry?.coordinates || item.center;
+    const address = properties.address || item.address || properties.name || item.text || item.place_name || properties.full_address;
+    return {
+      id: item.id || properties.mapbox_id,
+      placeName: properties.full_address || item.place_name || address,
+      address,
+      number: properties.address?.match(/\d+/)?.[0] || item.address?.match(/\d+/)?.[0],
+      neighborhood: getContext('neighborhood', 'neighborhood') || getContext('locality', 'locality'),
+      zipCode: getContext('postcode', 'postcode'),
+      city: getContext('place', 'place') || getContext('district', 'district'),
+      state: getContext('region', 'region'),
+      lng: Number(properties.coordinates?.longitude ?? coordinates[0]),
+      lat: Number(properties.coordinates?.latitude ?? coordinates[1])
+    };
+  });
+
+  const geocodeWithMapbox = async (query: string, token: string) => {
+    const encodedQuery = encodeURIComponent(query);
+    const params = `?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`;
+    const v6Response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward/${encodedQuery}.json${params}`);
+    const v6Data = await v6Response.json().catch(() => ({}));
+    if (v6Response.ok && Array.isArray(v6Data.features)) return normalizeMapboxFeatures(v6Data.features);
+
+    const v5Response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json${params}`);
+    const v5Data = await v5Response.json().catch(() => ({}));
+    if (!v5Response.ok) throw new Error('Mapbox geocoding request failed');
+    return normalizeMapboxFeatures(v5Data.features || []);
+  };
+
+  const handleGeocode = async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
+    const query = String(req.query.q || '').trim().slice(0, 180);
+    if (query.length < 3) return res.json([]);
+    const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+    if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
+    try {
+      return res.json(await geocodeWithMapbox(query, token));
+    } catch {
+      return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
+    }
+  };
+
+  apiRouter.get('/mapbox/geocode', handleGeocode);
+  apiRouter.get('/mapbox/geocode-tracking', handleGeocode);
 apiRouter.get('/mapbox/directions', async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
   const origin = String(req.query.origin || '').split(',').map(Number); const destination = String(req.query.destination || '').split(',').map(Number);
