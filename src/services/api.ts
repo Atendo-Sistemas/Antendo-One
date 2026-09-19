@@ -387,7 +387,7 @@ export const api = {
   async duplicateBudget(id: string) { return request<any>(`/budgets/${id}/duplicate`, { method: 'POST' }); },
   async convertBudgetToFreight(id: string) { return request<any>(`/budgets/${id}/convert`, { method: 'POST' }); },
   async deleteBudget(id: string) { return request<any>(`/budgets/${id}`, { method: 'DELETE' }); },
-  async geocode(query: string) { return request<any[]>(`/mapbox/geocode?q=${encodeURIComponent(query)}`); },
+  async geocode(query: string, options?: RequestInit) { return request<any[]>(`/mapbox/geocode?q=${encodeURIComponent(query)}`, options); },
   // ✅ NOVO: Endpoint protegido para geocodificação em rastreamento (token não exposto no cliente)
   async geocodeTracking(query: string, options?: RequestInit) {
     return request<any[]>(`/mapbox/geocode-tracking?q=${encodeURIComponent(query)}`, options);
