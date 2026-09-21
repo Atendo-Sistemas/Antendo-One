@@ -48,7 +48,11 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      abortRef.current?.abort();
+    };
   }, []);
 
   const handleSearch = (text: string) => {
@@ -70,8 +74,14 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       abortRef.current = controller;
       try {
         const results = await api.geocode(`${text}, Brasil`, { signal: controller.signal });
+<<<<<<< Updated upstream
         setSuggestions(results || []);
         setIsOpen(true);
+=======
+        const nextSuggestions = Array.isArray(results) ? results.filter(Boolean) : [];
+        setSuggestions(nextSuggestions);
+        setIsOpen(nextSuggestions.length > 0);
+>>>>>>> Stashed changes
       } catch (error) {
         if ((error as DOMException)?.name !== 'AbortError') {
           console.error('Erro ao buscar endereço:', error);
@@ -113,6 +123,7 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
           onChange={(e) => handleSearch(e.target.value)}
           onFocus={() => {
             if (suggestions.length > 0) setIsOpen(true);
+            else if (query.trim().length >= 4) handleSearch(query);
           }}
           placeholder={placeholder}
           className={`w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 py-2 pl-9 pr-10 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 ${className}`}
@@ -127,7 +138,11 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
           {suggestions.map((item, index) => (
             <li
               key={item.id || index}
-              onClick={() => handleSelect(item)}
+              onMouseDown={(event) => {
+                // Select before any parent form focus/blur handler can close the list.
+                event.preventDefault();
+                handleSelect(item);
+              }}
               className="cursor-pointer rounded-md px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-200"
             >
               <div className="font-medium text-slate-900 dark:text-white">

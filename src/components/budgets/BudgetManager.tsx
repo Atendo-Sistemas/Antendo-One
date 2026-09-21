@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { budgetApi, clientApi, tenantApi } from '../../services/api';
+import { budgetApi, clientApi, tenantApi, formatCnpj, normalizeCnpj } from '../../services/api';
 import { Budget, Client, BudgetExpense } from '../../types';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
 import { useAuth } from '../../context/AuthContext';
@@ -83,19 +83,30 @@ export const BudgetManager: React.FC = () => {
   };
 
   const lookupClient = async () => {
-    if (!cnpj) return;
+    const normalizedCnpj = normalizeCnpj(cnpj);
+    if (normalizedCnpj.length !== 14) {
+      setError('Informe um CNPJ válido com 14 dígitos.');
+      return;
+    }
     if (isSuperAdmin && !selectedTenantId) {
       setError('Selecione a empresa do orçamento antes de consultar o CNPJ.');
       return;
     }
     setCnpjLoading(true);
     try {
+      // The API client performs the final digit-only normalization as well;
+      // keep the field value here so formatted input remains compatible with
+      // existing integrations and invariant tests.
       const r = await clientApi.lookupCnpj(cnpj, isSuperAdmin ? selectedTenantId : undefined);
       const data = r.data;
+      const establishment = data?.estabelecimento || data || {};
       const c = r.existingClient || await clientApi.create({
-        cnpj: r.cnpj, legalName: data.razao_social, tradeName: data.estabelecimento?.nome_fantasia,
-        email: data.estabelecimento?.email, phone: data.estabelecimento?.telefone1,
-        city: data.estabelecimento?.cidade?.nome, state: data.estabelecimento?.estado?.sigla
+        cnpj: r.cnpj,
+        legalName: data.razao_social || data.razaoSocial || data.legalName || establishment.nome_empresarial || establishment.razao_social,
+        tradeName: establishment.nome_fantasia || establishment.tradeName,
+        email: establishment.email, phone: establishment.telefone1 || establishment.telefone,
+        city: establishment.cidade?.nome || establishment.municipio || data.municipio,
+        state: establishment.estado?.sigla || establishment.uf || data.uf
       }, isSuperAdmin ? selectedTenantId : undefined);
       setDraft({ ...draft, clientId: c.id, clientName: c.legalName });
       await refresh();
@@ -287,7 +298,7 @@ export const BudgetManager: React.FC = () => {
 
             <label className="text-sm font-semibold">Buscar por CNPJ
               <div className="mt-1 flex gap-2">
-                <input value={cnpj} onChange={e => setCnpj(e.target.value)} placeholder="00.000.000/0000-00" className="min-w-0 flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />
+                <input value={cnpj} onChange={e => setCnpj(formatCnpj(e.target.value))} inputMode="numeric" maxLength={18} placeholder="00.000.000/0000-00" className="min-w-0 flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />
                 <button type="button" onClick={() => void lookupClient()} disabled={cnpjLoading} className="rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-50 cursor-pointer hover:bg-indigo-700">
                   {cnpjLoading ? 'Consultando…' : 'Consultar e salvar'}
                 </button>

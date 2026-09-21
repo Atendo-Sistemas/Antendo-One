@@ -2,6 +2,16 @@ import { User, Tenant, Driver, Vehicle, Freight, Tenant as TenantType, Metrics, 
 
 type OfflineResponse = { formId: string; freightId?: string; responseId: string; stage: string; isDraft: boolean; answers: Record<string, any> };
 
+export const normalizeCnpj = (value: unknown): string => String(value ?? '').replace(/\D/g, '').slice(0, 14);
+export const formatCnpj = (value: unknown): string => {
+  const digits = normalizeCnpj(value);
+  return digits
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3/$4')
+    .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, '$1.$2.$3/$4-$5');
+};
+
 // Session tokens are HttpOnly cookies. These compatibility helpers intentionally do not persist tokens in browser storage.
 export const setAuthToken = (_token: string) => undefined;
 export const getAuthToken = (): string => '';
@@ -419,7 +429,10 @@ export const publicTrackingApi = {
 
 export const clientApi = {
   list: (search = '', tenantId?: string) => request<any[]>(`/clients?${new URLSearchParams({ ...(search ? { search } : {}), ...(tenantId ? { tenantId } : {}) }).toString()}`),
-  lookupCnpj: (cnpj: string, tenantId?: string) => request<any>(`/clients/cnpj/${encodeURIComponent(cnpj)}/lookup${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`),
+  lookupCnpj: (cnpj: string, tenantId?: string) => {
+    const normalized = normalizeCnpj(cnpj);
+    return request<any>(`/clients/cnpj/${encodeURIComponent(normalized)}/lookup${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`);
+  },
   create: (data: any, tenantId?: string) => request<any>('/clients', { method: 'POST', body: JSON.stringify({ ...data, ...(tenantId ? { tenantId } : {}) }) }),
   update: (id: string, data: any) => request<any>(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   remove: (id: string) => request<any>(`/clients/${id}`, { method: 'DELETE' })

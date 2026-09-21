@@ -848,6 +848,7 @@ const trackingSubscribers = new Map<string, Set<Response>>();
 
   const geocodeWithMapbox = async (query: string, token: string) => {
     const encodedQuery = encodeURIComponent(query);
+<<<<<<< Updated upstream
     const params = `?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`;
     const v6Response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward/${encodedQuery}.json${params}`);
     const v6Data = await v6Response.json().catch(() => ({}));
@@ -857,6 +858,25 @@ const trackingSubscribers = new Map<string, Set<Response>>();
     const v5Data = await v5Response.json().catch(() => ({}));
     if (!v5Response.ok) throw new Error('Mapbox geocoding request failed');
     return normalizeMapboxFeatures(v5Data.features || []);
+=======
+    const params = `country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`;
+
+    // The v5 endpoint is stable for address autocomplete. The former v6 URL
+    // used the query as a path segment and could return an empty 200 response,
+    // which made the UI silently hide all suggestions.
+    const v5Response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json?${params}`);
+    const v5Data = await v5Response.json().catch(() => ({}));
+    if (v5Response.ok) {
+      const results = normalizeMapboxFeatures(v5Data.features || []);
+      if (results.length > 0) return results;
+    }
+
+    // Keep a correctly-shaped v6 fallback for accounts where v5 is disabled.
+    const v6Response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?q=${encodedQuery}&${params}`);
+    const v6Data = await v6Response.json().catch(() => ({}));
+    if (v6Response.ok) return normalizeMapboxFeatures(v6Data.features || []);
+    throw new Error('Mapbox geocoding request failed');
+>>>>>>> Stashed changes
   };
 
   const handleGeocode = async (req: AuthenticatedRequest, res: Response) => {
@@ -5253,6 +5273,20 @@ apiRouter.get('/audit-logs', (req: AuthenticatedRequest, res: Response) => {
 /* =========================================================================
    11. DASHBOARD STATS
    ========================================================================= */
+
+apiRouter.get('/admin/metrics', (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const recentCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  return res.json({
+    totalTenants: db.tenants.length,
+    activeTenants: db.tenants.filter(tenant => tenant.status === 'ATIVA').length,
+    totalUsers: db.users.length,
+    recentProvisionings: db.tenants.filter(tenant => {
+      const date = tenant.updatedAt || tenant.createdAt;
+      return date ? new Date(date).getTime() >= recentCutoff : false;
+    }).length
+  });
+});
 
 apiRouter.get('/stats', (req: AuthenticatedRequest, res: Response) => {
   let freights = db.freights;
