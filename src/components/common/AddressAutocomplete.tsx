@@ -91,11 +91,13 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
   };
 
   const handleSelect = (item: any) => {
+    const rawNumber = String(item.number || item.address || item.placeName || '');
+    const number = String(item.number || rawNumber.match(/(?:^|\s|,)(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)(?:\s|,|$)/)?.[1] || '').trim() || undefined;
     const data: AddressData = {
       address: item.address || item.placeName?.split(',')[0] || '',
       city: item.city || '',
       state: item.state || '',
-      number: item.number,
+      number,
       neighborhood: item.neighborhood,
       zipCode: item.zipCode,
       mapboxPlaceId: item.id,

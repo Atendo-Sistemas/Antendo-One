@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atendo-one-v1.8.41';
+const CACHE_NAME = 'atendo-one-v1.8.43';
 
 self.addEventListener('install', function(event) {
   self.skipWaiting();

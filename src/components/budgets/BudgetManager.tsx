@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { budgetApi, clientApi, tenantApi, formatCnpj, normalizeCnpj } from '../../services/api';
+import { budgetApi, clientApi, tenantApi, publicTrackingApi, formatCnpj, normalizeCnpj } from '../../services/api';
 import { Budget, Client, BudgetExpense } from '../../types';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
 import { useAuth } from '../../context/AuthContext';
@@ -125,7 +125,9 @@ export const BudgetManager: React.FC = () => {
       const resolvePoint = async (point: any) => {
         if (Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) return point;
         const query = [point.address, point.number, point.neighborhood, point.city, point.state, 'Brasil'].filter(Boolean).join(', ');
-        const results = await budgetApi.geocode(query);
+        // Geocoding is server-side and does not require the user's session.
+        // This also supports older saved addresses that have no coordinates.
+        const results = await publicTrackingApi.geocode(query);
         const first = results[0];
         if (!first || !Number.isFinite(first.lat) || !Number.isFinite(first.lng)) {
           throw new Error(`Não foi possível localizar o endereço: ${point.address}.`);

@@ -27,6 +27,7 @@ export const UserManager: React.FC = () => {
   const { getField } = useSaaS();
   const { user, tenant, startSupportSession } = useAuth();
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
+  const canManageUsers = user?.role === 'SUPER_ADMIN' || user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN';
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -253,14 +254,20 @@ export const UserManager: React.FC = () => {
           </p>
         </div>
 
-        <button
+        {(isDemo || canManageUsers) && <button
           onClick={() => setIsInviteOpen(true)}
           className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
           <span>{isDemo ? 'Simular usuário' : '+ Novo Usuário'}</span>
-        </button>
+        </button>}
       </div>
+
+      {!isDemo && !canManageUsers && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+          Consulta em modo somente leitura. Apenas administradores podem criar, editar permissões ou bloquear usuários.
+        </div>
+      )}
 
       {/* Global Feedback Banner */}
       {feedbackMessage && (
@@ -406,15 +413,15 @@ export const UserManager: React.FC = () => {
                           </>
                         ) : (
                           <>
-                            <button
+                            {(canManageUsers || u.id === user?.id) && <button
                               onClick={() => handleOpenEdit(u)}
                               className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 transition-colors cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
                               title="Editar perfil do usuário"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                               <span>Editar</span>
-                            </button>
-                            {u.role !== 'SUPER_ADMIN' && (
+                            </button>}
+                            {canManageUsers && u.role !== 'SUPER_ADMIN' && (
                               <button
                                 onClick={() => handleStartSupport(u)}
                                 disabled={startingSupportFor === u.id}
@@ -425,14 +432,14 @@ export const UserManager: React.FC = () => {
                                 <span className="hidden xl:inline">Suporte</span>
                               </button>
                             )}
-                            <button
+                            {canManageUsers && <button
                               onClick={() => handleDeleteUser(u.id, u.name)}
                               className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors cursor-pointer inline-flex items-center gap-1 font-semibold text-xs"
                               title="Excluir usuário"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                               <span className="hidden sm:inline">Excluir</span>
-                            </button>
+                            </button>}
                           </>
                         )}
                       </div>

@@ -911,7 +911,19 @@ apiRouter.get('/public/mapbox/geocode', async (req: AuthenticatedRequest, res: R
     const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
     if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
     const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; address?: string; properties?: { address?: string }; context?: Array<{ id: string; text: string }> }> };
-    return res.json((data.features || []).filter(item => item.center).map(item => { const context = item.context || []; const find = (prefix: string) => context.find(c => c.id.startsWith(prefix))?.text; return { id: item.id, placeName: item.place_name, address: item.properties?.address || item.address || item.text || item.place_name, number: item.properties?.address?.match(/\d+/)?.[0], neighborhood: find('neighborhood') || find('locality'), zipCode: find('postcode'), city: find('place') || find('district'), state: find('region'), lng: item.center![0], lat: item.center![1] }; }));
+    return res.json((data.features || []).filter(item => item.center).map(item => {
+      const context = item.context || [];
+      const find = (prefix: string) => context.find(c => c.id.startsWith(prefix))?.text;
+      // In Mapbox v5, `address` is often only the house number and `text` is
+      // the street. Keep both so selecting "Rua ... 193" never loses 193.
+      const rawNumber = item.address || item.properties?.address || '';
+      const number = rawNumber.match(/^\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?/)?.[0]
+        || item.place_name.match(/(?:^|,\s*|\s)(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)(?:\s|,|$)/)?.[1];
+      const street = item.text || item.place_name.split(',')[0] || item.place_name;
+      const streetParts = street.split(/\s+/).map(part => part.replace(/[,.]$/, ''));
+      const address = number && !streetParts.includes(number) ? `${street} ${number}` : street;
+      return { id: item.id, placeName: item.place_name, address, number, neighborhood: find('neighborhood') || find('locality'), zipCode: find('postcode'), city: find('place') || find('district'), state: find('region'), lng: item.center![0], lat: item.center![1] };
+    }));
   } catch {
     return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
   }

@@ -49,7 +49,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Novo cadastro de empresa \u2014 {empresa}",
     emailBody: "Ol\xE1, {nome}. O cadastro da empresa {empresa} foi recebido e est\xE1 aguardando an\xE1lise.",
-    whatsappBody: "ELO LOG: o cadastro da empresa {empresa} foi recebido e est\xE1 aguardando an\xE1lise.",
+    whatsappBody: "ATENDO ONE: o cadastro da empresa {empresa} foi recebido e est\xE1 aguardando an\xE1lise.",
     variables: ["nome", "empresa", "email", "telefone"]
   },
   {
@@ -63,7 +63,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Cadastro aprovado \u2014 {empresa}",
     emailBody: "Ol\xE1, {nome}. O cadastro da empresa {empresa} foi aprovado. Acesse a plataforma para come\xE7ar.",
-    whatsappBody: "ELO LOG: o cadastro da empresa {empresa} foi aprovado. Voc\xEA j\xE1 pode acessar a plataforma.",
+    whatsappBody: "ATENDO ONE: o cadastro da empresa {empresa} foi aprovado. Voc\xEA j\xE1 pode acessar a plataforma.",
     variables: ["nome", "empresa", "link"]
   },
   {
@@ -75,9 +75,9 @@ var defaultNotificationTemplates = [
     enabled: true,
     editable: true,
     channels: { email: true, whatsapp: true, inApp: true },
-    emailSubject: "Seu acesso ao Elo Log foi criado",
+    emailSubject: "Seu acesso ao Atendo One foi criado",
     emailBody: "Ol\xE1, {nome}. Seu acesso \xE0 empresa {empresa} foi criado. Use o e-mail cadastrado para entrar.",
-    whatsappBody: "ELO LOG: seu acesso \xE0 empresa {empresa} foi criado. Use o e-mail cadastrado para entrar.",
+    whatsappBody: "ATENDO ONE: seu acesso \xE0 empresa {empresa} foi criado. Use o e-mail cadastrado para entrar.",
     variables: ["nome", "empresa", "email", "telefone", "link"]
   },
   {
@@ -91,7 +91,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Cadastro de motorista realizado",
     emailBody: "Ol\xE1, {nome}. Seu cadastro como motorista na empresa {empresa} foi realizado.",
-    whatsappBody: "ELO LOG: seu cadastro como motorista na empresa {empresa} foi realizado.",
+    whatsappBody: "ATENDO ONE: seu cadastro como motorista na empresa {empresa} foi realizado.",
     variables: ["nome", "empresa", "email", "telefone"]
   },
   {
@@ -105,7 +105,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Novo frete dispon\xEDvel \u2014 {codigoFrete}",
     emailBody: "Um novo frete ({codigoFrete}) foi publicado de {origem} para {destino}, no valor de {valor}.",
-    whatsappBody: "ELO LOG: novo frete {codigoFrete} dispon\xEDvel de {origem} para {destino}. Valor: {valor}.",
+    whatsappBody: "ATENDO ONE: novo frete {codigoFrete} dispon\xEDvel de {origem} para {destino}. Valor: {valor}.",
     variables: ["codigoFrete", "origem", "destino", "valor", "empresa", "link"]
   },
   {
@@ -119,7 +119,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Frete {codigoFrete} aceito",
     emailBody: "O frete {codigoFrete} foi aceito pelo motorista {nomeMotorista}.",
-    whatsappBody: "ELO LOG: o frete {codigoFrete} foi aceito pelo motorista {nomeMotorista}.",
+    whatsappBody: "ATENDO ONE: o frete {codigoFrete} foi aceito pelo motorista {nomeMotorista}.",
     variables: ["codigoFrete", "nomeMotorista", "empresa", "status"]
   },
   {
@@ -133,7 +133,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Frete {codigoFrete}: status {status}",
     emailBody: "O status do frete {codigoFrete} foi atualizado para {status}.",
-    whatsappBody: "ELO LOG: o frete {codigoFrete} foi atualizado para {status}.",
+    whatsappBody: "ATENDO ONE: o frete {codigoFrete} foi atualizado para {status}.",
     variables: ["codigoFrete", "status", "empresa", "nomeMotorista"]
   },
   {
@@ -147,7 +147,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Frete {codigoFrete} cancelado",
     emailBody: "O frete {codigoFrete} da empresa {empresa} foi cancelado. Motivo: {motivo}.",
-    whatsappBody: "ELO LOG: o frete {codigoFrete} foi cancelado. Motivo: {motivo}.",
+    whatsappBody: "ATENDO ONE: o frete {codigoFrete} foi cancelado. Motivo: {motivo}.",
     variables: ["codigoFrete", "empresa", "motivo", "status", "link"]
   },
   {
@@ -161,7 +161,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Cobran\xE7a do plano criada \u2014 {empresa}",
     emailBody: "A cobran\xE7a do plano {plano} para {empresa} foi criada no valor de {valor}.",
-    whatsappBody: "ELO LOG: a cobran\xE7a do plano {plano} para {empresa} foi criada no valor de {valor}.",
+    whatsappBody: "ATENDO ONE: a cobran\xE7a do plano {plano} para {empresa} foi criada no valor de {valor}.",
     variables: ["empresa", "plano", "valor", "link"]
   },
   {
@@ -173,9 +173,9 @@ var defaultNotificationTemplates = [
     enabled: true,
     editable: true,
     channels: { email: true, whatsapp: true, inApp: true },
-    emailSubject: "Atualiza\xE7\xE3o do seu acesso ao Elo Log",
+    emailSubject: "Atualiza\xE7\xE3o do seu acesso ao Atendo One",
     emailBody: "Ol\xE1, {nome}. O status do seu acesso \xE0 empresa {empresa} foi atualizado para {status}.",
-    whatsappBody: "ELO LOG: o status do seu acesso \xE0 empresa {empresa} foi atualizado para {status}.",
+    whatsappBody: "ATENDO ONE: o status do seu acesso \xE0 empresa {empresa} foi atualizado para {status}.",
     variables: ["nome", "empresa", "status", "email", "telefone", "link"]
   },
   {
@@ -189,7 +189,7 @@ var defaultNotificationTemplates = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: "Atualiza\xE7\xE3o da sua solicita\xE7\xE3o de frete",
     emailBody: "Ol\xE1, {nome}. A empresa {empresa} atualizou sua solicita\xE7\xE3o para o frete {codigoFrete}: {status}.",
-    whatsappBody: "ELO LOG: sua solicita\xE7\xE3o no frete {codigoFrete} foi atualizada para {status} pela empresa {empresa}.",
+    whatsappBody: "ATENDO ONE: sua solicita\xE7\xE3o no frete {codigoFrete} foi atualizada para {status} pela empresa {empresa}.",
     variables: ["nome", "empresa", "status", "codigoFrete", "link"]
   },
   {
@@ -425,8 +425,13 @@ var publicCommercialPages = (now) => [
 
 // server/db/sqlAdapter.ts
 var import_pg = require("pg");
+var import_node_async_hooks = require("node:async_hooks");
 var import_fs = __toESM(require("fs"), 1);
 var import_path = __toESM(require("path"), 1);
+var tenantDbContext = new import_node_async_hooks.AsyncLocalStorage();
+function runWithTenantDbContext(context, callback) {
+  return tenantDbContext.run(context, callback);
+}
 var SqlAdapter = class {
   constructor() {
     this.pool = null;
@@ -459,7 +464,22 @@ var SqlAdapter = class {
     if (!this.pool) {
       throw new Error("PostgreSQL pool is not initialized");
     }
-    return this.pool.query(text, values);
+    const context = tenantDbContext.getStore();
+    if (!context) return this.pool.query(text, values);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config($1, $2, true)", ["app.tenant_id", context.tenantId || ""]);
+      await client.query("SELECT set_config($1, $2, true)", ["app.is_super_admin", context.isSuperAdmin ? "true" : "false"]);
+      const result = await client.query(text, values);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => void 0);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
   isEnabled() {
     return this.currentConfig.enabled;
@@ -607,7 +627,7 @@ var SqlAdapter = class {
         this.currentConfig.connectionStatus = "CONNECTED";
         return {
           success: true,
-          message: "Migra\xE7\xE3o executada com sucesso! Todas as tabelas, \xEDndices e sementes do Elo Log foram criadas ou atualizadas de forma transacional."
+          message: "Migra\xE7\xE3o executada com sucesso! Todas as tabelas, \xEDndices e sementes do Atendo One foram criadas ou atualizadas de forma transacional."
         };
       } catch (migrationError) {
         await client.query("ROLLBACK").catch(() => {
@@ -688,6 +708,7 @@ var WHATSAPP_SECRET_ID = "whatsapp-global";
 var WHATSAPP_TENANT_SECRET_PREFIX = "whatsapp-tenant:";
 var MAPBOX_SECRET_ID = "mapbox-global";
 var EMAIL_SECRET_ID = "smtp-global";
+var EMAIL_TENANT_SECRET_PREFIX = "smtp-tenant:";
 var ASAAS_SECRET_ID = "asaas-global";
 var ATENDO_CRM_ADMIN_SECRET_ID = "atendo-crm-admin";
 var PUBLIC_DEMO_TENANT_ID = "tenant-demo-public";
@@ -787,6 +808,7 @@ var DatabaseStore = class {
       { role: "DRIVER", content: "" }
     ];
     this.whatsappConfigs = /* @__PURE__ */ new Map();
+    this.tenantEmailConfigs = /* @__PURE__ */ new Map();
     this.tenantNotificationTemplates = /* @__PURE__ */ new Map();
     this.tenantReportTemplates = /* @__PURE__ */ new Map();
     this.globalWhatsAppConfig = {
@@ -1120,13 +1142,13 @@ var DatabaseStore = class {
   ensureAnalyticsTermsDisclosure() {
     const terms = this.pages.find((item) => item.tenantId === null && item.slug === "termos-de-uso");
     if (!terms || terms.content.includes("Finalidade da medi\xE7\xE3o de visitas")) return;
-    terms.content += "<h2>Finalidade da medi\xE7\xE3o de visitas</h2><p>O Elo Log poder\xE1 medir de forma agregada e proporcional as visitas \xE0s p\xE1ginas p\xFAblicas para entender quais conte\xFAdos e canais despertam interesse. Saber de onde v\xEAm as visitas ajuda a melhorar os conte\xFAdos, corrigir problemas de navega\xE7\xE3o, avaliar campanhas e aprimorar as informa\xE7\xF5es oferecidas a transportadoras e motoristas. A medi\xE7\xE3o n\xE3o registra formul\xE1rios, n\xE3o armazena o endere\xE7o IP completo, n\xE3o cria fingerprint individual e n\xE3o vende dados pessoais. Par\xE2metros de campanha e referenciadores podem ser agrupados para fins estat\xEDsticos, observando as configura\xE7\xF5es de privacidade aplic\xE1veis.</p>";
+    terms.content += "<h2>Finalidade da medi\xE7\xE3o de visitas</h2><p>O Atendo One poder\xE1 medir de forma agregada e proporcional as visitas \xE0s p\xE1ginas p\xFAblicas para entender quais conte\xFAdos e canais despertam interesse. Saber de onde v\xEAm as visitas ajuda a melhorar os conte\xFAdos, corrigir problemas de navega\xE7\xE3o, avaliar campanhas e aprimorar as informa\xE7\xF5es oferecidas a transportadoras e motoristas. A medi\xE7\xE3o n\xE3o registra formul\xE1rios, n\xE3o armazena o endere\xE7o IP completo, n\xE3o cria fingerprint individual e n\xE3o vende dados pessoais. Par\xE2metros de campanha e referenciadores podem ser agrupados para fins estat\xEDsticos, observando as configura\xE7\xF5es de privacidade aplic\xE1veis.</p>";
     terms.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
   }
   ensureAnalyticsPrivacyDisclosure() {
     const privacy = this.pages.find((item) => item.tenantId === null && item.slug === "politica-de-privacidade");
     if (!privacy || privacy.content.includes("Dados de acesso e analytics")) return;
-    privacy.content += "<h2>Dados de acesso e analytics</h2><p>Para melhorar o conte\xFAdo, a navega\xE7\xE3o e as campanhas, o Elo Log poder\xE1 registrar estat\xEDsticas agregadas de acesso \xE0s p\xE1ginas p\xFAblicas. Essas estat\xEDsticas podem incluir a rota acessada, a data, a origem geral, o referenciador apenas pelo dom\xEDnio, par\xE2metros de campanha, tipo de dispositivo e, quando fornecido pelo proxy, o pa\xEDs. O endere\xE7o IP completo, formul\xE1rios, senhas, c\xF3digos e fingerprint individual n\xE3o s\xE3o registrados por este mecanismo. Os registros t\xE9cnicos s\xE3o mantidos por no m\xE1ximo 366 dias, com acesso restrito ao Super Admin, e n\xE3o s\xE3o vendidos a terceiros.</p>";
+    privacy.content += "<h2>Dados de acesso e analytics</h2><p>Para melhorar o conte\xFAdo, a navega\xE7\xE3o e as campanhas, o Atendo One poder\xE1 registrar estat\xEDsticas agregadas de acesso \xE0s p\xE1ginas p\xFAblicas. Essas estat\xEDsticas podem incluir a rota acessada, a data, a origem geral, o referenciador apenas pelo dom\xEDnio, par\xE2metros de campanha, tipo de dispositivo e, quando fornecido pelo proxy, o pa\xEDs. O endere\xE7o IP completo, formul\xE1rios, senhas, c\xF3digos e fingerprint individual n\xE3o s\xE3o registrados por este mecanismo. Os registros t\xE9cnicos s\xE3o mantidos por no m\xE1ximo 366 dias, com acesso restrito ao Super Admin, e n\xE3o s\xE3o vendidos a terceiros.</p>";
     privacy.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
   }
   ensureDriverDataDisclosure() {
@@ -1236,6 +1258,7 @@ var DatabaseStore = class {
       helpPages: this.helpPages,
       legalDocumentVersions: this.legalDocumentVersions,
       whatsappConfigs: safeWhatsAppConfigs,
+      tenantEmailConfigs: Object.fromEntries(Array.from(this.tenantEmailConfigs.entries()).map(([tenantId, config]) => [tenantId, { ...config, password: "" }])),
       tenantNotificationTemplates: safeTenantNotificationTemplates,
       tenantReportTemplates: safeTenantReportTemplates,
       globalWhatsAppConfig: redactWhatsApp(this.globalWhatsAppConfig),
@@ -1251,6 +1274,7 @@ var DatabaseStore = class {
         await this.hydrateSecureWhatsAppConfig();
         await this.hydrateSecureMapboxConfig();
         await this.hydrateSecureEmailConfig();
+        await this.hydrateSecureTenantEmailConfigs();
         await this.hydrateSecureAsaasConfig();
         this.ensureSystemContent();
         return;
@@ -1263,6 +1287,9 @@ var DatabaseStore = class {
           tenantId,
           { ...config, token: "" }
         ]));
+      }
+      if (state.tenantEmailConfigs && typeof state.tenantEmailConfigs === "object") {
+        this.tenantEmailConfigs = new Map(Object.entries(state.tenantEmailConfigs).map(([tenantId, config]) => [tenantId, { ...config, password: "" }]));
       }
       if (state.tenantNotificationTemplates && typeof state.tenantNotificationTemplates === "object") {
         this.tenantNotificationTemplates = new Map(Object.entries(state.tenantNotificationTemplates).map(([tenantId, templates]) => [
@@ -1302,6 +1329,8 @@ var DatabaseStore = class {
       }
       await this.hydrateSecureWhatsAppConfig();
       await this.hydrateSecureMapboxConfig();
+      await this.hydrateSecureEmailConfig();
+      await this.hydrateSecureTenantEmailConfigs();
       if (state.saasGlobalConfig) {
         const persisted = state.saasGlobalConfig;
         const runtime = this.saasGlobalConfig;
@@ -1322,10 +1351,10 @@ var DatabaseStore = class {
         };
         const layout = this.saasGlobalConfig.layout || {};
         const legacyBranding = {
-          logoText: ["ELO LOG", "ATENDO ONE"],
+          logoText: ["ATENDO ONE", "ATENDO ONE"],
           homeBadgeText: ["Solu\xE7\xE3o Completa Multi-Tenant de Carga", "Gest\xE3o completa para sua opera\xE7\xE3o de transporte"],
-          homeSubtitle: ["O Elo Log conecta transportadoras e motoristas com total isolamento e seguran\xE7a. Publique fretes, controle frotas, execute checklists eletr\xF4nicos e audite sua opera\xE7\xE3o log\xEDstica em uma plataforma \xE1gil e offline-ready.", "O Atendo One conecta transportadoras, equipes e motoristas com seguran\xE7a. Publique fretes, controle sua frota, execute checklists eletr\xF4nicos e acompanhe toda a opera\xE7\xE3o em um s\xF3 lugar."],
-          footerText: ["Elo Log \u2022 Gest\xE3o Log\xEDstica Integrada \xA9 2026", "Atendo One \u2022 Gest\xE3o Log\xEDstica Integrada \xA9 2026"]
+          homeSubtitle: ["O Atendo One conecta transportadoras e motoristas com total isolamento e seguran\xE7a. Publique fretes, controle frotas, execute checklists eletr\xF4nicos e audite sua opera\xE7\xE3o log\xEDstica em uma plataforma \xE1gil e offline-ready.", "O Atendo One conecta transportadoras, equipes e motoristas com seguran\xE7a. Publique fretes, controle sua frota, execute checklists eletr\xF4nicos e acompanhe toda a opera\xE7\xE3o em um s\xF3 lugar."],
+          footerText: ["Atendo One \u2022 Gest\xE3o Log\xEDstica Integrada \xA9 2026", "Atendo One \u2022 Gest\xE3o Log\xEDstica Integrada \xA9 2026"]
         };
         let brandingChanged = false;
         for (const [key, [legacy, current]] of Object.entries(legacyBranding)) {
@@ -1344,6 +1373,7 @@ var DatabaseStore = class {
       this.ensureSystemContent();
       if (process.env.DISABLE_RETENTION_CLEANUP !== "true") await this.pruneOperationalData();
     } catch (error) {
+      if (process.env.NODE_ENV === "production") throw error;
       if (!String(error?.message || "").includes('relation "app_state" does not exist')) {
         console.warn("PostgreSQL state hydration skipped:", error?.message || error);
       }
@@ -1578,6 +1608,19 @@ var DatabaseStore = class {
       await this.persistEmailSecret(runtimeConfig);
     }
   }
+  async hydrateSecureTenantEmailConfigs() {
+    if (!sqlAdapter.isEnabled() || !getConfigEncryptionKey()) return;
+    try {
+      const result = await sqlAdapter.query("SELECT id, ciphertext FROM app_secrets WHERE id LIKE $1", [`${EMAIL_TENANT_SECRET_PREFIX}%`]);
+      for (const row of result.rows) {
+        const tenantId = row.id.slice(EMAIL_TENANT_SECRET_PREFIX.length);
+        const secret = decryptConfigSecret(row.ciphertext);
+        if (tenantId && secret?.host && secret?.user && secret?.password) this.tenantEmailConfigs.set(tenantId, secret);
+      }
+    } catch (error) {
+      if (!String(error?.message || "").includes('relation "app_secrets" does not exist')) console.warn("Secure tenant SMTP hydration skipped:", error?.message || error);
+    }
+  }
   async persistEmailSecret(config) {
     if (!sqlAdapter.isEnabled()) {
       throw new Error("A persist\xEAncia PostgreSQL precisa estar habilitada para salvar a configura\xE7\xE3o SMTP com seguran\xE7a.");
@@ -1603,6 +1646,12 @@ var DatabaseStore = class {
        ON CONFLICT (id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = CURRENT_TIMESTAMP`,
       [EMAIL_SECRET_ID, ciphertext]
     );
+  }
+  async persistTenantEmailSecret(tenantId, config) {
+    if (!sqlAdapter.isEnabled()) throw new Error("A persist\xEAncia PostgreSQL precisa estar habilitada para salvar a configura\xE7\xE3o SMTP com seguran\xE7a.");
+    const ciphertext = encryptConfigSecret({ ...config, port: Number(config.port || 587), isActive: config.isActive !== false });
+    await sqlAdapter.query(`CREATE TABLE IF NOT EXISTS app_secrets (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+    await sqlAdapter.query(`INSERT INTO app_secrets (id, ciphertext, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = CURRENT_TIMESTAMP`, [`${EMAIL_TENANT_SECRET_PREFIX}${tenantId}`, ciphertext]);
   }
   async persistWhatsAppSecret(baseUrl, token) {
     if (!sqlAdapter.isEnabled()) {
@@ -1669,11 +1718,11 @@ var DatabaseStore = class {
           ["default", JSON.stringify(this.serializeState())]
         );
       } catch (error) {
+        if (process.env.NODE_ENV === "production") throw error;
         if (!String(error?.message || "").includes('relation "app_state" does not exist')) {
           console.warn("PostgreSQL state persistence failed:", error?.message || error);
         }
       }
-    }).catch(() => {
     });
     await this.persistenceQueue;
   }
@@ -2509,7 +2558,7 @@ var DatabaseStore = class {
       {
         id: "form-checklist-elolog",
         tenantId: "tenant-translog-01",
-        title: "Checklist / Vistoria de Entrega e Retirada de Ve\xEDculo e Carga (Modelo Elo Log)",
+        title: "Checklist / Vistoria de Entrega e Retirada de Ve\xEDculo e Carga (Modelo Atendo One)",
         description: "Modelo oficial de vistoria e checklist de entrega/retirada com confer\xEAncia de documentos, avarias, 17 itens de equipamentos, od\xF4metro (KM) e assinaturas de origem/destino.",
         category: "CHECKLIST_ENTREGA",
         triggerEvent: "NA_ENTREGA",
@@ -3199,7 +3248,7 @@ var sanitizeServerHtml = (value) => (0, import_sanitize_html.default)(String(val
 });
 
 // src/version.ts
-var APP_VERSION = "v1.8.21";
+var APP_VERSION = "v1.8.43";
 
 // server/budgetService.ts
 var money = (value) => Math.round((Number(value) || 0) * 100) / 100;
@@ -3212,13 +3261,35 @@ function calculateBudget(input) {
   const lodging = money((Number(input.dailyRate) || 0) * (Number(input.dailyCount) || 0));
   const assistants = money((Number(input.assistantCount) || 0) * (Number(input.assistantDailyRate) || 0) * (Number(input.dailyCount) || 1));
   const subtotal = money(totalExpenses + routeCost + tolls + insurance + lodging + assistants);
-  const totalTaxes = money((input.taxes || []).reduce((sum, tax) => {
-    const base = tax.base === "DESPESAS" ? totalExpenses : tax.base === "SUBTOTAL" ? subtotal : money(Number(input.driverPassed) || 0);
-    return sum + (tax.type === "FIXO" ? money(tax.fixedValue) : money(base * (Number(tax.percentage) || 0) / 100));
+  const taxes = (input.taxes || []).map((tax) => ({
+    ...tax,
+    percentage: Number(tax.percentage) || 0,
+    fixedValue: money(tax.fixedValue)
+  }));
+  const fixedAndScopedTaxes = money(taxes.reduce((sum, tax) => {
+    if (tax.type === "FIXO") return sum + money(tax.fixedValue);
+    if (tax.base === "DESPESAS") return sum + money(totalExpenses * tax.percentage / 100);
+    if (tax.base === "SUBTOTAL") return sum + money(subtotal * tax.percentage / 100);
+    return sum;
   }, 0));
-  const totalCost = money(subtotal + totalTaxes);
-  const profit = input.profitType === "FIXO" ? money(input.profitValue) : money(totalCost * (Number(input.profitValue) || 0) / 100);
-  const totalFreight = money(totalCost + profit);
+  const freightTaxRate = taxes.reduce((sum, tax) => sum + (tax.type === "PERCENTUAL" && tax.base === "VALOR_FRETE" ? tax.percentage / 100 : 0), 0);
+  const calculateProfit = (totalCostValue) => input.profitType === "FIXO" ? money(input.profitValue) : money(totalCostValue * (Number(input.profitValue) || 0) / 100);
+  let totalTaxes = fixedAndScopedTaxes;
+  let totalCost = money(subtotal + totalTaxes);
+  let profit = calculateProfit(totalCost);
+  let totalFreight = money(totalCost + profit);
+  if (freightTaxRate > 0) {
+    let previous = totalFreight;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const freightBasedTaxes = money(previous * freightTaxRate);
+      totalTaxes = money(fixedAndScopedTaxes + freightBasedTaxes);
+      totalCost = money(subtotal + totalTaxes);
+      profit = calculateProfit(totalCost);
+      totalFreight = money(totalCost + profit);
+      if (Math.abs(totalFreight - previous) < 0.01) break;
+      previous = totalFreight;
+    }
+  }
   const driverPassed = money(input.driverPassed);
   const driverPaid = money(input.driverPaid);
   return { totalExpenses, routeCost, tolls, insurance, lodging, assistants, subtotal, totalTaxes, totalCost, profit, totalFreight, driverPassed, driverPaid, netResult: money(totalFreight - driverPaid - totalExpenses - routeCost - tolls - insurance - lodging - assistants - totalTaxes) };
@@ -3230,7 +3301,7 @@ function normalizeExpense(input, index) {
 }
 
 // server/api.ts
-var JWT_SECRET = process.env.JWT_SECRET;
+var JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV !== "production" ? "dev_insecure_secret_for_local_testing" : void 0);
 if (!JWT_SECRET) {
   console.error("FATAL ERROR: JWT_SECRET environment variable is missing or insecure.");
   process.exit(1);
@@ -3388,6 +3459,31 @@ var USER_SESSION_TTL_MS = 10 * 60 * 1e3;
 var REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
 var activeSupportSessions = /* @__PURE__ */ new Map();
 var activeRefreshFamilies = /* @__PURE__ */ new Map();
+var ACCESS_COOKIE = "atendo_access";
+var REFRESH_COOKIE = "atendo_refresh";
+var CSRF_COOKIE = "atendo_csrf";
+function parseCookies(req) {
+  return Object.fromEntries(String(req.headers.cookie || "").split(";").map((item) => {
+    const index = item.indexOf("=");
+    return index > 0 ? [item.slice(0, index).trim(), decodeURIComponent(item.slice(index + 1).trim())] : ["", ""];
+  }).filter(([key]) => key));
+}
+function setSessionCookies(res, token, refreshToken) {
+  const forwardedProto = String(res.req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+  const requestIsHttps = forwardedProto === "https" || res.req.secure;
+  const configuredHttps = String(process.env.APP_URL || "").startsWith("https://");
+  const secure = requestIsHttps || configuredHttps && process.env.NODE_ENV === "production";
+  const base = `Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`;
+  res.append("Set-Cookie", `${ACCESS_COOKIE}=${encodeURIComponent(token)}; Max-Age=600; ${base}`);
+  if (refreshToken) res.append("Set-Cookie", `${REFRESH_COOKIE}=${encodeURIComponent(refreshToken)}; Max-Age=${Math.floor(REFRESH_TOKEN_TTL_MS / 1e3)}; ${base}`);
+  const csrfSecure = secure ? "; Secure" : "";
+  res.append("Set-Cookie", `${CSRF_COOKIE}=${encodeURIComponent((0, import_crypto.randomUUID)())}; Max-Age=${Math.floor(REFRESH_TOKEN_TTL_MS / 1e3)}; Path=/; SameSite=Lax${csrfSecure}`);
+}
+function clearSessionCookies(res) {
+  res.append("Set-Cookie", `${ACCESS_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+  res.append("Set-Cookie", `${REFRESH_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+  res.append("Set-Cookie", `${CSRF_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`);
+}
 function issueUserSession(user) {
   const sessionId = (0, import_crypto.randomUUID)();
   const expiresAt = new Date(Date.now() + USER_SESSION_TTL_MS).toISOString();
@@ -3426,7 +3522,10 @@ var VALID_STATUS_TRANSITIONS = {
   CANCELADO: []
 };
 function authMiddleware(req, res, next) {
+  const cookies = parseCookies(req);
   const authHeader = req.headers.authorization;
+  const cookieToken = cookies[ACCESS_COOKIE];
+  const suppliedToken = cookieToken || (authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "");
   const path4 = req.path;
   const publicPaths = [
     "/auth/login",
@@ -3440,6 +3539,8 @@ function authMiddleware(req, res, next) {
     "/auth/demo-session",
     "/analytics/visit",
     "/health",
+    "/public/mapbox/geocode",
+    "/public/mapbox/client-config",
     "/internal/backups/event"
   ];
   const isPublicRoute = publicPaths.includes(path4) || req.method === "GET" && /^\/public\/tracking\/[^/]+$/.test(path4) || path4 === "/saas/config" && req.method === "GET" || path4 === "/push/vapid-key" && req.method === "GET";
@@ -3451,8 +3552,8 @@ function authMiddleware(req, res, next) {
   if (!routeExists && !publicPaths.includes(path4)) {
     return res.status(404).json({ error: "Rota n\xE3o encontrada." });
   }
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.split(" ")[1]?.trim();
+  if (suppliedToken) {
+    const token = suppliedToken;
     if (token) {
       try {
         const decoded = import_jsonwebtoken.default.verify(token, SAFE_JWT_SECRET);
@@ -3475,6 +3576,11 @@ function authMiddleware(req, res, next) {
           }
           req.user = foundUser;
           req.authToken = token;
+          if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && !isPublicRoute) {
+            const csrfCookie = cookies[CSRF_COOKIE] || "";
+            const csrfHeader = String(req.headers["x-csrf-token"] || "");
+            if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) return res.status(403).json({ error: "Token CSRF ausente ou inv\xE1lido." });
+          }
           req.tenant = foundUser.tenantId ? db.tenants.find((t) => t.id === foundUser.tenantId) || null : null;
           return next();
         }
@@ -3621,7 +3727,7 @@ var addIgnoredNotificationDelivery = (eventKey, tenantId, userId, channel, subje
   db.addNotificationDelivery({ eventKey, tenantId, userId, channel, status: "IGNORADO", subject, attempts: 0, errorMessage: "Sem consentimento do destinat\xE1rio para este canal." });
 };
 async function sendConfiguredEmail(user, subject, body) {
-  const config = db.saasGlobalConfig.emailConfig;
+  const config = user.tenantId && db.tenantEmailConfigs.get(user.tenantId) || db.saasGlobalConfig.emailConfig;
   if (!user.email || !config?.isActive || !config.host || !config.user || !config.password) return;
   const transporter = import_nodemailer.default.createTransport({
     host: config.host,
@@ -3895,21 +4001,59 @@ var isPublicFreight = (freight) => {
 };
 var isPublicTrackingFreight = (freight) => freight.publicTrackingEnabled !== false && !["RASCUNHO", "CANCELADO"].includes(freight.status);
 var trackingSubscribers = /* @__PURE__ */ new Map();
-apiRouter.get("/mapbox/geocode", async (req, res) => {
+var normalizeMapboxFeatures = (features) => features.filter((item) => {
+  const coordinates = item.geometry?.coordinates || item.center;
+  return Array.isArray(coordinates) && coordinates.length >= 2 && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1]));
+}).map((item) => {
+  const properties = item.properties || {};
+  const context = properties.context || item.context || {};
+  const getContext = (key, legacyPrefix) => {
+    if (Array.isArray(context)) return context.find((entry) => entry.id?.startsWith(legacyPrefix))?.text;
+    return context[key]?.name || context[key]?.text || context[key]?.address;
+  };
+  const coordinates = item.geometry?.coordinates || item.center;
+  const address = properties.address || item.address || properties.name || item.text || item.place_name || properties.full_address;
+  return {
+    id: item.id || properties.mapbox_id,
+    placeName: properties.full_address || item.place_name || address,
+    address,
+    number: (typeof properties.address === "string" ? properties.address : "")?.match(/\d+/)?.[0] || (typeof item.address === "string" ? item.address : "")?.match(/\d+/)?.[0],
+    neighborhood: getContext("neighborhood", "neighborhood") || getContext("locality", "locality"),
+    zipCode: getContext("postcode", "postcode"),
+    city: getContext("place", "place") || getContext("district", "district"),
+    state: getContext("region", "region"),
+    lng: Number(properties.coordinates?.longitude ?? coordinates[0]),
+    lat: Number(properties.coordinates?.latitude ?? coordinates[1])
+  };
+});
+var geocodeWithMapbox = async (query, token) => {
+  const encodedQuery = encodeURIComponent(query);
+  const params = `country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`;
+  const v5Response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json?${params}`);
+  const v5Data = await v5Response.json().catch(() => ({}));
+  if (v5Response.ok) {
+    const results = normalizeMapboxFeatures(v5Data.features || []);
+    if (results.length > 0) return results;
+  }
+  const v6Response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?q=${encodedQuery}&${params}`);
+  const v6Data = await v6Response.json().catch(() => ({}));
+  if (v6Response.ok) return normalizeMapboxFeatures(v6Data.features || []);
+  throw new Error("Mapbox geocoding request failed");
+};
+var handleGeocode = async (req, res) => {
   if (!req.user) return res.status(401).json({ error: "Autentica\xE7\xE3o necess\xE1ria." });
   const query = String(req.query.q || "").trim().slice(0, 180);
-  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
   if (query.length < 3) return res.json([]);
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
   if (!token) return res.status(503).json({ error: "Mapbox n\xE3o configurado." });
   try {
-    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
-    if (!response.ok) return res.status(502).json({ error: "N\xE3o foi poss\xEDvel consultar o Mapbox." });
-    const data = await response.json();
-    return res.json((data.features || []).filter((item) => item.center).map((item) => ({ id: item.id, placeName: item.place_name, address: item.text || item.place_name, city: item.context?.find((c) => c.id.startsWith("place"))?.text, state: item.context?.find((c) => c.id.startsWith("region"))?.text, lng: item.center[0], lat: item.center[1] })));
+    return res.json(await geocodeWithMapbox(query, token));
   } catch {
     return res.status(502).json({ error: "Falha de comunica\xE7\xE3o com o Mapbox." });
   }
-});
+};
+apiRouter.get("/mapbox/geocode", handleGeocode);
+apiRouter.get("/mapbox/geocode-tracking", handleGeocode);
 apiRouter.get("/mapbox/directions", async (req, res) => {
   if (!req.user) return res.status(401).json({ error: "Autentica\xE7\xE3o necess\xE1ria." });
   const origin = String(req.query.origin || "").split(",").map(Number);
@@ -3918,17 +4062,45 @@ apiRouter.get("/mapbox/directions", async (req, res) => {
   if (origin.length !== 2 || destination.length !== 2 || origin.some(Number.isNaN) || destination.some(Number.isNaN)) return res.status(400).json({ error: "Coordenadas de origem e destino inv\xE1lidas." });
   if (!token) return res.status(503).json({ error: "Mapbox n\xE3o configurado." });
   try {
-    const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${origin.join(",")};${destination.join(",")}?overview=false&access_token=${encodeURIComponent(token)}`);
+    const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${origin.join(",")};${destination.join(",")}?overview=full&geometries=geojson&access_token=${encodeURIComponent(token)}`);
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.routes?.[0]) return res.status(502).json({ error: "N\xE3o foi poss\xEDvel calcular a rota no Mapbox." });
     const route = data.routes[0];
-    return res.json({ distanceKm: Number(route.distance || 0) / 1e3, estimatedMinutes: Number(route.duration || 0) / 60 });
+    return res.json({ distanceKm: Number(route.distance || 0) / 1e3, estimatedMinutes: Number(route.duration || 0) / 60, geometry: route.geometry || null, source: "MAPBOX" });
+  } catch {
+    return res.status(502).json({ error: "Falha de comunica\xE7\xE3o com o Mapbox." });
+  }
+});
+apiRouter.get("/public/mapbox/geocode", async (req, res) => {
+  const query = String(req.query.q || "").trim().slice(0, 180);
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
+  if (query.length < 3) return res.json([]);
+  if (!token) return res.status(503).json({ error: "Mapbox n\xE3o configurado." });
+  try {
+    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
+    if (!response.ok) return res.status(502).json({ error: "N\xE3o foi poss\xEDvel consultar o Mapbox." });
+    const data = await response.json();
+    return res.json((data.features || []).filter((item) => item.center).map((item) => {
+      const context = item.context || [];
+      const find = (prefix) => context.find((c) => c.id.startsWith(prefix))?.text;
+      const rawNumber = item.address || item.properties?.address || "";
+      const number = rawNumber.match(/^\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?/)?.[0] || item.place_name.match(/(?:^|,\s*|\s)(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)(?:\s|,|$)/)?.[1];
+      const street = item.text || item.place_name.split(",")[0] || item.place_name;
+      const streetParts = street.split(/\s+/).map((part) => part.replace(/[,.]$/, ""));
+      const address = number && !streetParts.includes(number) ? `${street} ${number}` : street;
+      return { id: item.id, placeName: item.place_name, address, number, neighborhood: find("neighborhood") || find("locality"), zipCode: find("postcode"), city: find("place") || find("district"), state: find("region"), lng: item.center[0], lat: item.center[1] };
+    }));
   } catch {
     return res.status(502).json({ error: "Falha de comunica\xE7\xE3o com o Mapbox." });
   }
 });
 apiRouter.get("/mapbox/client-config", (req, res) => {
   if (!req.user) return res.status(401).json({ error: "Autentica\xE7\xE3o necess\xE1ria." });
+  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
+  const isPublicToken = token.startsWith("pk.");
+  return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : "", defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || "streets-v12", defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
+});
+apiRouter.get("/public/mapbox/client-config", (_req, res) => {
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
   const isPublicToken = token.startsWith("pk.");
   return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : "", defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || "streets-v12", defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
@@ -4055,11 +4227,18 @@ apiRouter.post("/public/freights/:id/interest", async (req, res) => {
   res.status(201).json({ success: true, userId: user.id, message: "C\xF3digo enviado pelo WhatsApp. Valide o telefone para continuar." });
 });
 apiRouter.use(authMiddleware);
+apiRouter.use((req, _res, next) => {
+  const globalSuperAdminRoute = req.user?.role === "SUPER_ADMIN" && (req.path.startsWith("/saas/") || req.path.startsWith("/tenants") || req.path.startsWith("/analytics/") || req.path === "/health/detailed");
+  runWithTenantDbContext({
+    tenantId: req.user?.tenantId || null,
+    isSuperAdmin: Boolean(globalSuperAdminRoute)
+  }, next);
+});
 apiRouter.get("/health/detailed", async (req, res) => {
   if (req.user?.role !== "SUPER_ADMIN") return res.status(403).json({ error: "Apenas Super Admin." });
   const sqlStatus = await sqlAdapter.getStatus();
   const postgresConnected = sqlAdapter.isEnabled() && sqlStatus.status === "CONNECTED";
-  return res.json({ status: "ok", version: process.env.APP_VERSION || APP_VERSION, uptimeSeconds: Math.floor(process.uptime()), counts: { tenants: db.tenants.length, users: db.users.length, freights: db.freights.length, budgets: db.budgets.length, clients: db.clients.length, gpsLocations: db.freightLocations.length, notifications: db.notifications.length }, integrations: { mapboxConfigured: Boolean(db.saasGlobalConfig.mapboxConfig?.apiKey), cnpjWsConfigured: true, postgresConfigured: postgresConnected }, persistence: { mode: postgresConnected ? "postgresql" : "memory-with-snapshot", lastCheckedAt: (/* @__PURE__ */ new Date()).toISOString() }, generatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+  return res.json({ status: "ok", version: process.env.APP_VERSION || APP_VERSION, uptimeSeconds: Math.floor(process.uptime()), counts: { tenants: db.tenants.length, users: db.users.length, freights: db.freights.length, budgets: db.budgets.length, clients: db.clients.length, gpsLocations: db.freightLocations.length, notifications: db.notifications.length }, integrations: { mapboxConfigured: Boolean(db.saasGlobalConfig.mapboxConfig?.apiKey), cnpjWsConfigured: true, postgresConfigured: postgresConnected }, persistence: { mode: postgresConnected ? "postgresql" : "memory-with-snapshot", lastCheckedAt: (/* @__PURE__ */ new Date()).toISOString() }, domainIsolation: { mode: process.env.RLS_DOMAIN_MODE === "active" && process.env.NORMALIZED_DOMAIN_RLS === "true" ? "normalized-rls-active" : "snapshot-transition", transactionalContext: true, appStateProtectedByRls: false }, generatedAt: (/* @__PURE__ */ new Date()).toISOString() });
 });
 apiRouter.post("/freights/:id/public-tracking/revoke", async (req, res) => {
   const freight = db.freights.find((item) => item["id"] === req.params.id);
@@ -4156,6 +4335,7 @@ apiRouter.use((req, res, next) => {
   if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
     const excludePaths = [
       "/auth/login",
+      "/auth/logout",
       "/auth/request-otp",
       "/auth/verify-otp",
       "/auth/register-company",
@@ -4986,7 +5166,10 @@ apiRouter.get("/auth/me", (req, res) => {
   });
 });
 apiRouter.post("/auth/logout", async (req, res) => {
-  if (!req.user) return res.status(401).json({ error: "N\xE3o autenticado" });
+  if (!req.user) {
+    clearSessionCookies(res);
+    return res.status(401).json({ error: "N\xE3o autenticado" });
+  }
   if (req.authToken) db.revokeAuthToken(req.authToken);
   const refreshFamilyId = activeRefreshFamilies.get(req.user.id);
   if (refreshFamilyId) {
@@ -4997,6 +5180,7 @@ apiRouter.post("/auth/logout", async (req, res) => {
   delete req.user.activeSessionExpiresAt;
   db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId || void 0, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: "LOGOUT", entity: "User", entityId: req.user.id, details: "Sess\xE3o atual revogada pelo pr\xF3prio usu\xE1rio." });
   await db.persistNow();
+  clearSessionCookies(res);
   return res.json({ success: true });
 });
 apiRouter.post("/support/sessions", (req, res) => {
@@ -5038,9 +5222,9 @@ apiRouter.post("/support/sessions", (req, res) => {
     entityId: supportSession.id,
     details: `Acesso assistido iniciado para ${targetUser.name} (${targetUser.role}); expira em 30 minutos.`
   });
+  setSessionCookies(res, token);
   return res.json({
     ...getSessionDataForUser(targetUser),
-    token,
     supportSession: {
       id: supportSession.id,
       targetUser: safeSupportIdentity(targetUser),
@@ -5073,7 +5257,8 @@ apiRouter.post("/support/sessions/end", (req, res) => {
     entityId: supportSession.id,
     details: `Acesso assistido encerrado para ${req.user.name}. Retorno ao Super Admin.`
   });
-  return res.json({ ...getSessionDataForUser(actorUser), token });
+  setSessionCookies(res, token);
+  return res.json({ ...getSessionDataForUser(actorUser) });
 });
 apiRouter.post("/auth/login", async (req, res) => {
   const { email, role, password } = req.body;
@@ -5101,6 +5286,7 @@ apiRouter.post("/auth/login", async (req, res) => {
   }
   targetUser.lastLoginAt = (/* @__PURE__ */ new Date()).toISOString();
   const { token, refreshToken } = issueUserSession(targetUser);
+  setSessionCookies(res, token, refreshToken);
   db.addAuditLog({
     ip: requestIp(req),
     tenantId: targetUser.tenantId || void 0,
@@ -5113,14 +5299,10 @@ apiRouter.post("/auth/login", async (req, res) => {
     entityId: targetUser.id,
     details: `Login realizado com sucesso via perfil ${targetUser.role}`
   });
-  res.json({
-    user: sanitizeUser(targetUser),
-    token,
-    refreshToken
-  });
+  res.json(getSessionDataForUser(targetUser));
 });
 apiRouter.post("/auth/refresh", (req, res) => {
-  const rawRefreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken.trim() : "";
+  const rawRefreshToken = parseCookies(req)[REFRESH_COOKIE] || (typeof req.body?.refreshToken === "string" ? req.body.refreshToken.trim() : "");
   if (!rawRefreshToken) return res.status(401).json({ error: "Refresh token ausente." });
   try {
     const decoded = import_jsonwebtoken.default.verify(rawRefreshToken, SAFE_JWT_SECRET);
@@ -5135,7 +5317,8 @@ apiRouter.post("/auth/refresh", (req, res) => {
     if (!user) return res.status(401).json({ error: "Usu\xE1rio inv\xE1lido ou inativo." });
     const issued = issueUserSession(user);
     db.addAuditLog({ ip: requestIp(req), tenantId: user.tenantId || void 0, userId: user.id, userName: user.name, userRole: user.role, action: "REFRESH_ROTATED", entity: "UserSession", entityId: user.id, details: "Refresh token consumido uma \xFAnica vez e substitu\xEDdo por nova sess\xE3o." });
-    return res.json({ user: sanitizeUser(user), token: issued.token, refreshToken: issued.refreshToken });
+    setSessionCookies(res, issued.token, issued.refreshToken);
+    return res.json({ user: sanitizeUser(user) });
   } catch {
     auditAuthFailure(req, "REFRESH_FAILED", void 0, "Refresh token inv\xE1lido ou expirado.");
     return res.status(401).json({ error: "Refresh token inv\xE1lido ou expirado." });
@@ -5163,7 +5346,8 @@ apiRouter.post("/auth/demo-session", async (req, res) => {
     details: `Sess\xE3o p\xFAblica de demonstra\xE7\xE3o iniciada no perfil ${targetUser.role}, com dados fict\xEDcios e permiss\xF5es restritas.`
   });
   await db.persistNow();
-  return res.json({ ...getSessionDataForUser(targetUser), token, demo: true });
+  setSessionCookies(res, token);
+  return res.json({ ...getSessionDataForUser(targetUser), demo: true });
 });
 apiRouter.post("/auth/switch-demo", (req, res) => {
   if (process.env.NODE_ENV === "production") {
@@ -5179,7 +5363,8 @@ apiRouter.post("/auth/switch-demo", (req, res) => {
   }
   targetUser.lastLoginAt = (/* @__PURE__ */ new Date()).toISOString();
   const { token } = issueUserSession(targetUser);
-  res.json({ ...getSessionDataForUser(targetUser), token });
+  setSessionCookies(res, token);
+  res.json({ ...getSessionDataForUser(targetUser) });
 });
 var activeOTPs = /* @__PURE__ */ new Map();
 var otpLastSentAt = /* @__PURE__ */ new Map();
@@ -5335,11 +5520,8 @@ apiRouter.post("/auth/verify-otp", (req, res) => {
     entityId: targetUser.id,
     details: `Login realizado com sucesso via WhatsApp OTP`
   });
-  res.json({
-    user: sanitizeUser(targetUser),
-    token,
-    refreshToken
-  });
+  setSessionCookies(res, token, refreshToken);
+  res.json({ user: sanitizeUser(targetUser) });
 });
 async function provisionAtendoCrmTenant(tenant) {
   await db.waitForPersistence();
@@ -5999,7 +6181,7 @@ apiRouter.post("/users", async (req, res) => {
   const tenantUsers = targetTenantId ? db.users.filter((user) => user.tenantId === targetTenantId && ["EMPRESA_SUPER_ADMIN", "ADMIN", "SUPERVISOR"].includes(user.role)) : [];
   void dispatchConfiguredNotification("USUARIO_CADASTRADO", [newUser, ...tenantUsers], {
     nome: newUser.name,
-    empresa: targetTenantId ? db.tenants.find((tenant) => tenant.id === targetTenantId)?.name || "" : "Elo Log",
+    empresa: targetTenantId ? db.tenants.find((tenant) => tenant.id === targetTenantId)?.name || "" : "Atendo One",
     email: newUser.email,
     telefone: newUser.phone,
     tenantId: targetTenantId || void 0,
@@ -6021,6 +6203,9 @@ apiRouter.put("/users/:id", async (req, res) => {
   }
   const { name, email, phone, role, status, password } = req.body || {};
   const previousUserStatus = user.status;
+  if (isSelf && (role !== void 0 || status !== void 0)) {
+    return res.status(403).json({ error: "N\xE3o \xE9 permitido alterar o pr\xF3prio papel ou status de acesso." });
+  }
   const normalizedName = name === void 0 ? user.name : String(name).trim().slice(0, 160);
   const normalizedEmail = email === void 0 ? user.email : String(email).trim().toLowerCase().slice(0, 254);
   const normalizedPhone = phone === void 0 ? user.phone : String(phone).trim().slice(0, 30);
@@ -6063,7 +6248,7 @@ apiRouter.put("/users/:id", async (req, res) => {
     const tenantAdmins = user.tenantId ? db.users.filter((item) => item.tenantId === user.tenantId && ["EMPRESA_SUPER_ADMIN", "ADMIN"].includes(item.role)) : [];
     void dispatchConfiguredNotification("USUARIO_STATUS_ATUALIZADO", [user, ...tenantAdmins], {
       nome: user.name,
-      empresa: user.tenantId ? db.tenants.find((tenant) => tenant.id === user.tenantId)?.name || "" : "Elo Log",
+      empresa: user.tenantId ? db.tenants.find((tenant) => tenant.id === user.tenantId)?.name || "" : "Atendo One",
       status: user.status,
       email: user.email,
       telefone: user.phone,
@@ -6249,22 +6434,25 @@ apiRouter.get("/company-vehicles", (req, res) => {
   if (!req.user?.tenantId) return res.status(403).json({ error: "Empresa n\xE3o identificada." });
   res.json(db.companyVehicles.filter((vehicle) => vehicle.tenantId === req.user?.tenantId));
 });
-apiRouter.post("/company-vehicles", (req, res) => {
+apiRouter.post("/company-vehicles", async (req, res) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Apenas administradores reais podem cadastrar ve\xEDculos pr\xF3prios." });
   const tenantId = req.user?.role === "SUPER_ADMIN" ? String(req.body?.tenantId || "") : req.user?.tenantId || "";
   if (!tenantId) return res.status(400).json({ error: "Empresa obrigat\xF3ria para cadastrar ve\xEDculo pr\xF3prio." });
+  if (!db.tenants.some((tenant) => tenant.id === tenantId)) return res.status(400).json({ error: "Empresa inv\xE1lida para cadastrar ve\xEDculo pr\xF3prio." });
   const body = req.body || {};
   const plate = normalizePublicPlate(body.plate);
   const renavam = normalizePublicIdentity(body.renavam);
-  if (!plate || !renavam || !body.brand || !body.model || !body.type || !body.bodyType) return res.status(400).json({ error: "Placa, RENAVAM, tipo, carroceria, marca e modelo s\xE3o obrigat\xF3rios." });
-  if (db.companyVehicles.some((vehicle2) => normalizePublicPlate(vehicle2.plate) === plate || normalizePublicIdentity(vehicle2.renavam) === renavam)) return res.status(409).json({ error: "J\xE1 existe ve\xEDculo pr\xF3prio com esta placa ou RENAVAM." });
+  const chassis = String(body.chassis || "").trim().toUpperCase();
+  if (!plate || !renavam || chassis.length < 5 || !body.brand || !body.model || !body.type || !body.bodyType) return res.status(400).json({ error: "Placa, RENAVAM, chassi, tipo, carroceria, marca e modelo s\xE3o obrigat\xF3rios." });
+  if (db.companyVehicles.some((vehicle2) => vehicle2.tenantId === tenantId && (normalizePublicPlate(vehicle2.plate) === plate || normalizePublicIdentity(vehicle2.renavam) === renavam || chassis && String(vehicle2.chassis || "").trim().toUpperCase() === chassis))) return res.status(409).json({ error: "Esta empresa j\xE1 possui ve\xEDculo com esta placa, RENAVAM ou chassi." });
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const vehicle = { id: `company-vehicle-${Date.now()}`, tenantId, type: body.type, brand: String(body.brand).trim(), model: String(body.model).trim(), year: Number(body.year || (/* @__PURE__ */ new Date()).getFullYear()), plate: String(body.plate).trim().toUpperCase(), renavam: String(body.renavam).trim(), capacityKg: Number(body.capacityKg || 0), bodyType: body.bodyType, ownerName: String(body.ownerName || "").trim(), ownerCnpj: String(body.ownerCnpj || "").trim(), registrationState: String(body.registrationState || "").trim().toUpperCase(), crlvNumber: String(body.crlvNumber || "").trim(), status: "ATIVO", notes: String(body.notes || "").trim(), createdAt: now, updatedAt: now };
+  const vehicle = { id: `company-vehicle-${Date.now()}`, tenantId, type: body.type, brand: String(body.brand).trim(), model: String(body.model).trim(), year: Number(body.modelYear || body.year || (/* @__PURE__ */ new Date()).getFullYear()), manufactureYear: Number(body.manufactureYear || body.year || (/* @__PURE__ */ new Date()).getFullYear()), modelYear: Number(body.modelYear || body.year || (/* @__PURE__ */ new Date()).getFullYear()), plate: String(body.plate).trim().toUpperCase(), renavam: String(body.renavam).trim(), chassis, capacityKg: Number(body.capacityKg || 0), bodyType: body.bodyType, color: String(body.color || "").trim(), fuelType: String(body.fuelType || "").trim().toUpperCase(), axleCount: Number(body.axleCount || 0), ownerName: String(body.ownerName || "").trim(), ownerCnpj: String(body.ownerCnpj || "").trim(), registrationState: String(body.registrationState || "").trim().toUpperCase(), crlvNumber: String(body.crlvNumber || "").trim(), insuranceValidUntil: String(body.insuranceValidUntil || "").trim(), status: "ATIVO", notes: String(body.notes || "").trim(), createdAt: now, updatedAt: now };
   db.companyVehicles.unshift(vehicle);
   db.addAuditLog({ ip: requestIp(req), tenantId, userId: req.user?.id || "system", userName: req.user?.name || "Sistema", userRole: req.user?.role || "ADMIN", action: "CRIAR_VEICULO_PROPRIO", entity: "CompanyVehicle", entityId: vehicle.id, details: `Ve\xEDculo pr\xF3prio ${vehicle.plate} cadastrado para documentos e opera\xE7\xF5es da empresa.` });
+  await db.persistNow();
   res.status(201).json(vehicle);
 });
-apiRouter.put("/company-vehicles/:id", (req, res) => {
+apiRouter.put("/company-vehicles/:id", async (req, res) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Apenas administradores reais podem editar ve\xEDculos pr\xF3prios." });
   const vehicle = db.companyVehicles.find((item) => item.id === req.params.id);
   if (!vehicle) return res.status(404).json({ error: "Ve\xEDculo pr\xF3prio n\xE3o encontrado." });
@@ -6272,13 +6460,15 @@ apiRouter.put("/company-vehicles/:id", (req, res) => {
   const body = req.body || {};
   const nextPlate = normalizePublicPlate(body.plate || vehicle.plate);
   const nextRenavam = normalizePublicIdentity(body.renavam || vehicle.renavam);
-  if (db.companyVehicles.some((item) => item.id !== vehicle.id && (normalizePublicPlate(item.plate) === nextPlate || normalizePublicIdentity(item.renavam) === nextRenavam))) return res.status(409).json({ error: "J\xE1 existe outro ve\xEDculo pr\xF3prio com esta placa ou RENAVAM." });
-  const allowed = ["type", "brand", "model", "year", "plate", "renavam", "capacityKg", "bodyType", "ownerName", "ownerCnpj", "registrationState", "crlvNumber", "status", "notes"];
-  for (const key of allowed) if (body[key] !== void 0) vehicle[key] = key === "plate" ? String(body[key]).trim().toUpperCase() : body[key];
+  const nextChassis = String(body.chassis || vehicle.chassis || "").trim().toUpperCase();
+  if (db.companyVehicles.some((item) => item.id !== vehicle.id && item.tenantId === vehicle.tenantId && (normalizePublicPlate(item.plate) === nextPlate || normalizePublicIdentity(item.renavam) === nextRenavam || nextChassis && String(item.chassis || "").trim().toUpperCase() === nextChassis))) return res.status(409).json({ error: "Esta empresa j\xE1 possui outro ve\xEDculo com esta placa, RENAVAM ou chassi." });
+  const allowed = ["type", "brand", "model", "year", "manufactureYear", "modelYear", "plate", "renavam", "chassis", "capacityKg", "bodyType", "color", "fuelType", "axleCount", "ownerName", "ownerCnpj", "registrationState", "crlvNumber", "insuranceValidUntil", "status", "notes"];
+  for (const key of allowed) if (body[key] !== void 0) vehicle[key] = ["plate", "chassis", "fuelType", "registrationState"].includes(key) ? String(body[key]).trim().toUpperCase() : body[key];
   vehicle.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  await db.persistNow();
   res.json(vehicle);
 });
-apiRouter.delete("/company-vehicles/:id", (req, res) => {
+apiRouter.delete("/company-vehicles/:id", async (req, res) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Apenas administradores reais podem desativar ve\xEDculos pr\xF3prios." });
   const vehicle = db.companyVehicles.find((item) => item.id === req.params.id);
   if (!vehicle) return res.status(404).json({ error: "Ve\xEDculo pr\xF3prio n\xE3o encontrado." });
@@ -6286,6 +6476,7 @@ apiRouter.delete("/company-vehicles/:id", (req, res) => {
   vehicle.status = "INATIVO";
   vehicle.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
   db.addAuditLog({ ip: requestIp(req), tenantId: vehicle.tenantId, userId: req.user?.id || "system", userName: req.user?.name || "Sistema", userRole: req.user?.role || "ADMIN", action: "DESATIVAR_VEICULO_PROPRIO", entity: "CompanyVehicle", entityId: vehicle.id, details: `Ve\xEDculo pr\xF3prio ${vehicle.plate} desativado sem apagar hist\xF3rico.` });
+  await db.persistNow();
   res.json({ success: true, message: "Ve\xEDculo pr\xF3prio desativado; hist\xF3rico preservado." });
 });
 apiRouter.get("/freights", (req, res) => {
@@ -6343,17 +6534,18 @@ apiRouter.post("/freights", (req, res) => {
   }
   const tenantId = req.user?.role === "SUPER_ADMIN" ? req.body.tenantId || null : req.user?.tenantId;
   const tenant = db.tenants.find((t) => t.id === tenantId);
-  if (tenant) {
-    const currentMonth = (/* @__PURE__ */ new Date()).toISOString().substring(0, 7);
-    const tenantFreightsThisMonth = db.freights.filter(
-      (f) => f.tenantId === tenant.id && f.createdAt.startsWith(currentMonth)
-    ).length;
-    const maxLimit = tenant.planLimits?.maxFreightsMonthly || 0;
-    if (tenantFreightsThisMonth >= maxLimit) {
-      return res.status(403).json({
-        error: "Limite de fretes mensais atingido para o plano atual (" + maxLimit + "). Fa\xE7a o upgrade para continuar cadastrando."
-      });
-    }
+  if (!tenantId || !tenant) {
+    return res.status(400).json({ error: "Empresa inv\xE1lida." });
+  }
+  const currentMonth = (/* @__PURE__ */ new Date()).toISOString().substring(0, 7);
+  const tenantFreightsThisMonth = db.freights.filter(
+    (f) => f.tenantId === tenant.id && f.createdAt.startsWith(currentMonth)
+  ).length;
+  const maxLimit = Number(tenant.planLimits?.maxFreightsMonthly || 0);
+  if (maxLimit > 0 && tenantFreightsThisMonth >= maxLimit) {
+    return res.status(403).json({
+      error: "Limite de fretes mensais atingido para o plano atual (" + maxLimit + "). Fa\xE7a o upgrade para continuar cadastrando."
+    });
   }
   const {
     origin,
@@ -6372,6 +6564,7 @@ apiRouter.post("/freights", (req, res) => {
   const requestedBudgetId = customData?.budgetId ? String(customData.budgetId) : "";
   const linkedBudget = requestedBudgetId ? db.budgets.find((budget) => budget.id === requestedBudgetId && budget.tenantId === tenantId && !budget.convertedFreightId) : void 0;
   if (requestedBudgetId && !linkedBudget) return res.status(400).json({ error: "Or\xE7amento selecionado n\xE3o pertence \xE0 empresa, n\xE3o existe ou j\xE1 foi convertido." });
+  if (linkedBudget && linkedBudget.status !== "APROVADO") return res.status(409).json({ error: "Apenas or\xE7amento aprovado pode ser vinculado a um frete." });
   if (!origin?.city || !origin?.state || !destination?.city || !destination?.state || !payment?.price) {
     return res.status(400).json({ error: "Origem, destino e valor s\xE3o obrigat\xF3rios" });
   }
@@ -6420,6 +6613,7 @@ apiRouter.post("/freights", (req, res) => {
       contactPhone: destination.contactPhone
     },
     distanceKm: Number(distanceKm) || 450,
+    routeGeometry: req.body?.routeGeometry && typeof req.body.routeGeometry === "object" ? req.body.routeGeometry : void 0,
     cargo: {
       description: cargo?.description || "Carga geral",
       type: cargo?.type || "GERAL",
@@ -6456,9 +6650,10 @@ apiRouter.post("/freights", (req, res) => {
     ],
     createdByUserId: req.user.id,
     createdByName: req.user.name,
+    requestedBudgetId: requestedBudgetId || void 0,
     createdAt: now,
     updatedAt: now,
-    customData: requestedBudgetId ? { ...customData || {}, budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status } : customData,
+    customData: requestedBudgetId ? { ...customData || {}, budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status, budgetVersion: linkedBudget?.version, budgetFinancials: linkedBudget?.financials, budgetTaxes: linkedBudget?.taxes, budgetExpenses: linkedBudget?.expenses } : customData,
     companyVehicleId: companyVehicleId || void 0,
     publicListingEnabled: safePublicListing,
     publicPriceVisibleToRegistered: safePublicListing && publicPriceVisibleToRegistered !== false,
@@ -6467,6 +6662,11 @@ apiRouter.post("/freights", (req, res) => {
     publicTrackingToken: (0, import_crypto.randomBytes)(16).toString("hex")
   };
   db.freights.unshift(newFreight);
+  if (linkedBudget) {
+    linkedBudget.convertedFreightId = newFreight.id;
+    linkedBudget.status = "CONVERTIDO";
+    linkedBudget.updatedAt = now;
+  }
   db.addAuditLog({
     ip: requestIp(req),
     tenantId: tenantId || void 0,
@@ -6503,7 +6703,7 @@ apiRouter.post("/freights", (req, res) => {
       link: process.env.APP_URL || ""
     });
     sendPushNotificationToAll({
-      title: "\u{1F69A} Novo Frete Dispon\xEDvel na Elo Log!",
+      title: "\u{1F69A} Novo Frete Dispon\xEDvel no Atendo One!",
       body: `${newFreight.origin.city}/${newFreight.origin.state} \u27A1\uFE0F ${newFreight.destination.city}/${newFreight.destination.state} | R$ ${newFreight.payment.price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
       url: "/"
     }).catch(console.error);
@@ -6534,6 +6734,8 @@ apiRouter.put("/freights/:id", (req, res) => {
   };
   const updateLocation = (current, incoming) => {
     if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return current;
+    const lat = Number(incoming.lat);
+    const lng = Number(incoming.lng);
     return {
       ...current,
       zipCode: text(incoming.zipCode, current.zipCode, 20),
@@ -6545,7 +6747,10 @@ apiRouter.put("/freights/:id", (req, res) => {
       date: text(incoming.date, current.date, 32),
       timeWindow: text(incoming.timeWindow, current.timeWindow || "", 100),
       contactName: text(incoming.contactName, current.contactName || "", 160),
-      contactPhone: text(incoming.contactPhone, current.contactPhone || "", 30)
+      contactPhone: text(incoming.contactPhone, current.contactPhone || "", 30),
+      lat: Number.isFinite(lat) ? lat : current.lat,
+      lng: Number.isFinite(lng) ? lng : current.lng,
+      mapboxPlaceId: typeof incoming.mapboxPlaceId === "string" ? incoming.mapboxPlaceId.trim().slice(0, 180) || void 0 : current.mapboxPlaceId
     };
   };
   const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -6731,6 +6936,7 @@ apiRouter.post("/freights/:id/location", async (req, res) => {
     lat,
     lng,
     speedKmh: Number.isFinite(Number(req.body?.speedKmh)) ? Math.max(0, Math.min(250, Number(req.body.speedKmh))) : void 0,
+    heading: Number.isFinite(Number(req.body?.heading)) ? Math.max(0, Math.min(360, Number(req.body.heading))) : void 0,
     accuracyMeters: Number.isFinite(Number(req.body?.accuracyMeters)) ? Math.max(0, Math.min(1e4, Number(req.body.accuracyMeters))) : void 0,
     label: typeof req.body?.label === "string" ? req.body.label.trim().slice(0, 120) : void 0,
     recordedAt: now
@@ -7416,9 +7622,9 @@ apiRouter.post("/integrations/whatsapp/config", async (req, res) => {
     config: safeWhatsAppConfig(newConfig, scope)
   });
 });
-apiRouter.get("/integrations/whatsapp/status", async (req, res) => {
+async function handleWhatsAppStatus(req, res, rawTenantId) {
   await db.waitForPersistence();
-  const scope = getWhatsAppScope(req, req.query.tenantId);
+  const scope = getWhatsAppScope(req, rawTenantId);
   if (!scope) {
     return res.status(403).json({ error: "Voc\xEA n\xE3o tem permiss\xE3o para consultar o status WhatsApp desta empresa." });
   }
@@ -7470,6 +7676,12 @@ apiRouter.get("/integrations/whatsapp/status", async (req, res) => {
     db.addErrorLog({ service: "whatsapp-gateway", route: "external-status-channel", method: "GET", event: "WHATSAPP_STATUS_ERROR", message: "Falha de comunica\xE7\xE3o com o gateway WhatsApp." });
     return res.status(502).json({ success: false, status: "ERROR", message: "Falha de comunica\xE7\xE3o com o gateway WhatsApp.", config: safeWhatsAppConfig(updated, scope) });
   }
+}
+apiRouter.get("/integrations/whatsapp/status", async (req, res) => {
+  return handleWhatsAppStatus(req, res, req.query.tenantId);
+});
+apiRouter.post("/integrations/whatsapp/status", async (req, res) => {
+  return handleWhatsAppStatus(req, res, req.body?.tenantId ?? req.query.tenantId);
 });
 apiRouter.post("/integrations/whatsapp/qr", async (req, res) => {
   await db.waitForPersistence();
@@ -7533,7 +7745,7 @@ apiRouter.post("/integrations/whatsapp/qr", async (req, res) => {
 });
 apiRouter.post("/integrations/whatsapp/test", async (req, res) => {
   if (req.user?.role !== "SUPER_ADMIN") {
-    return res.status(403).json({ error: "Permiss\xE3o exclusiva do Super Admin do Elo Log." });
+    return res.status(403).json({ error: "Permiss\xE3o exclusiva do Super Admin do Atendo One." });
   }
   const tenantId = getOperationalWhatsAppTenantId(req, req.body?.tenantId);
   if (tenantId === null) return res.status(403).json({ error: "Empresa WhatsApp inv\xE1lida para este usu\xE1rio." });
@@ -7650,7 +7862,15 @@ apiRouter.post("/forms/send-dispatch", async (req, res) => {
     maskedData,
     receiptText
   } = req.body;
-  const tenantId = req.user?.tenantId || "tenant-translog-01";
+  if (!req.user) return res.status(401).json({ error: "N\xE3o autenticado." });
+  if (!responseId || typeof responseId !== "string") return res.status(400).json({ error: "responseId \xE9 obrigat\xF3rio." });
+  const response = db.formResponses.find((item) => item.id === responseId);
+  if (!response) return res.status(404).json({ error: "Resposta de formul\xE1rio n\xE3o encontrada." });
+  const responseFreight = response.freightId ? db.freights.find((item) => item.id === response.freightId) : void 0;
+  const canAccessResponse = req.user.role === "SUPER_ADMIN" ? true : response.tenantId === req.user.tenantId && (req.user.role !== "MOTORISTA" || response.filledByUserId === req.user.id || response.driverId === req.user.driverId);
+  if (!canAccessResponse) return res.status(403).json({ error: "Voc\xEA n\xE3o tem permiss\xE3o para despachar esta resposta." });
+  if (responseFreight && responseFreight.tenantId !== response.tenantId) return res.status(409).json({ error: "A resposta est\xE1 vinculada a um frete inconsistente." });
+  const tenantId = response.tenantId;
   const cleanPhone = recipientPhone ? formatPhoneForWhatsApp(recipientPhone) : "";
   let emailStatus = "NAO_INFORMADO";
   if (recipientEmail && recipientEmail.includes("@")) {
@@ -7735,6 +7955,19 @@ apiRouter.get("/audit-logs", (req, res) => {
   const logs = db.auditLogs.filter((l) => l.tenantId === req.user?.tenantId);
   res.json(logs);
 });
+apiRouter.get("/admin/metrics", (req, res) => {
+  if (req.user?.role !== "SUPER_ADMIN") return res.status(403).json({ error: "Acesso restrito ao Super Administrador." });
+  const recentCutoff = Date.now() - 30 * 24 * 60 * 60 * 1e3;
+  return res.json({
+    totalTenants: db.tenants.length,
+    activeTenants: db.tenants.filter((tenant) => tenant.status === "ATIVA").length,
+    totalUsers: db.users.length,
+    recentProvisionings: db.tenants.filter((tenant) => {
+      const date = tenant.updatedAt || tenant.createdAt;
+      return date ? new Date(date).getTime() >= recentCutoff : false;
+    }).length
+  });
+});
 apiRouter.get("/stats", (req, res) => {
   let freights = db.freights;
   let drivers = db.drivers;
@@ -7777,24 +8010,24 @@ apiRouter.delete("/freights/:id", async (req, res) => {
   }
   const now = (/* @__PURE__ */ new Date()).toISOString();
   freight.status = "CANCELADO";
-  freight.publicListingEnabled = false;
-  freight.publicPublishedAt = void 0;
+  freight.cancelledAt = now;
+  freight.cancelReason = "Cancelado pelo operador";
   freight.updatedAt = now;
+  freight.statusHistory = freight.statusHistory || [];
+  freight.statusHistory.push({ status: "CANCELADO", timestamp: now, changedByUserId: req.user?.id || "system", changedByName: req.user?.name || "Sistema", notes: freight.cancelReason });
   db.addAuditLog({
     ip: requestIp(req),
     tenantId: freight.tenantId,
     userId: req.user?.id || "system",
     userName: req.user?.name || "Sistema",
     userRole: req.user?.role || "ADMIN",
-    action: "CANCELAR_FRETE",
+    action: "EXCLUIR_FRETE",
     entity: "Freight",
     entityId: freight.id,
-    details: `Frete ${freight.code} cancelado sem apagar documentos ou hist\xF3rico.`
+    details: `Frete ${freight.code} cancelado logicamente; hist\xF3rico e registros operacionais preservados.`
   });
-  const relevantUsers = db.users.filter((user) => user.tenantId === freight.tenantId);
-  void dispatchConfiguredNotification("FRETE_CANCELADO", relevantUsers, { codigo: freight.code, empresa: db.tenants.find((item) => item.id === freight.tenantId)?.name || "", link: process.env.APP_URL || "" });
   await db.persistNow();
-  res.json({ success: true, message: "Frete cancelado; documentos e hist\xF3rico preservados." });
+  res.json({ success: true, message: "Frete cancelado e preservado no hist\xF3rico.", freight });
 });
 apiRouter.delete("/drivers/:id", async (req, res) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Somente administradores reais podem desativar motoristas." });
@@ -7951,6 +8184,30 @@ apiRouter.get("/notification-deliveries", (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 500);
   res.json(db.notificationDeliveries.slice(0, limit));
 });
+apiRouter.get("/tenant/email-config", async (req, res) => {
+  if (!req.user?.tenantId || !TENANT_ADMIN_ROLES.includes(req.user.role)) return res.status(403).json({ error: "Somente o administrador da empresa pode consultar o SMTP." });
+  await db.waitForPersistence();
+  const config = db.tenantEmailConfigs.get(req.user.tenantId);
+  return res.json({ ...config || {}, password: config?.password ? "********" : "" });
+});
+apiRouter.put("/tenant/email-config", async (req, res) => {
+  if (!req.user?.tenantId || !TENANT_ADMIN_ROLES.includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Somente o administrador real da empresa pode configurar o SMTP." });
+  const current = db.tenantEmailConfigs.get(req.user.tenantId) || {};
+  const body = req.body || {};
+  const password = body.password && body.password !== "********" ? String(body.password) : String(current.password || "");
+  const config = { host: String(body.host || current.host || "").trim(), port: Number(body.port || current.port || 587), user: String(body.user || current.user || "").trim(), password, senderEmail: String(body.senderEmail || current.senderEmail || "").trim(), testEmail: String(body.testEmail || current.testEmail || "").trim(), isActive: body.isActive === void 0 ? current.isActive !== false : Boolean(body.isActive) };
+  if (!config.host || !config.user || !config.password) return res.status(400).json({ error: "Servidor, usu\xE1rio e senha SMTP s\xE3o obrigat\xF3rios." });
+  if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) return res.status(400).json({ error: "Porta SMTP inv\xE1lida." });
+  try {
+    await db.persistTenantEmailSecret(req.user.tenantId, config);
+  } catch (error) {
+    return res.status(503).json({ error: error?.message || "N\xE3o foi poss\xEDvel salvar o SMTP com seguran\xE7a." });
+  }
+  db.tenantEmailConfigs.set(req.user.tenantId, config);
+  await db.persistNow();
+  db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: "CONFIG_SMTP_EMPRESA", entity: "TenantEmailConfig", entityId: req.user.tenantId, details: "Atualizou a configura\xE7\xE3o SMTP da empresa." });
+  return res.json({ success: true, config: { ...config, password: "********" } });
+});
 apiRouter.get("/saas/notification-templates", (req, res) => {
   if (req.user?.role !== "SUPER_ADMIN") return res.status(403).json({ error: "Apenas o Super Admin pode consultar os modelos de mensagens." });
   res.json((db.saasGlobalConfig.notificationTemplates || []).map(safeNotificationTemplate));
@@ -8011,7 +8268,7 @@ apiRouter.get("/tenant/report-templates", (req, res) => {
 });
 apiRouter.put("/tenant/report-templates/:type", async (req, res) => {
   const tenant = getEditableTenantReportOwner(req);
-  if (!tenant) return res.status(403).json({ error: "A edi\xE7\xE3o dos modelos exige perfil administrador da empresa." });
+  if (!tenant) return res.status(403).json({ error: "A edi\uFFFD\uFFFD\xE3o dos modelos exige perfil administrador da empresa." });
   if (isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Contas de teste n\xE3o podem alterar modelos de relat\xF3rio." });
   const type = String(req.params.type || "").toUpperCase();
   if (!reportTemplateTypes.has(type)) return res.status(400).json({ error: "Tipo de relat\xF3rio inv\xE1lido." });
@@ -8049,7 +8306,7 @@ apiRouter.put("/tenant/report-templates/:type", async (req, res) => {
 var getEditableTenantNotificationOwner = (req) => {
   if (!req.user || !["EMPRESA_SUPER_ADMIN", "ADMIN"].includes(req.user.role) || !req.user.tenantId) return void 0;
   const tenant = db.tenants.find((item) => item.id === req.user.tenantId);
-  return tenant && tenantOwnNumberActive(tenant.id) ? tenant : void 0;
+  return tenant;
 };
 var safeTenantNotificationAuditActor = (req) => {
   if (req.supportSession) return db.users.find((user) => user.id === req.supportSession.actorUserId) || req.user;
@@ -8057,12 +8314,12 @@ var safeTenantNotificationAuditActor = (req) => {
 };
 apiRouter.get("/tenant/notification-templates", (req, res) => {
   const tenant = getEditableTenantNotificationOwner(req);
-  if (!tenant) return res.status(403).json({ error: "A edi\xE7\xE3o de mensagens exige o m\xF3dulo ativo de WhatsApp com n\xFAmero pr\xF3prio da empresa." });
+  if (!tenant) return res.status(403).json({ error: "Somente administradores da empresa podem consultar suas mensagens." });
   return res.json(notificationTemplatesForTenant(tenant.id));
 });
 apiRouter.put("/tenant/notification-templates/:id", async (req, res) => {
   const tenant = getEditableTenantNotificationOwner(req);
-  if (!tenant) return res.status(403).json({ error: "A edi\xE7\xE3o de mensagens exige o m\xF3dulo ativo de WhatsApp com n\xFAmero pr\xF3prio da empresa." });
+  if (!tenant) return res.status(403).json({ error: "Somente administradores da empresa podem editar suas mensagens." });
   if (isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Contas de teste n\xE3o podem alterar mensagens ou configura\xE7\xF5es." });
   const globalTemplate = (db.saasGlobalConfig.notificationTemplates || []).find((item) => item.id === req.params.id);
   if (!globalTemplate) return res.status(404).json({ error: "Modelo de mensagem n\xE3o encontrado." });
@@ -8370,6 +8627,20 @@ apiRouter.post("/saas/config", async (req, res) => {
   });
   await db.persistNow();
   res.json({ success: true, config: exposeSafeSaaSConfig(db.saasGlobalConfig) });
+});
+apiRouter.post("/saas/mapbox/test", async (req, res) => {
+  if (req.user?.role !== "SUPER_ADMIN") return res.status(403).json({ error: "Acesso restrito ao Super Administrador." });
+  const incoming = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+  const token = incoming && incoming !== "********" ? incoming : String(db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "").trim();
+  if (!token || !token.startsWith("pk.")) return res.status(400).json({ error: "Insira um token p\xFAblico do Mapbox v\xE1lido (iniciado por pk.)." });
+  try {
+    const response = await fetch(`https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${encodeURIComponent(token)}`);
+    if (response.ok) return res.json({ success: true, message: "Token do Mapbox verificado com sucesso! Conex\xE3o estabelecida." });
+    if (response.status === 401) return res.status(401).json({ error: "Token inv\xE1lido ou n\xE3o autorizado pelo Mapbox." });
+    return res.status(502).json({ error: `Mapbox respondeu com status ${response.status}.` });
+  } catch {
+    return res.status(502).json({ error: "Falha de comunica\xE7\xE3o com o Mapbox." });
+  }
 });
 apiRouter.get("/database/status", async (req, res) => {
   if (req.user?.role !== "SUPER_ADMIN") {
@@ -8773,6 +9044,29 @@ apiRouter.get("/clients/cnpj/:cnpj/lookup", async (req, res) => {
   if (!budgetActor(req)) return res.status(403).json({ error: "Sem permiss\xE3o." });
   const cnpj = clientCnpj(req.params.cnpj);
   if (cnpj.length !== 14) return res.status(400).json({ error: "CNPJ inv\xE1lido." });
+  const targetTenantId = req.user?.role === "SUPER_ADMIN" ? String(req.query.tenantId || "") : String(req.user?.tenantId || "");
+  if (req.user?.role === "SUPER_ADMIN" && targetTenantId && !db.tenants.some((tenant) => tenant.id === targetTenantId)) return res.status(400).json({ error: "Empresa inv\xE1lida." });
+  const stored = db.clients.find((client) => client.cnpj === cnpj && client.status !== "ARQUIVADO");
+  if (stored) {
+    return res.json({
+      cnpj,
+      source: "DATABASE",
+      cached: true,
+      existingClient: targetTenantId && stored.tenantId === targetTenantId ? stored : void 0,
+      data: stored.cnpjData || {
+        razao_social: stored.legalName,
+        nome_fantasia: stored.tradeName,
+        logradouro: stored.address,
+        numero: stored.number,
+        bairro: stored.neighborhood,
+        cep: stored.zipCode,
+        municipio: stored.city,
+        uf: stored.state,
+        email: stored.email,
+        telefone1: stored.phone
+      }
+    });
+  }
   const ip = requestIp(req) || "unknown";
   const nowMs = Date.now();
   const attempts = (clientLookupRate.get(ip) || []).filter((timestamp) => nowMs - timestamp < CLIENT_LOOKUP_WINDOW_MS);
@@ -8780,18 +9074,18 @@ apiRouter.get("/clients/cnpj/:cnpj/lookup", async (req, res) => {
   attempts.push(nowMs);
   clientLookupRate.set(ip, attempts);
   const cached = clientLookupCache.get(cnpj);
-  if (cached && cached.expiresAt > nowMs) return res.json({ cnpj, data: cached.data, cached: true });
+  if (cached && cached.expiresAt > nowMs) return res.json({ cnpj, data: cached.data, source: "CACHE" });
   try {
     const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { headers: { Accept: "application/json", "X-Forwarded-For": ip, "X-Real-IP": ip }, signal: AbortSignal.timeout(1e4) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) return res.status(response.status === 404 ? 404 : 502).json({ error: data?.detalhes || data?.message || "N\xE3o foi poss\xEDvel consultar o CNPJ." });
     clientLookupCache.set(cnpj, { data, expiresAt: nowMs + 10 * 6e4 });
-    db.auditLogs.unshift({ id: (0, import_crypto.randomUUID)(), tenantId: req.user?.tenantId, tenantName: req.tenant?.name, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: "CONSULTA_CNPJ", entity: "CLIENT", entityId: cnpj, details: `Consulta CNPJ realizada${ip !== "unknown" ? ` pelo IP ${ip}` : ""}`, ip, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+    db.auditLogs.unshift({ id: (0, import_crypto.randomUUID)(), tenantId: req.user?.tenantId, tenantName: req.tenant?.name, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: "CONSULTA_CNPJ", entity: "CLIENT", entityId: cnpj, details: `Consulta cadastral realizada${ip !== "unknown" ? ` pelo IP ${ip}` : ""}`, ip, createdAt: (/* @__PURE__ */ new Date()).toISOString() });
     await db.persistNow();
-    return res.json({ cnpj, data });
+    return res.json({ cnpj, data, source: "EXTERNAL" });
   } catch (error) {
     console.error("CNPJ lookup failed", error);
-    return res.status(502).json({ error: "Servi\xE7o de CNPJ indispon\xEDvel no momento." });
+    return res.status(502).json({ error: "Servi\xE7o de consulta cadastral indispon\xEDvel no momento." });
   }
 });
 apiRouter.get("/clients", (req, res) => {
@@ -8868,7 +9162,7 @@ apiRouter.post("/budgets", async (req, res) => {
   if (req.body?.clientId && !db.clients.some((client) => client.id === req.body.clientId && client.tenantId === tenantId && client.status !== "ARQUIVADO")) return res.status(400).json({ error: "Cliente inv\xE1lido para esta empresa." });
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const expenses = Array.isArray(req.body?.expenses) ? req.body.expenses.map((item, index) => normalizeExpense(item, index)) : [];
-  const base = { id: (0, import_crypto.randomUUID)(), tenantId, code: `ORC-${(/* @__PURE__ */ new Date()).getFullYear()}-${String(db.budgets.length + 1).padStart(4, "0")}`, status: "RASCUNHO", version: 1, clientId: req.body?.clientId || void 0, clientName: String(req.body?.clientName || "").trim().slice(0, 180), origin: req.body?.origin || {}, destination: req.body?.destination || {}, date: String(req.body?.date || ""), cargoType: String(req.body?.cargoType || ""), weightKg: Math.max(0, Number(req.body?.weightKg) || 0), quantity: Math.max(0, Number(req.body?.quantity) || 0), vehicleType: String(req.body?.vehicleType || ""), driverId: req.body?.driverId || void 0, distanceKm: Math.max(0, Number(req.body?.distanceKm) || 0), pricePerKm: Math.max(0, Number(req.body?.pricePerKm) || 0), priceTableReference: String(req.body?.priceTableReference || "").slice(0, 160), tolls: Math.max(0, Number(req.body?.tolls) || 0), insurance: Math.max(0, Number(req.body?.insurance) || 0), dailyRate: Math.max(0, Number(req.body?.dailyRate) || 0), dailyCount: Math.max(0, Number(req.body?.dailyCount) || 0), assistantCount: Math.max(0, Number(req.body?.assistantCount) || 0), assistantDailyRate: Math.max(0, Number(req.body?.assistantDailyRate) || 0), estimatedMinutes: Math.max(0, Number(req.body?.estimatedMinutes) || 0), notes: String(req.body?.notes || "").slice(0, 2e3), expenses, taxes: Array.isArray(req.body?.taxes) ? req.body.taxes : [], profitType: req.body?.profitType === "FIXO" ? "FIXO" : "PERCENTUAL", profitValue: Number(req.body?.profitValue) || 0, driverPassed: Number(req.body?.driverPassed) || 0, driverPaid: Number(req.body?.driverPaid) || 0, customFields: req.body?.customFields || {}, versions: [], createdAt: now, updatedAt: now };
+  const base = { id: (0, import_crypto.randomUUID)(), tenantId, code: `ORC-${(/* @__PURE__ */ new Date()).getFullYear()}-${String(db.budgets.length + 1).padStart(4, "0")}`, status: "RASCUNHO", version: 1, clientId: req.body?.clientId || void 0, clientName: String(req.body?.clientName || "").trim().slice(0, 180), origin: req.body?.origin || {}, destination: req.body?.destination || {}, date: String(req.body?.date || ""), cargoType: String(req.body?.cargoType || ""), weightKg: Math.max(0, Number(req.body?.weightKg) || 0), quantity: Math.max(0, Number(req.body?.quantity) || 0), vehicleType: String(req.body?.vehicleType || ""), driverId: req.body?.driverId || void 0, distanceKm: Math.max(0, Number(req.body?.distanceKm) || 0), pricePerKm: Math.max(0, Number(req.body?.pricePerKm) || 0), priceTableReference: String(req.body?.priceTableReference || "").slice(0, 160), tolls: Math.max(0, Number(req.body?.tolls) || 0), insurance: Math.max(0, Number(req.body?.insurance) || 0), dailyRate: Math.max(0, Number(req.body?.dailyRate) || 0), dailyCount: Math.max(0, Number(req.body?.dailyCount) || 0), assistantCount: Math.max(0, Number(req.body?.assistantCount) || 0), assistantDailyRate: Math.max(0, Number(req.body?.assistantDailyRate) || 0), estimatedMinutes: Math.max(0, Number(req.body?.estimatedMinutes) || 0), routeGeometry: req.body?.routeGeometry && typeof req.body.routeGeometry === "object" ? req.body.routeGeometry : void 0, notes: String(req.body?.notes || "").slice(0, 2e3), expenses, taxes: Array.isArray(req.body?.taxes) ? req.body.taxes : [], profitType: req.body?.profitType === "FIXO" ? "FIXO" : "PERCENTUAL", profitValue: Number(req.body?.profitValue) || 0, driverPassed: Number(req.body?.driverPassed) || 0, driverPaid: Number(req.body?.driverPaid) || 0, customFields: req.body?.customFields || {}, versions: [], createdAt: now, updatedAt: now };
   base.financials = calculateBudget(base);
   const version = { id: (0, import_crypto.randomUUID)(), budgetId: base.id, version: 1, snapshot: JSON.parse(JSON.stringify(base)), createdAt: now, createdByUserId: req.user.id };
   base.versions = [version];
@@ -8889,7 +9183,7 @@ apiRouter.put("/budgets/:id", async (req, res) => {
   const expectedVersion = req.body?.expectedVersion === void 0 ? void 0 : Number(req.body.expectedVersion);
   if (expectedVersion !== void 0 && (!Number.isInteger(expectedVersion) || expectedVersion !== budget.version)) return res.status(409).json({ error: "Este or\xE7amento foi alterado por outra sess\xE3o. Recarregue os dados antes de salvar.", currentVersion: budget.version });
   if (req.body?.clientId !== void 0 && !db.clients.some((client) => client.id === req.body.clientId && client.tenantId === budget.tenantId && client.status !== "ARQUIVADO")) return res.status(400).json({ error: "Cliente inv\xE1lido para esta empresa." });
-  const allowed = ["clientId", "clientName", "origin", "destination", "date", "cargoType", "weightKg", "quantity", "vehicleType", "driverId", "distanceKm", "pricePerKm", "priceTableReference", "tolls", "insurance", "dailyRate", "dailyCount", "assistantCount", "assistantDailyRate", "estimatedMinutes", "notes", "taxes", "profitType", "profitValue", "driverPassed", "driverPaid", "customFields"];
+  const allowed = ["clientId", "clientName", "origin", "destination", "date", "cargoType", "weightKg", "quantity", "vehicleType", "driverId", "distanceKm", "pricePerKm", "priceTableReference", "tolls", "insurance", "dailyRate", "dailyCount", "assistantCount", "assistantDailyRate", "estimatedMinutes", "routeGeometry", "notes", "taxes", "profitType", "profitValue", "driverPassed", "driverPaid", "customFields"];
   for (const key of allowed) if (req.body[key] !== void 0) budget[key] = req.body[key];
   if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item, index) => normalizeExpense(item, index));
   budget.version += 1;
@@ -8930,7 +9224,8 @@ apiRouter.post("/budgets/:id/convert", async (req, res) => {
   if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true });
   if (budget.status !== "APROVADO") return res.status(409).json({ error: "Apenas or\xE7amento aprovado pode virar frete." });
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const freight = { id: (0, import_crypto.randomUUID)(), code: `FRT-${(/* @__PURE__ */ new Date()).getFullYear()}-${String(db.freights.length + 1).padStart(4, "0")}`, tenantId: budget.tenantId, tenantName: db.tenants.find((t) => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType, type: "GERAL", weightKg: budget.weightKg, volumeCount: budget.quantity }, requirements: { vehicleType: budget.vehicleType || "TRUCK", minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: "A_VISTA", tollIncluded: false }, status: "RASCUNHO", statusHistory: [], createdByUserId: req.user.id, createdByName: req.user.name, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses }, publicTrackingEnabled: false, publicTrackingToken: (0, import_crypto.randomBytes)(16).toString("hex") };
+  const inferredCargoType = ["GERAL", "FRAGIL", "REFRIGERADA", "PERIGOSA", "ALIMENTOS", "CONSTRUCAO", "MAQUINARIO", "GRAOS"].includes(String(budget.cargoType || "").toUpperCase()) ? String(budget.cargoType).toUpperCase() : "GERAL";
+  const freight = { id: (0, import_crypto.randomUUID)(), code: `FRT-${(/* @__PURE__ */ new Date()).getFullYear()}-${String(db.freights.length + 1).padStart(4, "0")}`, tenantId: budget.tenantId, tenantName: db.tenants.find((t) => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType || "Carga geral", type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || "TRUCK", minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: "A_VISTA", tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: "RASCUNHO", statusHistory: [], createdByUserId: req.user.id, createdByName: req.user.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: "BUDGET_CONVERSION" }, publicTrackingEnabled: false, publicTrackingToken: (0, import_crypto.randomBytes)(16).toString("hex") };
   db.freights.unshift(freight);
   budget.convertedFreightId = freight.id;
   budget.status = "CONVERTIDO";
@@ -8953,7 +9248,10 @@ apiRouter.delete("/budgets/:id", async (req, res) => {
 import_dotenv.default.config();
 async function startServer() {
   const app = (0, import_express2.default)();
-  const PORT = 3e3;
+  const PORT = Number.parseInt(process.env.PORT || "3000", 10);
+  if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+    throw new Error("PORT inv\xE1lida.");
+  }
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
   const requireHttps = process.env.REQUIRE_HTTPS === "true" || process.env.NODE_ENV === "production" && String(process.env.APP_URL || "").startsWith("https://");
@@ -8976,10 +9274,17 @@ async function startServer() {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Credentials", "true");
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, asaas-access-token");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, X-CSRF-Token, asaas-access-token");
       res.setHeader("Vary", "Origin");
     }
     if (req.method === "OPTIONS") return res.sendStatus(origin && allowedOrigins.has(origin) ? 204 : 403);
+    next();
+  });
+  app.use((req, res, next) => {
+    if (!String(req.headers.cookie || "").split(";").some((cookie) => cookie.trim().startsWith("atendo_csrf="))) {
+      const secure = process.env.NODE_ENV === "production" || String(process.env.APP_URL || "").startsWith("https://");
+      res.append("Set-Cookie", `atendo_csrf=${encodeURIComponent((0, import_node_crypto2.randomUUID)())}; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`);
+    }
     next();
   });
   app.use((_req, res, next) => {
@@ -9046,7 +9351,7 @@ async function startServer() {
     try {
       await db.waitForPersistence();
       res.once("finish", () => {
-        void db.persistNow();
+        void db.persistNow().catch((error) => console.error("PERSISTENCE_FAILURE", error instanceof Error ? error.message : error));
       });
       next();
     } catch (error) {
@@ -9058,7 +9363,7 @@ async function startServer() {
     res.setHeader("Cache-Control", "no-store");
     res.json({
       status: "ok",
-      service: "Portal de Fretes e Motoristas SaaS API",
+      service: "Atendo One SaaS API",
       timestamp: (/* @__PURE__ */ new Date()).toISOString()
     });
   });
@@ -9127,8 +9432,8 @@ async function startServer() {
     };
     const normalizeSeoBrand = (value, siteName) => String(value || "").replace(/Elo Log|Atendo One/gi, siteName).replace(/\s{2,}/g, " ").trim();
     const publicSeo = () => ({
-      siteName: db.saasGlobalConfig.seo?.siteName || db.saasGlobalConfig.systemName || "Elo Log",
-      title: db.saasGlobalConfig.seo?.title || `${db.saasGlobalConfig.systemName || "Elo Log"} \u2014 Gest\xE3o e publica\xE7\xE3o de fretes`,
+      siteName: db.saasGlobalConfig.seo?.siteName || db.saasGlobalConfig.systemName || "Atendo One",
+      title: db.saasGlobalConfig.seo?.title || `${db.saasGlobalConfig.systemName || "Atendo One"} \u2014 Gest\xE3o e publica\xE7\xE3o de fretes`,
       description: db.saasGlobalConfig.seo?.description || "Plataforma de gest\xE3o log\xEDstica para transportadoras, motoristas e opera\xE7\xF5es de fretes.",
       keywords: db.saasGlobalConfig.seo?.keywords || "",
       canonicalUrl: safeHttpsUrl(db.saasGlobalConfig.seo?.canonicalUrl || process.env.APP_URL, "https://gestor.atendo.log.br"),
@@ -9282,7 +9587,7 @@ async function startServer() {
     const correlationId = String(req.headers["x-request-id"] || `corr-${Date.now()}-${(0, import_node_crypto2.randomUUID)().slice(0, 8)}`);
     db.addErrorLog({
       correlationId,
-      service: "elolog-app",
+      service: "atendo-one-app",
       route: req.path,
       method: req.method,
       statusCode: Number(error?.status || 500),
@@ -9292,8 +9597,18 @@ async function startServer() {
     if (res.headersSent) return next(error);
     res.status(Number(error?.status || 500)).json({ error: "Ocorreu um erro interno. Consulte o suporte com o identificador de atendimento.", correlationId });
   });
+  if (process.env.NODE_ENV === "production") {
+    if (!process.env.DATABASE_URL && !process.env.DB_HOST) throw new Error("PostgreSQL \xE9 obrigat\xF3rio em produ\xE7\xE3o; configure DATABASE_URL ou DB_HOST.");
+    if (process.env.NORMALIZED_DOMAIN_RLS === "true") {
+      throw new Error("NORMALIZED_DOMAIN_RLS deve permanecer false at\xE9 a migra\xE7\xE3o relacional do dom\xEDnio ser validada.");
+    }
+    if (process.env.RLS_DOMAIN_MODE === "active" && process.env.NORMALIZED_DOMAIN_RLS !== "true") {
+      throw new Error("RLS_DOMAIN_MODE=active exige NORMALIZED_DOMAIN_RLS=true; o dom\xEDnio app_state ainda est\xE1 em transi\xE7\xE3o.");
+    }
+    await db.waitForPersistence();
+  }
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`\u{1F69A} Portal de Fretes SaaS Server running on http://0.0.0.0:${PORT}`);
+    console.log(`\u{1F69A} Atendo One Server running on http://0.0.0.0:${PORT}`);
   });
 }
 startServer().catch((err) => {

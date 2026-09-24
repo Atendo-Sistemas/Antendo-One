@@ -1,8 +1,8 @@
-const CACHE_NAME = 'atendo-one-v1.8.0';
+const CACHE_NAME = 'atendo-one-v1.8.43';
 
 self.addEventListener('install', function(event) {
   self.skipWaiting();
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['/','/manifest.json'])));
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['/','/login','/manifest.json'])));
 });
 
 self.addEventListener('activate', function(event) {
@@ -22,10 +22,11 @@ self.addEventListener('fetch', function(event) {
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   if (request.mode === 'navigate') {
+    const cacheKey = url.pathname === '/login' ? '/login' : '/';
     event.respondWith(
       fetch(request)
-        .then(response => { const copy = response.clone(); caches.open(CACHE_NAME).then(cache => cache.put('/', copy)); return response; })
-        .catch(() => caches.match('/'))
+        .then(response => { const copy = response.clone(); caches.open(CACHE_NAME).then(cache => cache.put(cacheKey, copy)); return response; })
+        .catch(() => caches.match(cacheKey).then(cached => cached || caches.match('/login')))
     );
     return;
   }
