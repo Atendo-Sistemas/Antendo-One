@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { api } from '../../services/api';
+import { publicTrackingApi } from '../../services/api';
 import { MapPin, Loader2 } from 'lucide-react';
 
 interface AddressData {
@@ -73,15 +73,12 @@ export const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       const controller = new AbortController();
       abortRef.current = controller;
       try {
-        const results = await api.geocode(`${text}, Brasil`, { signal: controller.signal });
-<<<<<<< Updated upstream
-        setSuggestions(results || []);
-        setIsOpen(true);
-=======
-        const nextSuggestions = Array.isArray(results) ? results.filter(Boolean) : [];
+        const results = await publicTrackingApi.geocode(`${text}, Brasil`, controller.signal);
+        const nextSuggestions = Array.isArray(results)
+          ? results.filter((item) => item && (item.address || item.placeName))
+          : [];
         setSuggestions(nextSuggestions);
         setIsOpen(nextSuggestions.length > 0);
->>>>>>> Stashed changes
       } catch (error) {
         if ((error as DOMException)?.name !== 'AbortError') {
           console.error('Erro ao buscar endereço:', error);

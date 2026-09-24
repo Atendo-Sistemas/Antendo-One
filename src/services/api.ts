@@ -114,8 +114,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}, allowRefr
   return data as T;
 }
 
-async function publicRequest<T>(endpoint: string): Promise<T> {
-  const res = await fetch(`/api${endpoint}`, { headers: { Accept: 'application/json' } });
+async function publicRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`/api${endpoint}`, { ...options, credentials: 'omit', headers: { Accept: 'application/json', ...(options.headers || {}) } });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const error = new Error(data.message || data.error || `Erro ${res.status}: não foi possível carregar o rastreamento`) as Error & { status?: number };
@@ -418,12 +418,21 @@ export const budgetApi = {
   geocode: (query: string, signal?: AbortSignal) => request<any[]>(`/mapbox/geocode?q=${encodeURIComponent(query)}`, signal ? { signal } : undefined),
   // ✅ NOVO: Endpoint protegido para geocodificação em rastreamento
   geocodeTracking: (query: string, options?: RequestInit) => request<any[]>(`/mapbox/geocode-tracking?q=${encodeURIComponent(query)}`, options),
-  directions: (origin: any, destination: any) => request<any>(`/mapbox/directions?origin=${origin.lng},${origin.lat}&destination=${destination.lng},${destination.lat}`),
+  directions: (origin: any, destination: any) => {
+    if (!Number.isFinite(Number(origin?.lng)) || !Number.isFinite(Number(origin?.lat)) || !Number.isFinite(Number(destination?.lng)) || !Number.isFinite(Number(destination?.lat))) {
+      return Promise.reject(new Error('Coordenadas válidas de origem e destino são necessárias para calcular a rota.'));
+    }
+    const params = new URLSearchParams({
+      origin: `${Number(origin.lng)},${Number(origin.lat)}`,
+      destination: `${Number(destination.lng)},${Number(destination.lat)}`
+    });
+    return request<any>(`/mapbox/directions?${params.toString()}`);
+  },
   clientConfig: () => request<any>('/mapbox/client-config')
 };
 
 export const publicTrackingApi = {
-  geocode: (query: string) => publicRequest<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/public/mapbox/geocode?q=${encodeURIComponent(query)}`),
+  geocode: (query: string, signal?: AbortSignal) => publicRequest<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/public/mapbox/geocode?q=${encodeURIComponent(query)}`, signal ? { signal } : undefined),
   clientConfig: () => publicRequest<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number }>(`/public/mapbox/client-config`)
 };
 

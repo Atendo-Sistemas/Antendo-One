@@ -115,12 +115,37 @@ export const BudgetManager: React.FC = () => {
   };
 
   const calculateRoute = async () => {
-    if (!draft.origin?.city || !draft.destination?.city) return setError('Informe as cidades de origem e destino.');
+    if (!draft.origin?.address || !draft.destination?.address) {
+      setError('Informe os endereços completos de origem e destino.');
+      return;
+    }
     setRouteLoading(true);
+    setError('');
     try {
-      const r = await budgetApi.directions(draft.origin, draft.destination);
-      setDraft({ ...draft, distanceKm: r.distanceKm, tolls: r.estimatedTolls });
-    } catch (e: any) { setError(e.message); }
+      const resolvePoint = async (point: any) => {
+        if (Number.isFinite(point?.lat) && Number.isFinite(point?.lng)) return point;
+        const query = [point.address, point.number, point.neighborhood, point.city, point.state, 'Brasil'].filter(Boolean).join(', ');
+        const results = await budgetApi.geocode(query);
+        const first = results[0];
+        if (!first || !Number.isFinite(first.lat) || !Number.isFinite(first.lng)) {
+          throw new Error(`Não foi possível localizar o endereço: ${point.address}.`);
+        }
+        return { ...point, lat: first.lat, lng: first.lng, mapboxPlaceId: first.id };
+      };
+      const origin = await resolvePoint(draft.origin);
+      const destination = await resolvePoint(draft.destination);
+      const r = await budgetApi.directions(origin, destination);
+      setDraft({
+        ...draft,
+        origin,
+        destination,
+        distanceKm: r.distanceKm,
+        // Persist the route geometry so the approved budget and any freight
+        // created from it retain the exact Mapbox route.
+        routeGeometry: r.geometry || null,
+        tolls: Number.isFinite(Number(r.estimatedTolls)) ? Number(r.estimatedTolls) : (draft.tolls || 0)
+      });
+    } catch (e: any) { setError(e.message || 'Não foi possível calcular a rota.'); }
     finally { setRouteLoading(false); }
   };
 

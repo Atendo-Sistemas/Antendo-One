@@ -109,6 +109,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
   const [routeGeometry, setRouteGeometry] = useState<any>(null);
   const addressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const addressAbort = React.useRef<AbortController | null>(null);
   const addressCache = React.useRef(new Map<string, Array<{ id: string; placeName: string; address?: string; city?: string; state?: string; zipCode?: string; number?: string; neighborhood?: string; lat: number; lng: number }>>());
   const [originCoordinates, setOriginCoordinates] = useState<{ lat?: number; lng?: number; mapboxPlaceId?: string }>({});
   const [destinationCoordinates, setDestinationCoordinates] = useState<{ lat?: number; lng?: number; mapboxPlaceId?: string }>({});
@@ -246,16 +247,25 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
     if (side === 'origin') { setOriginAddress(value); setOriginCoordinates({}); }
     else { setDestAddress(value); setDestinationCoordinates({}); }
     if (addressTimer.current) clearTimeout(addressTimer.current);
+    addressAbort.current?.abort();
     if (value.trim().length < 3) return setAddressSuggestions({ side, items: [] });
     const query = [value.trim(), side === 'origin' ? originCity : destCity, side === 'origin' ? originState : destState, 'Brasil'].filter(Boolean).join(', ');
     const cached = addressCache.current.get(query.toLowerCase());
     if (cached) return setAddressSuggestions({ side, items: cached });
     addressTimer.current = setTimeout(async () => {
+      const controller = new AbortController();
+      addressAbort.current = controller;
       try {
-        const result = await budgetApi.geocode(query);
-        addressCache.current.set(query.toLowerCase(), result);
-        setAddressSuggestions({ side, items: result });
-      } catch { setAddressSuggestions({ side, items: [] }); }
+        const result = await budgetApi.geocode(query, controller.signal);
+        if (controller.signal.aborted) return;
+        const items = Array.isArray(result) ? result.filter(item => item && item.id && (item.placeName || item.address)) : [];
+        addressCache.current.set(query.toLowerCase(), items);
+        setAddressSuggestions({ side, items });
+      } catch (error) {
+        if ((error as DOMException)?.name !== 'AbortError' && !controller.signal.aborted) {
+          setAddressSuggestions({ side, items: [] });
+        }
+      }
     }, 350);
   };
 

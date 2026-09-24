@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { User, Tenant, Driver, Vehicle, AppNotification, SupportSessionInfo } from '../types';
 import { api, setAuthToken, clearAuthToken } from '../services/api';
 
@@ -26,6 +26,7 @@ interface AuthContextType {
   startDemoSession: (userId?: string) => Promise<void>;
   endSupportSession: () => Promise<void>;
   logout: () => void;
+  setAuthenticatedUser: (user: User) => void;
   refreshProfile: () => Promise<void>;
   updateUserProfile: (data: Partial<User> & { address?: string; city?: string; state?: string; zipCode?: string; password?: string }) => Promise<{ success: boolean; user: User }>;
   refreshNotifications: () => Promise<void>;
@@ -44,23 +45,31 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [supportSession, setSupportSession] = useState<SupportSessionInfo | null>(null);
+  // A sessão inicial pode responder depois que o usuário conclui o login.
+  // Somente a chamada mais recente pode atualizar ou limpar o estado global.
+  const profileRequestId = useRef(0);
 
   const refreshProfile = useCallback(async () => {
+    const requestId = ++profileRequestId.current;
     try {
       const data = await api.getMe();
+      if (requestId !== profileRequestId.current) return;
       setUser(data.user);
       setTenant(data.tenant);
       setDriver(data.driver || null);
       setVehicles(data.vehicles || []);
       setAvailableDemoAccounts(data.availableDemoAccounts || []);
       setSupportSession(data.supportSession || null);
+      return true;
     } catch (err: any) {
+      if (requestId !== profileRequestId.current) return false;
       if (err?.status === 401) {
         clearAuthToken();
         setUser(null); setTenant(null); setDriver(null); setVehicles([]); setAvailableDemoAccounts([]); setSupportSession(null);
       } else {
         console.error('Error fetching user profile:', err);
       }
+      return false;
     }
   }, []);
 
@@ -181,6 +190,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     clearAuthToken();
   }, []);
 
+  // Atualiza a aplicação imediatamente após login/OTP. O refresh seguinte
+  // completa tenant, veículos e permissões sem deixar a tela pública parada.
+  const setAuthenticatedUser = useCallback((authenticatedUser: User) => {
+    profileRequestId.current += 1;
+    setUser(authenticatedUser);
+  }, []);
+
   const updateUserProfile = async (data: Partial<User> & { address?: string; city?: string; state?: string; zipCode?: string; password?: string }) => {
     const result = await api.updateProfile(data);
     if (result.user) {
@@ -227,6 +243,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         startDemoSession,
         endSupportSession,
         logout,
+        setAuthenticatedUser,
         refreshProfile,
         updateUserProfile,
         refreshNotifications,

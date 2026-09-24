@@ -238,15 +238,25 @@ function parseCookies(req: Request): Record<string, string> {
 }
 
 function setSessionCookies(res: Response, token: string, refreshToken?: string): void {
-  const secure = process.env.NODE_ENV === 'production' || String(process.env.APP_URL || '').startsWith('https://');
+  const forwardedProto = String(res.req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const requestIsHttps = forwardedProto === 'https' || res.req.secure;
+  const configuredHttps = String(process.env.APP_URL || '').startsWith('https://');
+  // Secure cookies are accepted only over HTTPS. Prefer the proxy's actual
+  // protocol so local HTTP and misconfigured APP_URL values do not discard the
+  // login response in the browser.
+  const secure = requestIsHttps || (configuredHttps && process.env.NODE_ENV === 'production');
   const base = `Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
   res.append('Set-Cookie', `${ACCESS_COOKIE}=${encodeURIComponent(token)}; Max-Age=600; ${base}`);
   if (refreshToken) res.append('Set-Cookie', `${REFRESH_COOKIE}=${encodeURIComponent(refreshToken)}; Max-Age=${Math.floor(REFRESH_TOKEN_TTL_MS / 1000)}; ${base}`);
+  // O token CSRF precisa ser legível pelo cliente para acompanhar as requisições mutáveis.
+  const csrfSecure = secure ? '; Secure' : '';
+  res.append('Set-Cookie', `${CSRF_COOKIE}=${encodeURIComponent(randomUUID())}; Max-Age=${Math.floor(REFRESH_TOKEN_TTL_MS / 1000)}; Path=/; SameSite=Lax${csrfSecure}`);
 }
 
 function clearSessionCookies(res: Response): void {
   res.append('Set-Cookie', `${ACCESS_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
   res.append('Set-Cookie', `${REFRESH_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+  res.append('Set-Cookie', `${CSRF_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`);
 }
 
 function issueUserSession(user: User) {
@@ -317,6 +327,8 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     '/auth/demo-session',
     '/analytics/visit',
     '/health',
+    '/public/mapbox/geocode',
+    '/public/mapbox/client-config',
     '/internal/backups/event'
   ];
 
@@ -836,7 +848,7 @@ const trackingSubscribers = new Map<string, Set<Response>>();
       id: item.id || properties.mapbox_id,
       placeName: properties.full_address || item.place_name || address,
       address,
-      number: properties.address?.match(/\d+/)?.[0] || item.address?.match(/\d+/)?.[0],
+      number: (typeof properties.address === 'string' ? properties.address : '')?.match(/\d+/)?.[0] || (typeof item.address === 'string' ? item.address : '')?.match(/\d+/)?.[0],
       neighborhood: getContext('neighborhood', 'neighborhood') || getContext('locality', 'locality'),
       zipCode: getContext('postcode', 'postcode'),
       city: getContext('place', 'place') || getContext('district', 'district'),
@@ -848,17 +860,6 @@ const trackingSubscribers = new Map<string, Set<Response>>();
 
   const geocodeWithMapbox = async (query: string, token: string) => {
     const encodedQuery = encodeURIComponent(query);
-<<<<<<< Updated upstream
-    const params = `?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`;
-    const v6Response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward/${encodedQuery}.json${params}`);
-    const v6Data = await v6Response.json().catch(() => ({}));
-    if (v6Response.ok && Array.isArray(v6Data.features)) return normalizeMapboxFeatures(v6Data.features);
-
-    const v5Response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json${params}`);
-    const v5Data = await v5Response.json().catch(() => ({}));
-    if (!v5Response.ok) throw new Error('Mapbox geocoding request failed');
-    return normalizeMapboxFeatures(v5Data.features || []);
-=======
     const params = `country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`;
 
     // The v5 endpoint is stable for address autocomplete. The former v6 URL
@@ -876,7 +877,6 @@ const trackingSubscribers = new Map<string, Set<Response>>();
     const v6Data = await v6Response.json().catch(() => ({}));
     if (v6Response.ok) return normalizeMapboxFeatures(v6Data.features || []);
     throw new Error('Mapbox geocoding request failed');
->>>>>>> Stashed changes
   };
 
   const handleGeocode = async (req: AuthenticatedRequest, res: Response) => {
@@ -2191,7 +2191,7 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
     details: `Login realizado com sucesso via perfil ${targetUser.role}`
   });
 
-  res.json({ user: sanitizeUser(targetUser) });
+  res.json(getSessionDataForUser(targetUser));
 });
 
 apiRouter.post('/auth/refresh', (req: AuthenticatedRequest, res: Response) => {
@@ -5610,7 +5610,7 @@ apiRouter.get('/tenant/report-templates', (req: AuthenticatedRequest, res: Respo
 
 apiRouter.put('/tenant/report-templates/:type', async (req: AuthenticatedRequest, res: Response) => {
   const tenant = getEditableTenantReportOwner(req);
-  if (!tenant) return res.status(403).json({ error: 'A edição dos modelos exige perfil administrador da empresa.' });
+  if (!tenant) return res.status(403).json({ error: 'A edi��ão dos modelos exige perfil administrador da empresa.' });
   if (isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Contas de teste não podem alterar modelos de relatório.' });
 
   const type = String(req.params.type || '').toUpperCase() as ReportTemplateType;

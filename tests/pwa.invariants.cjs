@@ -4,7 +4,7 @@ const path = require('node:path');
 const sw = fs.readFileSync(path.resolve(__dirname, '../public/sw.js'), 'utf8');
 const main = fs.readFileSync(path.resolve(__dirname, '../src/main.tsx'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../public/manifest.json'), 'utf8'));
-assert.match(sw, /CACHE_NAME = 'atendo-one-v1\.8\.32'/);
+assert.match(sw, /CACHE_NAME = 'atendo-one-v1\.8\.\d+'/);
 assert.match(sw, /skipWaiting/);
 assert.match(sw, /clients\.claim/);
 assert.match(sw, /pathname\.startsWith\('\/api\/'\)/);

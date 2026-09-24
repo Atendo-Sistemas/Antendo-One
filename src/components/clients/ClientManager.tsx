@@ -128,9 +128,12 @@ export const ClientManager: React.FC = () => {
                 placeholder="Buscar rua, avenida..."
                 onSelect={(data) => setDraft((prev: any) => ({ 
                   ...prev, 
-                  address: data.address, 
-                  city: data.city || prev.city, 
-                  state: data.state || prev.state 
+                  address: data.address,
+                  number: data.number || prev.number,
+                  neighborhood: data.neighborhood || prev.neighborhood,
+                  zipCode: data.zipCode || prev.zipCode,
+                  city: data.city || prev.city,
+                  state: data.state || prev.state
                 }))} 
               />
             </label>

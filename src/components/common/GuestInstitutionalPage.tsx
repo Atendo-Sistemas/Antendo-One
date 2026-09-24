@@ -42,7 +42,7 @@ const DEMO_PROFILES = [
 ] as const;
 
 export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ onLoginSuccess, onDemoStart, initialTab = 'inicio' }) => {
-  const { refreshProfile, refreshNotifications } = useAuth();
+  const { setAuthenticatedUser, refreshProfile, refreshNotifications } = useAuth();
   const { config } = useSaaS();
   const [activeSubTab, setActiveSubTab] = useState<'inicio' | 'contato' | 'login' | 'cadastro'>(initialTab);
 
@@ -194,6 +194,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
     try {
       const res = await api.login(loginEmail, undefined, loginPassword);
       setAuthSession(res.token, res.refreshToken);
+      if (res.user) setAuthenticatedUser(res.user);
       await refreshProfile();
       await refreshNotifications();
       onLoginSuccess();
@@ -241,6 +242,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
     try {
       const res = await api.verifyOtp(loginPhone, loginOtpCode);
       setAuthSession(res.token, res.refreshToken);
+      if (res.user) setAuthenticatedUser(res.user);
       await refreshProfile();
       await refreshNotifications();
       onLoginSuccess();
