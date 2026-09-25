@@ -18,9 +18,59 @@ export const DriverManager: React.FC = () => {
   const [city, setCity] = useState('');
   const [state, setState] = useState('SP');
   const [cnh, setCnh] = useState('');
+  const [companyNotes, setCompanyNotes] = useState('');
+  const [companyFiles, setCompanyFiles] = useState<any[]>([]);
   
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [lookupResult, setLookupResult] = useState<any | null>(null);
+
+  const handleLookup = async () => {
+    const phoneLookup = window.prompt('Telefone do motorista (deixe vazio para consultar por CNH):')?.trim() || '';
+    const cnhLookup = phoneLookup ? '' : (window.prompt('Número da CNH:')?.trim() || '');
+    if (!phoneLookup && !cnhLookup) return;
+    setSaving(true);
+    setError('');
+    try {
+      const result = await api.lookupDriver(phoneLookup, cnhLookup);
+      setLookupResult(result.driver);
+      if (result.companyLink?.status === 'APROVADO') {
+        setError('Este motorista já está aprovado nesta empresa.');
+      } else {
+        await api.linkDriverToCompany(result.driver.id);
+        await load();
+        setError('Motorista encontrado e vínculo pendente criado para esta empresa.');
+      }
+    } catch (e: any) {
+      setError(e.message || 'Não foi possível consultar o motorista.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    setLookupResult(null);
+    const newName = window.prompt('Nome completo do motorista:')?.trim() || '';
+    if (!newName) return;
+    const newEmail = window.prompt('E-mail do motorista:')?.trim() || '';
+    const newPhone = window.prompt('Telefone/WhatsApp do motorista:')?.trim() || '';
+    const newCpf = window.prompt('CPF do motorista:')?.trim() || '';
+    const newCnh = window.prompt('CNH do motorista:')?.trim() || '';
+    if (!newEmail || !newPhone || !newCpf || !newCnh) {
+      setError('Nome, e-mail, telefone, CPF e CNH são obrigatórios para incluir um motorista.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await api.registerDriver({ name: newName, email: newEmail, phone: newPhone, cpf: newCpf, cnh: newCnh, city: '', state: 'SP' });
+      await load();
+    } catch (e: any) {
+      setError(e.message || 'Não foi possível incluir o motorista.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -45,6 +95,12 @@ export const DriverManager: React.FC = () => {
     setCity(driver.city || '');
     setState(driver.state || 'SP');
     setCnh(driver.cnh || '');
+    setCompanyNotes('');
+    setCompanyFiles([]);
+    void api.getDriverCompanyProfile(driver.id).then(profile => {
+      setCompanyNotes(profile.notes || '');
+      setCompanyFiles(Array.isArray(profile.files) ? profile.files : []);
+    }).catch(() => {});
     setError('');
   };
 
@@ -57,6 +113,8 @@ export const DriverManager: React.FC = () => {
     setCity('');
     setState('SP');
     setCnh('');
+    setCompanyNotes('');
+    setCompanyFiles([]);
     setError('');
   };
 
@@ -66,6 +124,7 @@ export const DriverManager: React.FC = () => {
     setError('');
     try {
       await api.updateDriver(editingId, { name, phone, cpf, rg, city, state, cnh });
+      await api.updateDriverCompanyProfile(editingId, { notes: companyNotes, files: companyFiles });
       await load();
       cancelEdit();
     } catch (e: any) {
@@ -77,6 +136,21 @@ export const DriverManager: React.FC = () => {
 
   const fCity = { label: 'Cidade', placeholder: 'São Paulo', enabled: true, required: true };
   const fCnh = { label: 'CNH', placeholder: 'Apenas números', enabled: true, required: false };
+
+  const handleCompanyFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setError('O arquivo deve ter no máximo 5 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') setCompanyFiles(prev => [...prev, { name: file.name, mimeType: file.type, dataUrl: reader.result }].slice(-20));
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
 
   const filtered = drivers.filter(d => {
     if (!searchTerm) return true;
@@ -96,9 +170,16 @@ export const DriverManager: React.FC = () => {
             <Truck className="w-6 h-6" /> Cadastro de Motoristas
           </h1>
         </div>
+        <button type="button" onClick={() => void handleCreate()} disabled={saving} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">
+          Incluir motorista
+        </button>
+        <button type="button" onClick={() => void handleLookup()} disabled={saving} className="rounded-xl border border-emerald-300 px-4 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 cursor-pointer">
+          Consultar por telefone/CNH
+        </button>
       </div>
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 dark:border-red-900/30 dark:bg-red-950/20 p-4 text-sm text-red-700 dark:text-red-300 shadow-sm flex items-start gap-2"><ShieldAlert className="w-5 h-5 shrink-0" /> {error}</div>}
+      {lookupResult && <div className="rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-900/30 dark:bg-blue-950/20 p-4 text-sm text-blue-900 dark:text-blue-100 shadow-sm"><div className="font-bold">Cadastro global encontrado</div><div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs"><span>Nome: <strong>{lookupResult.name}</strong></span><span>Telefone: <strong>{lookupResult.phone || '--'}</strong></span><span>CPF: <strong>{lookupResult.cpf || '--'}</strong></span><span>CNH: <strong>{lookupResult.cnh || '--'}</strong></span><span>E-mail: <strong>{lookupResult.email || '--'}</strong></span><span>Endereço: <strong>{lookupResult.address || '--'}</strong></span><span>Cidade/UF: <strong>{lookupResult.city || '--'}/{lookupResult.state || '--'}</strong></span><span>Validade CNH: <strong>{lookupResult.cnhExpiresAt || '--'}</strong></span></div><div className="mt-2 text-[11px] text-blue-700 dark:text-blue-300">Esses são dados cadastrais globais. Anotações e arquivos permanecem exclusivos desta empresa.</div></div>}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         {/* Left Column: List */}
@@ -205,6 +286,17 @@ export const DriverManager: React.FC = () => {
                     <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">RG</span>
                     <input value={rg} onChange={e => setRg(e.target.value)} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium font-mono" />
                   </label>
+                </div>
+                <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">Anotações internas desta empresa</span>
+                    <textarea value={companyNotes} onChange={e => setCompanyNotes(e.target.value)} rows={4} placeholder="Registre observações que não serão compartilhadas com outras empresas." className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs" />
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Arquivos desta empresa (até 5 MB cada)
+                    <input type="file" onChange={handleCompanyFile} className="mt-1 block w-full text-xs" />
+                  </label>
+                  {companyFiles.length > 0 && <ul className="space-y-1 text-[11px] text-slate-500">{companyFiles.map((file, index) => <li key={file.id || `${file.name}-${index}`} className="flex items-center justify-between gap-2"><span className="truncate">{file.name}</span><button type="button" onClick={() => setCompanyFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))} className="text-red-600 hover:underline">Remover</button></li>)}</ul>}
                 </div>
               </div>
 

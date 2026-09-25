@@ -348,7 +348,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Secondary Row for Navigation Menu - Placed below the main header row */}
       <div className="hidden md:block border-t border-slate-200/50 dark:border-slate-800/50 bg-slate-50/80 dark:bg-slate-900/40 transition-colors">
         <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
-          <nav className={`flex items-center gap-1.5 no-scrollbar ${isSuperAdmin ? 'overflow-visible' : 'overflow-x-auto'}`} aria-label="Navegação principal">
+          <nav className="flex items-center gap-1.5 no-scrollbar overflow-visible" aria-label="Navegação principal">
             <div className="flex items-center gap-1.5 pr-2 mr-1 border-r border-slate-200 dark:border-slate-700 shrink-0">
               <button type="button" onClick={() => setActiveTab(isDriver ? 'driver-portal' : isSuperAdmin ? 'saas-tenants' : 'freights')} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black shadow-sm hover:bg-emerald-700 transition-colors">Início</button>
               {!isDriver && <button type="button" onClick={() => setActiveTab('operations')} className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors ${activeTab === 'operations' ? 'bg-indigo-600 text-white' : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-300'}`}>Central</button>}
@@ -449,7 +449,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         {group.label}<ChevronDown className={`w-3.5 h-3.5 transition-transform ${openNavGroup === group.key ? 'rotate-180' : ''}`} />
                       </button>
                       {openNavGroup === group.key && (
-                        <div className="absolute left-0 top-full mt-1 z-50 min-w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                        <div className="absolute left-0 top-full mt-1 z-[70] min-w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
                           {group.items.map(([tab, label]) => (
                             <button key={tab} type="button" onClick={() => { setActiveTab(tab); setOpenNavGroup(null); }} className={`block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold whitespace-nowrap ${activeTab === tab ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'}`}>{label}</button>
                           ))}
@@ -486,7 +486,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 👤 Meu Perfil & Veículos
               </button>
               <button
-                onClick={() => { setActiveTab('company-vehicles'); setShowMobileMenu(false); }}
+                onClick={() => { setActiveTab('driver-profile'); setShowMobileMenu(false); }}
                 className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 Veículos próprios
@@ -496,6 +496,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
               >
                 💰 Prestação de Contas
+              </button>
+              <button
+                onClick={() => { setActiveTab('notification-preferences'); setShowMobileMenu(false); }}
+                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
+              >
+                Preferências de notificações
               </button>
               <button
                 onClick={() => { setActiveTab('help'); setShowMobileMenu(false); }}

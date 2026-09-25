@@ -165,7 +165,7 @@ export const api = {
   async getFreight(id: string) { return request<Freight>(`/freights/${id}`); },
   async createFreight(data: Partial<Freight>) { return request<Freight>('/freights', { method: 'POST', body: JSON.stringify(data) }); },
   async updateFreight(id: string, data: Partial<Freight>) { return request<Freight>(`/freights/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async updateFreightStatus(id: string, status: string, notes?: string) { return request<Freight>(`/freights/${id}/status`, { method: 'POST', body: JSON.stringify({ status, ...(notes ? { notes } : {}) }) }); },
+  async updateFreightStatus(id: string, status: string, notes?: string) { return request<Freight>(`/freights/${id}/status`, { method: 'POST', body: JSON.stringify({ newStatus: status, ...(notes ? { notes } : {}) }) }); },
   async deleteFreight(id: string) { return request<{ success: boolean }>(`/freights/${id}`, { method: 'DELETE' }); },
   async publishFreight(id: string, data: any) { return request<Freight>(`/freights/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }); },
   async unpublishFreight(id: string) { return request<Freight>(`/freights/${id}/unpublish`, { method: 'POST' }); },
@@ -294,12 +294,15 @@ export const api = {
 
   // Drivers
   async getDrivers(search = '') { return request<Driver[]>(`/drivers?search=${encodeURIComponent(search)}`); },
+  async lookupDriver(phone?: string, cnh?: string) { return request<any>(`/drivers/lookup?${new URLSearchParams({ ...(phone ? { phone } : {}), ...(cnh ? { cnh } : {}) }).toString()}`); },
+  async linkDriverToCompany(driverId: string, tenantId?: string) { return request<any>(`/drivers/${encodeURIComponent(driverId)}/company-link`, { method: 'POST', body: JSON.stringify(tenantId ? { tenantId } : {}) }); },
+  async getDriverCompanyProfile(driverId: string, tenantId?: string) { return request<any>(`/drivers/${encodeURIComponent(driverId)}/company-profile${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
+  async updateDriverCompanyProfile(driverId: string, data: any) { return request<any>(`/drivers/${encodeURIComponent(driverId)}/company-profile`, { method: 'PUT', body: JSON.stringify(data) }); },
   async getDriver(id: string) { return request<Driver>(`/drivers/${id}`); },
   async createDriver(data: any) { return request<Driver>('/drivers', { method: 'POST', body: JSON.stringify(data) }); },
   async updateDriver(id: string, data: any) { return request<Driver>(`/drivers/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
   async deleteDriver(id: string) { return request<{ success: boolean }>(`/drivers/${id}`, { method: 'DELETE' }); },
   async inviteDriver(email: string) { return request<{ success: boolean }>('/drivers/invite', { method: 'POST', body: JSON.stringify({ email }) }); },
-  async linkDriverToCompany(driverId: string, tenantId: string) { return request<any>('/driver-company-links', { method: 'POST', body: JSON.stringify({ driverId, tenantId }) }); },
   async unlinkDriverFromCompany(linkId: string) { return request<{ success: boolean }>(`/driver-company-links/${linkId}`, { method: 'DELETE' }); },
 
   // Compatibility methods used by legacy and administrative screens
@@ -347,6 +350,7 @@ export const api = {
   async getLodgingPartners(...args: any[]) { return request<any[]>('/lodging-partners'); },
   async createLodgingPartner(data: any) { return request<any>('/lodging-partners', { method: 'POST', body: JSON.stringify(data) }); },
   async acceptFreight(id: string) { return request<any>(`/freights/${encodeURIComponent(id)}/accept`, { method: 'POST' }); },
+  async assignFreightDriver(id: string, driverId: string) { return request<any>(`/freights/${encodeURIComponent(id)}/assign-driver`, { method: 'POST', body: JSON.stringify({ driverId }) }); },
   async getDriverCompanyLinks(...args: any[]) { return request<any[]>('/driver-company-links'); },
   async updateDriverCompanyLinkStatus(id: string, ...args: any[]) { return request<any>(`/driver-company-links/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ status: args[0], freightId: args[1], scope: args[2], ...(typeof args[0] === 'object' ? args[0] : {}) }) }); },
   async registerDriver(data: any) { return request<any>('/drivers/register', { method: 'POST', body: JSON.stringify(data) }); },
@@ -433,6 +437,7 @@ export const budgetApi = {
 
 export const publicTrackingApi = {
   geocode: (query: string, signal?: AbortSignal) => publicRequest<Array<{ id: string; placeName: string; address: string; city?: string; state?: string; lat: number; lng: number }>>(`/public/mapbox/geocode?q=${encodeURIComponent(query)}`, signal ? { signal } : undefined),
+  lookupCep: (cep: string) => publicRequest<{ zipCode: string; address: string; neighborhood: string; city: string; state: string; complement?: string }>(`/public/cep?cep=${encodeURIComponent(cep)}`),
   clientConfig: () => publicRequest<{ enabled: boolean; apiKey: string; defaultStyle: string; defaultZoom: number }>(`/public/mapbox/client-config`)
 };
 

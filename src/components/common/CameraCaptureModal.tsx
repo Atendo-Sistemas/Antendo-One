@@ -39,15 +39,16 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
   const [torchOn, setTorchOn] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const fileFallbackRef = useRef<HTMLInputElement>(null);
   const nativeCameraInputRef = useRef<HTMLInputElement>(null);
 
   const stopStream = useCallback(() => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
-  }, [stream]);
+    const activeStream = streamRef.current;
+    if (activeStream) activeStream.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    setStream(null);
+  }, []);
 
   const startCamera = useCallback(async (mode: 'environment' | 'user') => {
     stopStream();
@@ -57,6 +58,9 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Navegador sem suporte a captura de câmera direta.');
+      }
+      if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        throw new Error('A câmera do navegador exige HTTPS ou localhost.');
       }
 
       const mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -68,6 +72,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
         audio: false
       });
 
+      streamRef.current = mediaStream;
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
@@ -88,6 +93,8 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
         setCameraError('Permissão de acesso à câmera negada. Ative a permissão no navegador ou escolha da galeria.');
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         setCameraError('Nenhuma câmera encontrada neste dispositivo.');
+      } else if (err.message?.includes('HTTPS')) {
+        setCameraError('A câmera do navegador exige HTTPS. Use o endereço seguro do sistema ou escolha a câmera do celular/galeria.');
       } else {
         setCameraError('Não foi possível inicializar a câmera ao vivo. Você pode tirar foto pelo app nativo ou anexar da galeria.');
       }
@@ -105,7 +112,7 @@ export const CameraCaptureModal: React.FC<CameraCaptureModalProps> = ({
     return () => {
       stopStream();
     };
-  }, [isOpen, startCamera, facingMode]);
+  }, [isOpen, startCamera, facingMode, stopStream]);
 
   const toggleFacingMode = () => {
     const nextMode = facingMode === 'environment' ? 'user' : 'environment';

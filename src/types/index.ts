@@ -69,7 +69,8 @@ export type BodyType =
   | 'REFRIGERADO' 
   | 'CACAMBA' 
   | 'PLATAFORMA'
-  | 'TANQUE';
+  | 'TANQUE'
+  | 'OUTRO';
 
 export type CargoType = 
   | 'GERAL' 
@@ -91,6 +92,8 @@ export type PaymentMethod =
 
 export type FreightStatus = 
   | 'RASCUNHO' 
+  | 'AGUARDANDO_APROVACAO'
+  | 'APROVADO'
   | 'PUBLICADO' 
   | 'DISPONIVEL' 
   | 'RESERVADO' 
@@ -387,6 +390,7 @@ export interface FreightRequirements {
   vehicleType: VehicleType;
   vehicleBrand?: string;
   bodyTypeRequired?: BodyType;
+  bodyTypeOther?: string;
   minCapacityKg: number;
   helperRequired?: boolean;
   trackerRequired?: boolean;

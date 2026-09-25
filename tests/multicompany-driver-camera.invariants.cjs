@@ -1,0 +1,21 @@
+const fs = require('node:fs');
+const api = fs.readFileSync('server/api.ts', 'utf8');
+const db = fs.readFileSync('server/db.ts', 'utf8');
+const driver = fs.readFileSync('src/components/driver/DriverDashboard.tsx', 'utf8');
+const manager = fs.readFileSync('src/components/drivers/DriverManager.tsx', 'utf8');
+const camera = fs.readFileSync('src/components/common/CameraCaptureModal.tsx', 'utf8');
+const sw = fs.readFileSync('public/sw.js', 'utf8');
+
+if (!api.includes("apiRouter.get('/drivers/lookup'")) throw new Error('DRIVER_LOOKUP_ENDPOINT_MISSING');
+if (!api.includes("apiRouter.post('/drivers/:id/company-link'")) throw new Error('DRIVER_COMPANY_LINK_ENDPOINT_MISSING');
+if (!api.includes('driverCompanyProfiles')) throw new Error('TENANT_DRIVER_PROFILE_STORAGE_MISSING');
+if (!api.includes("apiRouter.get('/drivers/:id/company-profile'")) throw new Error('TENANT_DRIVER_PROFILE_READ_ENDPOINT_MISSING');
+if (!api.includes("apiRouter.put('/drivers/:id/company-profile'")) throw new Error('TENANT_DRIVER_PROFILE_WRITE_ENDPOINT_MISSING');
+if (!api.includes('db.hasDriverCompanyAccess(req.params.id, tenantId, true)')) throw new Error('TENANT_DRIVER_PROFILE_SCOPE_CHECK_MISSING');
+if (!api.includes('db.hasDriverCompanyAccess(driverId ||')) throw new Error('DRIVER_MULTI_TENANT_FREIGHT_FILTER_MISSING');
+if (!manager.includes('api.lookupDriver') || !manager.includes('api.linkDriverToCompany')) throw new Error('DRIVER_LOOKUP_UI_MISSING');
+if (!manager.includes('api.getDriverCompanyProfile') || !manager.includes('api.updateDriverCompanyProfile')) throw new Error('TENANT_DRIVER_PROFILE_UI_MISSING');
+if (!camera.includes('streamRef') || !camera.includes('navigator.mediaDevices.getUserMedia')) throw new Error('CAMERA_STREAM_LIFECYCLE_FIX_MISSING');
+if (!camera.includes('capture="environment"')) throw new Error('NATIVE_CAMERA_FALLBACK_MISSING');
+if (!sw.includes("CACHE_NAME = 'atendo-one-v1.8.45'")) throw new Error('PWA_CACHE_VERSION_MISSING');
+console.log('MULTICOMPANY_DRIVER_CAMERA_INVARIANTS_OK');

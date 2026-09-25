@@ -1,0 +1,11 @@
+const fs = require('node:fs');
+const api = fs.readFileSync('server/api.ts', 'utf8');
+const types = fs.readFileSync('src/types/index.ts', 'utf8');
+const service = fs.readFileSync('src/services/api.ts', 'utf8');
+const detail = fs.readFileSync('src/components/freight/FreightDetailModal.tsx', 'utf8');
+const badge = fs.readFileSync('src/components/common/Badge.tsx', 'utf8');
+for (const token of ['AGUARDANDO_APROVACAO', 'APROVADO']) if (!types.includes(token) || !api.includes(token) || !detail.includes(token) || !badge.includes(token)) throw new Error(`FREIGHT_APPROVAL_TOKEN_MISSING:${token}`);
+if (!service.includes('newStatus: status')) throw new Error('FREIGHT_STATUS_PAYLOAD_MISSING');
+if (!api.includes("['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user?.role || '')")) throw new Error('FREIGHT_APPROVAL_ROLE_GUARD_MISSING');
+if (!api.includes("const initialStatus: FreightStatus = 'AGUARDANDO_APROVACAO'")) throw new Error('FREIGHT_INITIAL_APPROVAL_STATUS_MISSING');
+console.log('FREIGHT_APPROVAL_INVARIANTS_OK');

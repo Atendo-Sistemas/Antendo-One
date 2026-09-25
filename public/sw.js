@@ -1,8 +1,15 @@
-const CACHE_NAME = 'atendo-one-v1.8.43';
+const CACHE_NAME = 'atendo-one-v1.8.54';
 
 self.addEventListener('install', function(event) {
   self.skipWaiting();
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['/','/login','/manifest.json'])));
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => Promise.all([
+    '/',
+    '/login',
+    '/manifest.json'
+  ].map(resource => fetch(resource).then(response => {
+    if (!response.ok) throw new Error(`Falha ao armazenar ${resource}: ${response.status}`);
+    return cache.put(resource, response);
+  }).catch(() => undefined))));
 });
 
 self.addEventListener('activate', function(event) {

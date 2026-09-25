@@ -131,6 +131,7 @@ class DatabaseStore {
   errorLogs: ErrorLogEntry[] = [];
   visitAnalytics: VisitAnalyticsBucket[] = [];
   driverCompanyLinks: DriverCompanyLink[] = [];
+  driverCompanyProfiles: any[] = [];
   freightInterests: FreightInterest[] = [];
   companyVehicles: CompanyVehicle[] = [];
   companyStops: CompanyStop[] = [];
@@ -604,6 +605,7 @@ class DatabaseStore {
       errorLogs: this.errorLogs,
       visitAnalytics: this.visitAnalytics,
       driverCompanyLinks: this.driverCompanyLinks,
+      driverCompanyProfiles: this.driverCompanyProfiles,
       freightInterests: this.freightInterests,
       companyVehicles: this.companyVehicles,
       companyStops: this.companyStops,
@@ -640,7 +642,7 @@ class DatabaseStore {
         this.ensureSystemContent();
         return;
       }
-    for (const key of ['tenants', 'users', 'drivers', 'vehicles', 'freights', 'freightLocations', 'tripExpenses', 'notifications', 'notificationDeliveries', 'pushSubscriptions', 'forms', 'formResponses', 'auditLogs', 'errorLogs', 'visitAnalytics', 'driverCompanyLinks', 'freightInterests', 'companyVehicles', 'companyStops', 'lodgingPartners', 'clients', 'budgets', 'tenantBudgetForms', 'pages', 'posts', 'asaasPayments', 'asaasSubscriptions', 'helpPages', 'legalDocumentVersions']) {
+    for (const key of ['tenants', 'users', 'drivers', 'vehicles', 'freights', 'freightLocations', 'tripExpenses', 'notifications', 'notificationDeliveries', 'pushSubscriptions', 'forms', 'formResponses', 'auditLogs', 'errorLogs', 'visitAnalytics', 'driverCompanyLinks', 'driverCompanyProfiles', 'freightInterests', 'companyVehicles', 'companyStops', 'lodgingPartners', 'clients', 'budgets', 'tenantBudgetForms', 'pages', 'posts', 'asaasPayments', 'asaasSubscriptions', 'helpPages', 'legalDocumentVersions']) {
         if (Array.isArray(state[key])) (this as any)[key] = state[key];
       }
       if (state.whatsappConfigs && typeof state.whatsappConfigs === 'object') {

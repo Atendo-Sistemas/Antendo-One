@@ -28,6 +28,7 @@ import {
 export const CompanyDashboard: React.FC = () => {
   const { user, tenant } = useAuth();
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
+  const canApproveFreight = ['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
   const [freights, setFreights] = useState<Freight[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -201,6 +202,8 @@ export const CompanyDashboard: React.FC = () => {
             className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
           >
             <option value="ALL">Todos os Status</option>
+            <option value="AGUARDANDO_APROVACAO">Aguardando aprovação</option>
+            <option value="APROVADO">Aprovado</option>
             <option value="DISPONIVEL">Disponível</option>
             <option value="RESERVADO">Reservado</option>
             <option value="EM_COLETA">Em Coleta</option>
@@ -364,7 +367,7 @@ export const CompanyDashboard: React.FC = () => {
       {selectedFreight && (
         <FreightDetailModal
           freight={selectedFreight}
-          isAdmin={!isDemo}
+          isAdmin={!isDemo && canApproveFreight}
           onClose={() => setSelectedFreight(null)}
           onEdit={!isDemo ? (f) => setEditingFreight(f) : undefined}
           onUpdateSuccess={(updated) => {

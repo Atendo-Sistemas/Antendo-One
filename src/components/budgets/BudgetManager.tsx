@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { budgetApi, clientApi, tenantApi, publicTrackingApi, formatCnpj, normalizeCnpj } from '../../services/api';
 import { Budget, Client, BudgetExpense } from '../../types';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
+import { CepLookupField } from '../common/CepLookupField';
 import { useAuth } from '../../context/AuthContext';
 
-const empty = { clientId: undefined, clientName: '', date: new Date().toISOString().substring(0, 10), origin: { address: '', city: '', state: '' }, destination: { address: '', city: '', state: '' }, distanceKm: 0, pricePerKm: 0, tolls: 0, insurance: 0, cargoType: '', dailyRate: 0, dailyCount: 0, assistantCount: 0, assistantDailyRate: 0, driverPassed: 0, driverPaid: 0, priceTableReference: '', status: 'RASCUNHO' as const, profitValue: 15, expenses: [] };
+const empty = { clientId: undefined, clientName: '', date: new Date().toISOString().substring(0, 10), origin: { address: '', city: '', state: '' }, destination: { address: '', city: '', state: '' }, distanceKm: 0, pricePerKm: 0, tolls: 0, insurance: 0, cargoType: '', weightKg: 0, quantity: 0, vehicleType: '', bodyType: '', bodyTypeOther: '', dailyRate: 0, dailyCount: 0, assistantCount: 0, assistantDailyRate: 0, driverPassed: 0, driverPaid: 0, priceTableReference: '', status: 'RASCUNHO' as const, profitValue: 15, expenses: [] };
 
 export const BudgetManager: React.FC = () => {
   const { user } = useAuth();
@@ -212,6 +213,14 @@ export const BudgetManager: React.FC = () => {
         <h3 className="font-bold text-sm mb-3">{label}</h3>
         <div className="space-y-3">
           <label className="text-xs font-semibold block">
+            Buscar por CEP
+            <CepLookupField
+              value={val.zipCode || ''}
+              onChange={zipCode => setDraft({ ...draft, [key]: { ...val, zipCode } })}
+              onFound={data => setDraft({ ...draft, [key]: { ...val, zipCode: data.zipCode, address: data.address || val.address, neighborhood: data.neighborhood || val.neighborhood, city: data.city || val.city, state: data.state || val.state, mapboxPlaceId: undefined, lat: undefined, lng: undefined }, distanceKm: 0, routeGeometry: null, tolls: 0 })}
+            />
+          </label>
+          <label className="text-xs font-semibold block">
             Endereço Completo
             <AddressAutocomplete
               value={val.address}
@@ -228,10 +237,13 @@ export const BudgetManager: React.FC = () => {
                     number: data.number || val.number,
                     neighborhood: data.neighborhood || val.neighborhood,
                     zipCode: data.zipCode || val.zipCode,
-                    mapboxPlaceId: data.mapboxPlaceId || val.mapboxPlaceId,
-                    lat: data.lat ?? val.lat,
-                    lng: data.lng ?? val.lng
-                  }
+                    mapboxPlaceId: data.mapboxPlaceId,
+                    lat: data.lat,
+                    lng: data.lng
+                  },
+                  distanceKm: 0,
+                  routeGeometry: null,
+                  tolls: 0
                 });
               }}
             />
@@ -241,7 +253,7 @@ export const BudgetManager: React.FC = () => {
               Cidade
               <input 
                 value={val.city || ''} 
-                onChange={e => setDraft({ ...draft, [key]: { ...val, city: e.target.value } })} 
+                onChange={e => setDraft({ ...draft, [key]: { ...val, city: e.target.value, mapboxPlaceId: undefined, lat: undefined, lng: undefined }, distanceKm: 0, routeGeometry: null, tolls: 0 })} 
                 className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" 
               />
             </label>
@@ -250,7 +262,7 @@ export const BudgetManager: React.FC = () => {
               <input 
                 value={val.state || ''} 
                 maxLength={2}
-                onChange={e => setDraft({ ...draft, [key]: { ...val, state: e.target.value.toUpperCase() } })} 
+                onChange={e => setDraft({ ...draft, [key]: { ...val, state: e.target.value.toUpperCase(), mapboxPlaceId: undefined, lat: undefined, lng: undefined }, distanceKm: 0, routeGeometry: null, tolls: 0 })} 
                 className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 uppercase" 
               />
             </label>
@@ -259,6 +271,8 @@ export const BudgetManager: React.FC = () => {
       </div>
     );
   };
+
+  const isVehicleCargo = /ve[ií]culo|caminh[aã]o|implemento/i.test(String(draft.cargoType || ''));
 
   return (
     <section className="space-y-6">
@@ -344,13 +358,48 @@ export const BudgetManager: React.FC = () => {
 
           <div className="flex gap-2">
             <button type="button" onClick={() => void calculateRoute()} disabled={routeLoading} className="rounded-lg border border-indigo-200 bg-indigo-50 dark:bg-indigo-950/30 dark:border-indigo-900 px-4 py-2 text-sm font-bold text-indigo-700 dark:text-indigo-300 disabled:opacity-50 cursor-pointer hover:bg-indigo-100">
-              {routeLoading ? 'Calculando rota…' : 'Calcular rota e pedágios automaticamente'}
+              {routeLoading ? 'Calculando rota…' : 'Calcular rota automaticamente'}
             </button>
+            <p className="mt-1 text-[11px] text-slate-500">A distância e o trajeto são calculados automaticamente. O valor de pedágios deve ser conferido e informado no campo abaixo, pois o provedor de rotas atual não retorna tarifas de pedágio.</p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
             <label className="text-sm font-semibold">Tipo de carga
-              <input value={draft.cargoType || ''} onChange={e => setDraft({ ...draft, cargoType: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />
+              <select value={draft.cargoType || ''} onChange={e => setDraft({ ...draft, cargoType: e.target.value, ...(e.target.value === 'VEICULO' ? { weightKg: 0, quantity: 0 } : {}) })} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2">
+                <option value="">Selecione</option>
+                <option value="VEICULO">Veículo / Caminhão / Implemento</option>
+                <option value="GERAL">Carga Geral</option>
+                <option value="ALIMENTOS">Alimentos / Bebidas</option>
+                <option value="REFRIGERADA">Refrigerada / Congelada</option>
+                <option value="FRAGIL">Frágil</option>
+                <option value="CONSTRUCAO">Material de Construção</option>
+                <option value="MAQUINARIO">Maquinário / Peças</option>
+                <option value="PERIGOSA">Perigosa</option>
+              </select>
+            </label>
+            {!isVehicleCargo && <>
+              <label className="text-sm font-semibold">Peso Total (kg)
+                <input type="number" min="0" value={draft.weightKg || 0} onChange={e => setDraft({ ...draft, weightKg: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />
+              </label>
+              <label className="text-sm font-semibold">Volumes
+                <input type="number" min="0" value={draft.quantity || 0} onChange={e => setDraft({ ...draft, quantity: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />
+              </label>
+            </>}
+            {isVehicleCargo && <label className="text-sm font-semibold md:col-span-2">Tipo de veículo / caminhão / implemento (opcional)
+              <input value={draft.vehicleType || ''} onChange={e => setDraft({ ...draft, vehicleType: e.target.value })} placeholder="Ex.: Caminhão VW 24.280, carreta, implemento" className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />
+            </label>}
+            <label className="text-sm font-semibold">Carroceria
+              <select value={draft.bodyType || ''} onChange={e => setDraft({ ...draft, bodyType: e.target.value, ...(e.target.value !== 'OUTRO' ? { bodyTypeOther: '' } : {}) })} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2">
+                <option value="">Selecione</option>
+                <option value="BAU">Baú Fechado</option>
+                <option value="SIDER">Sider (Lona)</option>
+                <option value="GRADE_BAIXA">Grade Baixa</option>
+                <option value="GRANELEIRO">Graneleiro</option>
+                <option value="REFRIGERADO">Refrigerado</option>
+                <option value="PLATAFORMA">Plataforma</option>
+                <option value="OUTRO">Outros</option>
+              </select>
+              {draft.bodyType === 'OUTRO' && <input value={draft.bodyTypeOther || ''} onChange={e => setDraft({ ...draft, bodyTypeOther: e.target.value })} placeholder="Informe o tipo de carroceria" className="mt-2 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />}
             </label>
             <label className="text-sm font-semibold">Distância (km)
               <input type="number" min="0" value={draft.distanceKm || 0} onChange={e => setDraft({ ...draft, distanceKm: Number(e.target.value) })} className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />

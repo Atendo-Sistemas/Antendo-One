@@ -239,10 +239,11 @@ async function startServer() {
       const item: any = slug ? publicItemBySlug(slug) : null;
       const isShowcase = req.path === '/vitrine-fretes';
       const routeMatchesItem = Boolean(item && (item.publicPath === publicSection || (!item.publicPath && publicSection === 'conteudo')));
-      const isKnownPublicRoute = req.path === '/' || isShowcase || isSolutionIndex || isContentIndex || ((req.path.startsWith('/conteudo/') || req.path.startsWith('/elo-log/')) && routeMatchesItem);
+      const isLoginRoute = req.path === '/login';
+      const isKnownPublicRoute = req.path === '/' || isLoginRoute || isShowcase || isSolutionIndex || isContentIndex || ((req.path.startsWith('/conteudo/') || req.path.startsWith('/elo-log/')) && routeMatchesItem);
       const isNotFound = !isKnownPublicRoute;
-      const title = isNotFound ? `Página não encontrada | ${seo.siteName}` : isSolutionIndex ? `Soluções para operações logísticas | ${seo.siteName}` : isContentIndex ? `Conteúdos sobre transporte e gestão de fretes | ${seo.siteName}` : isShowcase ? `Fretes de mercadorias disponíveis | ${seo.siteName}` : normalizeSeoBrand(item?.metaTitle || item?.title || seo.title, seo.siteName);
-      const description = isNotFound ? 'A página solicitada não foi encontrada.' : isSolutionIndex ? 'Conheça as soluções do Atendo One para gestão de fretes, transportadoras, motoristas, veículos e viagens.' : isContentIndex ? 'Guias e conteúdos práticos sobre TMS, fretes, motoristas, viagens, checklists e operação logística.' : isShowcase ? 'Encontre fretes de mercadorias publicados por empresas e cadastre-se para demonstrar interesse com segurança.' : item?.metaDescription || item?.excerpt || seo.description;
+      const title = isNotFound ? `Página não encontrada | ${seo.siteName}` : isLoginRoute ? `Entrar | ${seo.siteName}` : isSolutionIndex ? `Soluções para operações logísticas | ${seo.siteName}` : isContentIndex ? `Conteúdos sobre transporte e gestão de fretes | ${seo.siteName}` : isShowcase ? `Fretes de mercadorias disponíveis | ${seo.siteName}` : normalizeSeoBrand(item?.metaTitle || item?.title || seo.title, seo.siteName);
+      const description = isNotFound ? 'A página solicitada não foi encontrada.' : isLoginRoute ? 'Acesse sua conta Atendo One.' : isSolutionIndex ? 'Conheça as soluções do Atendo One para gestão de fretes, transportadoras, motoristas, veículos e viagens.' : isContentIndex ? 'Guias e conteúdos práticos sobre TMS, fretes, motoristas, viagens, checklists e operação logística.' : isShowcase ? 'Encontre fretes de mercadorias publicados por empresas e cadastre-se para demonstrar interesse com segurança.' : item?.metaDescription || item?.excerpt || seo.description;
       const itemPath = item ? (item.publicPath === 'elo-log' ? 'elo-log' : 'conteudo') : publicSection;
       const itemCanonical = safeHttpsUrl(item?.canonicalUrl);
       const canonical = isNotFound ? `${seo.canonicalUrl}/404` : isSolutionIndex ? `${seo.canonicalUrl}/elo-log` : isContentIndex ? `${seo.canonicalUrl}/conteudo` : isShowcase ? `${seo.canonicalUrl}/vitrine-fretes` : itemCanonical || `${seo.canonicalUrl}${slug ? `/${itemPath}/${encodeURIComponent(slug)}` : '/'}`;
@@ -358,7 +359,7 @@ async function startServer() {
       const publicPathMatch = normalizedPath.match(/^\/(conteudo|elo-log)\/([^/]+)$/);
       const publicItem = publicPathMatch ? publicItemBySlug(decodeURIComponent(publicPathMatch[2])) : null;
       const publicItemMatchesSection = Boolean(publicItem && ((publicItem as any).publicPath === publicPathMatch?.[1] || (!(publicItem as any).publicPath && publicPathMatch?.[1] === 'conteudo')));
-      const isKnownPublic = normalizedPath === '/' || normalizedPath === '/vitrine-fretes' || normalizedPath === '/elo-log' || normalizedPath === '/conteudo' || publicItemMatchesSection;
+      const isKnownPublic = normalizedPath === '/' || normalizedPath === '/login' || normalizedPath === '/vitrine-fretes' || normalizedPath === '/elo-log' || normalizedPath === '/conteudo' || publicItemMatchesSection;
       res.status(isKnownPublic ? 200 : 404).type('html').send(renderSeoHtml(req));
     });
   } else {

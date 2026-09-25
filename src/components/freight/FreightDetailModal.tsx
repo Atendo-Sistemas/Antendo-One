@@ -15,6 +15,8 @@ interface FreightDetailModalProps {
 
 const STATUS_LABELS: Record<FreightStatus, string> = {
   RASCUNHO: 'Rascunho',
+  AGUARDANDO_APROVACAO: 'Aguardando aprovação',
+  APROVADO: 'Aprovado',
   PUBLICADO: 'Publicado',
   DISPONIVEL: 'Disponível',
   RESERVADO: 'Reservado',
@@ -27,7 +29,9 @@ const STATUS_LABELS: Record<FreightStatus, string> = {
 };
 
 const STATUS_TRANSITIONS: Record<FreightStatus, FreightStatus[]> = {
-  RASCUNHO: ['PUBLICADO', 'CANCELADO'],
+  RASCUNHO: ['AGUARDANDO_APROVACAO', 'CANCELADO'],
+  AGUARDANDO_APROVACAO: ['APROVADO', 'CANCELADO'],
+  APROVADO: ['PUBLICADO', 'CANCELADO'],
   PUBLICADO: ['DISPONIVEL', 'RESERVADO', 'CANCELADO'],
   DISPONIVEL: ['RESERVADO', 'CANCELADO'],
   RESERVADO: ['EM_COLETA', 'DISPONIVEL', 'CANCELADO'],
@@ -65,10 +69,17 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isTrackingOpen, setIsTrackingOpen] = useState(false);
+  const [drivers, setDrivers] = useState<any[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState('');
 
   React.useEffect(() => {
     setCurrentFreight(freight);
   }, [freight]);
+
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    void api.getDrivers().then(setDrivers).catch(() => setDrivers([]));
+  }, [isAdmin]);
 
   const nextStatuses = useMemo(() => STATUS_TRANSITIONS[currentFreight.status] || [], [currentFreight.status]);
   const trackingEnabled = currentFreight.publicTrackingEnabled !== false && !currentFreight.publicTrackingRevokedAt;
@@ -117,6 +128,25 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
       onUpdateSuccess?.(updatedFreight);
     } catch (err: any) {
       setError(err?.message || 'Não foi possível atualizar o link público de rastreio.');
+    } finally {
+      setPendingAction(null);
+    }
+  };
+
+  const handleInternalAssignment = async () => {
+    if (!selectedDriverId) {
+      setError('Selecione um motorista para aceitar e vincular este frete.');
+      return;
+    }
+    setPendingAction('assign-driver');
+    setError(null);
+    try {
+      const result = await api.assignFreightDriver(currentFreight.id, selectedDriverId);
+      setCurrentFreight(result.freight);
+      setSelectedDriverId('');
+      onUpdateSuccess?.(result.freight);
+    } catch (err: any) {
+      setError(err?.message || 'Não foi possível vincular o motorista ao frete.');
     } finally {
       setPendingAction(null);
     }
@@ -193,7 +223,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
                 </div>
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Carroceria / capacidade</p>
-                  <p className="text-slate-800 dark:text-slate-200">{currentFreight.requirements.bodyTypeRequired || '—'} • {currentFreight.requirements.minCapacityKg} kg</p>
+                  <p className="text-slate-800 dark:text-slate-200">{currentFreight.requirements.bodyTypeRequired === 'OUTRO' ? (currentFreight.requirements.bodyTypeOther || 'Outros') : (currentFreight.requirements.bodyTypeRequired || '—')} • {currentFreight.requirements.minCapacityKg} kg</p>
                 </div>
                 {currentFreight.cargo.notes && (
                   <div className="sm:col-span-2">
@@ -347,6 +377,30 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
               )}
             </div>
 
+            {isAdmin && ['PUBLICADO', 'DISPONIVEL'].includes(currentFreight.status) && !currentFreight.assignedDriverId && (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+                <select
+                  value={selectedDriverId}
+                  onChange={(event) => setSelectedDriverId(event.target.value)}
+                  className="min-w-[220px] flex-1 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 dark:border-emerald-800 dark:bg-slate-900 dark:text-slate-200"
+                >
+                  <option value="">Selecionar motorista para aceite interno</option>
+                  {drivers.filter(driver => driver.status !== 'INATIVO').map(driver => (
+                    <option key={driver.id} value={driver.id}>{driver.name}{driver.city ? ` — ${driver.city}/${driver.state || ''}` : ''}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void handleInternalAssignment()}
+                  disabled={pendingAction === 'assign-driver'}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  {pendingAction === 'assign-driver' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                  Aceitar e vincular motorista
+                </button>
+              </div>
+            )}
+
             {isAdmin && nextStatuses.length > 0 && (
               <div>
                 <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">Próximos status</p>
@@ -360,7 +414,7 @@ export const FreightDetailModal: React.FC<FreightDetailModalProps> = ({
                       className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
                     >
                       {pendingAction === `status:${status}` ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
-                      {STATUS_LABELS[status]}
+                      {status === 'APROVADO' ? 'Aprovar frete' : status === 'PUBLICADO' && currentFreight.status === 'APROVADO' ? 'Publicar frete' : STATUS_LABELS[status]}
                     </button>
                   ))}
                 </div>

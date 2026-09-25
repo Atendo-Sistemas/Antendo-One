@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { FormDefinition, FormField, FormFieldType, FormEventTrigger } from '../../types';
 import { api } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
+import { useAuth } from '../../context/AuthContext';
 import { FormFillModal } from './FormFillModal';
 import { 
   FileText, 
@@ -23,6 +24,9 @@ import {
 
 export const FormBuilder: React.FC = () => {
   const { config } = useSaaS();
+  const { user } = useAuth();
+  const isTestOrDemoUser = Boolean(user?.accountType === 'TEST' || user?.readOnly === true || (user?.accountType !== 'REAL' && Boolean(user?.id && /(?:test|demo)/i.test(user.id))));
+  const canManageForms = Boolean(user && ['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role) && !isTestOrDemoUser);
   const systemName = config?.systemName || config?.layout?.logoText || 'Atendo One';
   const [forms, setForms] = useState<FormDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +94,7 @@ export const FormBuilder: React.FC = () => {
 
   const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageForms) return alert('Somente administradores reais podem criar ou editar formulários.');
     if (!title) return alert('Informe o título do formulário');
 
     try {
@@ -112,6 +117,7 @@ export const FormBuilder: React.FC = () => {
   };
 
   const handleCopyOfficialTemplate = async () => {
+    if (!canManageForms) return alert('Somente administradores reais podem copiar formulários.');
     try {
       const copied = await api.copyForm('form-checklist-elolog');
       setForms(prev => [...prev, copied]);
@@ -122,6 +128,7 @@ export const FormBuilder: React.FC = () => {
   };
 
   const handleEditForm = (form: FormDefinition) => {
+    if (!canManageForms) return;
     setEditingForm(form);
     setTitle(form.title);
     setDescription(form.description);
@@ -132,6 +139,7 @@ export const FormBuilder: React.FC = () => {
   };
 
   const handleDeleteForm = async (id: string, title: string) => {
+    if (!canManageForms) return alert('Somente administradores reais podem desativar formulários.');
     if (!window.confirm(`Tem certeza que deseja excluir o formulário "${title}"?`)) return;
     try {
       await api.deleteForm(id);
@@ -159,13 +167,15 @@ export const FormBuilder: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsCreating(true)}
-          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Criar Novo Formulário</span>
-        </button>
+        {canManageForms && (
+          <button
+            onClick={() => setIsCreating(true)}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Criar Novo Formulário</span>
+          </button>
+        )}
       </div>
 
       {/* Featured Template Banner: Atendo One Official Checklist */}
@@ -191,13 +201,13 @@ export const FormBuilder: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-        <button
+        {canManageForms && <button
           onClick={handleCopyOfficialTemplate}
           className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
         >
           <Copy className="w-4 h-4" />
           <span>Copiar para minha empresa</span>
-        </button>
+        </button>}
         <button
           onClick={() => {
             const eloForm = forms.find(f => f.id === 'form-checklist-elolog') || {
@@ -265,20 +275,20 @@ export const FormBuilder: React.FC = () => {
                   <Eye className="w-3.5 h-3.5" />
                   <span>Testar</span>
                 </button>
-                <button
+                {canManageForms && <button
                   onClick={() => handleEditForm(form)}
                   className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 transition-colors cursor-pointer"
                   title="Editar formulário"
                 >
                   <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <button
+                </button>}
+                {canManageForms && <button
                   onClick={() => handleDeleteForm(form.id, form.title)}
                   className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors cursor-pointer"
                   title="Excluir formulário"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                </button>}
               </div>
             </div>
           </div>

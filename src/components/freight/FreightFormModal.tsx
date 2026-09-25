@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { api, budgetApi } from '../../services/api';
+import { api, budgetApi, tenantApi } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { useAuth } from '../../context/AuthContext';
-import { VehicleType, CargoType, PaymentMethod, BodyType, Freight, OperationType, CompanyVehicle, Budget } from '../../types';
+import { CepLookupField } from '../common/CepLookupField';
+import { VehicleType, CargoType, PaymentMethod, BodyType, Freight, OperationType, CompanyVehicle, Budget, Tenant } from '../../types';
 import { Truck, MapPin, DollarSign, Calendar, Package, X, Sparkles, AlertCircle, Split } from 'lucide-react';
 
 interface FreightFormModalProps {
@@ -15,7 +16,11 @@ interface FreightFormModalProps {
 
 export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onClose, onSuccess, freightToEdit, simulateOnly = false }) => {
   const { getField } = useSaaS();
-  const { tenant } = useAuth();
+  const { user, tenant } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const [availableTenants, setAvailableTenants] = useState<Tenant[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState('');
+  const effectiveTenantId = isSuperAdmin ? selectedTenantId : tenant?.id || '';
   const allowedOps = tenant?.allowedOperations || ['CARGA_GERAL'];
 
   const fCargoDesc = getField('freightForm', 'cargoDescription') || { label: 'Descrição da Carga', placeholder: 'Ex: Carga de milho ensacado', enabled: true, required: true };
@@ -72,6 +77,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
 
   const [cargoDesc, setCargoDesc] = useState('Carga geral paletizada - Peças automotivas');
   const [cargoType, setCargoType] = useState<CargoType>(allowedOps.includes('CARGA_GERAL') ? 'GERAL' : 'VEICULO');
+  const isVehicleCargo = cargoType === 'VEICULO';
   const [weightKg, setWeightKg] = useState('8500');
   const [volumeCount, setVolumeCount] = useState('16');
   const [cargoNotes, setCargoNotes] = useState('Carga com NF e Manifesto emitidos. Carga segurada.');
@@ -85,9 +91,11 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const [platesStatus, setPlatesStatus] = useState('S/ PLACA');
 
   const [vehicleType, setVehicleType] = useState<VehicleType>('TRUCK');
+  const [vehicleTypeManual, setVehicleTypeManual] = useState('');
   const [vehicleBrand, setVehicleBrand] = useState('Volkswagen');
   const [otherVehicleBrand, setOtherVehicleBrand] = useState('');
   const [bodyType, setBodyType] = useState<BodyType>('BAU');
+  const [otherBodyType, setOtherBodyType] = useState('');
   const [minCapacityKg, setMinCapacityKg] = useState('8000');
 
   const [price, setPrice] = useState('1850.00');
@@ -115,11 +123,19 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const [destinationCoordinates, setDestinationCoordinates] = useState<{ lat?: number; lng?: number; mapboxPlaceId?: string }>({});
 
   useEffect(() => {
-    if (isOpen && tenant?.id) {
-      api.getCompanyVehicles().then(setCompanyVehicles).catch(() => setCompanyVehicles([]));
-      budgetApi.list().then(result => setBudgets(result.filter(item => item.status === 'APROVADO' && !item.convertedFreightId))).catch(() => setBudgets([]));
+    if (isOpen && isSuperAdmin) {
+      tenantApi.listTenants().then(result => {
+        setAvailableTenants(result);
+        setSelectedTenantId(current => current || freightToEdit?.tenantId || result[0]?.id || '');
+      }).catch(() => setAvailableTenants([]));
+    } else if (!isOpen) {
+      setAvailableTenants([]);
     }
-  }, [isOpen, tenant?.id]);
+    if (isOpen && effectiveTenantId) {
+      api.getCompanyVehicles().then(setCompanyVehicles).catch(() => setCompanyVehicles([]));
+      budgetApi.list(undefined, effectiveTenantId).then(result => setBudgets(result.filter(item => !item.convertedFreightId && !['CANCELADO', 'CONVERTIDO'].includes(item.status) && (isSuperAdmin || item.status === 'APROVADO')))).catch(() => setBudgets([]));
+    }
+  }, [isOpen, isSuperAdmin, effectiveTenantId, freightToEdit?.tenantId]);
   useEffect(() => {
     if (freightToEdit) {
       setOriginCity(freightToEdit.origin.city);
@@ -157,6 +173,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setPlatesStatus(freightToEdit.cargo.platesStatus || 'S/ PLACA');
 
       setVehicleType(freightToEdit.requirements.vehicleType);
+      setVehicleTypeManual(String(freightToEdit.requirements.vehicleType || ''));
       if (freightToEdit.requirements.vehicleBrand) {
         const brand = freightToEdit.requirements.vehicleBrand;
         const standardBrands = ['Volkswagen', 'Mercedes-Benz', 'Iveco', 'Scania', 'Ford', 'Volvo'];
@@ -168,6 +185,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
         }
       }
       setBodyType(freightToEdit.requirements.bodyTypeRequired || 'BAU');
+      setOtherBodyType(freightToEdit.requirements.bodyTypeOther || '');
       setMinCapacityKg(String(freightToEdit.requirements.minCapacityKg || 5000));
 
       setPrice(String(freightToEdit.payment.price));
@@ -192,6 +210,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setClientRevenue('');
       setDriverCost('');
       setCompanyVehicleId('');
+      setVehicleTypeManual('');
       setPublicListingEnabled(false);
       setPublicPriceVisibleToRegistered(true);
       setPublicInterestEnabled(true);
@@ -200,8 +219,9 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setDestinationCoordinates({});
       setOriginNeighborhood('');
       setDestNeighborhood('');
+      if (!isSuperAdmin) setSelectedTenantId(tenant?.id || '');
     }
-  }, [isOpen, freightToEdit]);
+  }, [isOpen, freightToEdit, isSuperAdmin, tenant?.id]);
 
   if (!isOpen) return null;
 
@@ -246,6 +266,8 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const searchAddress = (side: 'origin' | 'destination', value: string) => {
     if (side === 'origin') { setOriginAddress(value); setOriginCoordinates({}); }
     else { setDestAddress(value); setDestinationCoordinates({}); }
+    setRouteDistanceKm(null);
+    setRouteGeometry(null);
     if (addressTimer.current) clearTimeout(addressTimer.current);
     addressAbort.current?.abort();
     if (value.trim().length < 3) return setAddressSuggestions({ side, items: [] });
@@ -310,8 +332,12 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
     setDestCity(budget.destination?.city || ''); setDestState(budget.destination?.state || ''); setDestZip(budget.destination?.zipCode || ''); setDestNeighborhood(budget.destination?.neighborhood || ''); setDestAddress(budget.destination?.address || '');
     setOriginCoordinates({ lat: budget.origin?.lat, lng: budget.origin?.lng, mapboxPlaceId: budget.origin?.mapboxPlaceId });
     setDestinationCoordinates({ lat: budget.destination?.lat, lng: budget.destination?.lng, mapboxPlaceId: budget.destination?.mapboxPlaceId });
-    setCargoDesc(budget.cargoType || ''); setWeightKg(String(budget.weightKg || '')); setVolumeCount(String(budget.quantity || 1));
-    setPrice(String(budget.financials?.totalFreight || 0)); setDriverCost(String(budget.driverPaid || 0)); setRouteDistanceKm(budget.distanceKm || null);
+    setOriginDate(budget.date || originDate); setDestDate(budget.destination?.date || destDate);
+    setCargoDesc(budget.cargoType || ''); setCargoType((String(budget.cargoType || '').toUpperCase() === 'VEICULO' ? 'VEICULO' : 'GERAL') as CargoType); setWeightKg(String(budget.weightKg || '')); setVolumeCount(String(budget.quantity || 1));
+    setVehicleType((budget.vehicleType || 'TRUCK') as VehicleType); setVehicleTypeManual(budget.vehicleType || '');
+    const budgetVehicleData = budget as Budget & { bodyType?: BodyType; bodyTypeOther?: string };
+    setBodyType((budgetVehicleData.bodyType || 'BAU') as BodyType); setOtherBodyType(budgetVehicleData.bodyTypeOther || '');
+    setPrice(String(budget.financials?.totalFreight || 0)); setDriverCost(String(budget.driverPaid || budget.financials?.driverPaid || 0)); setRouteDistanceKm(budget.distanceKm || null); setRouteGeometry(budget.routeGeometry || null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -320,7 +346,12 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
     setError(null);
 
     try {
+      if (isSuperAdmin && !selectedTenantId) {
+        setError('Selecione a empresa responsável pelo frete.');
+        return;
+      }
       const payload = {
+        ...(isSuperAdmin ? { tenantId: selectedTenantId } : {}),
         operationType,
         origin: {
           zipCode: originZip,
@@ -347,8 +378,8 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
         cargo: {
           description: cargoDesc,
           type: cargoType,
-          weightKg: Number(weightKg),
-          volumeCount: Number(volumeCount),
+          weightKg: isVehicleCargo ? 0 : Number(weightKg),
+          volumeCount: isVehicleCargo ? 0 : Number(volumeCount),
           notes: cargoNotes,
           requiresInsurance: true,
           vehicleProduct,
@@ -359,9 +390,10 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
           platesStatus
         },
         requirements: {
-          vehicleType,
+          vehicleType: isVehicleCargo ? (vehicleTypeManual.trim() || undefined) : vehicleType,
           vehicleBrand: vehicleBrand === 'Outro' ? otherVehicleBrand : vehicleBrand,
           bodyTypeRequired: bodyType,
+          bodyTypeOther: bodyType === 'OUTRO' ? otherBodyType.trim() || undefined : undefined,
           minCapacityKg: Number(minCapacityKg),
           trackerRequired: true
         },
@@ -467,6 +499,17 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
           </div>
         )}
 
+        {isSuperAdmin && (
+          <label className="block space-y-1.5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900/60 dark:bg-amber-950/30">
+            <span className="font-bold text-amber-900 dark:text-amber-200">Empresa do frete *</span>
+            <select value={selectedTenantId} onChange={event => setSelectedTenantId(event.target.value)} className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-amber-500 dark:border-amber-800 dark:bg-slate-900 dark:text-white">
+              <option value="">Selecione a empresa responsável</option>
+              {availableTenants.filter(item => item.status !== 'BLOQUEADA').map(item => <option key={item.id} value={item.id}>{item.name} — {item.cnpj}</option>)}
+            </select>
+            {!selectedTenantId && <span className="text-amber-700 dark:text-amber-300">Selecione uma empresa antes de publicar o frete.</span>}
+          </label>
+        )}
+
         {!freightToEdit && !simulateOnly && (
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900/50 dark:bg-indigo-950/20">
             <label className="block text-xs font-bold uppercase tracking-wider text-indigo-800 dark:text-indigo-300">Usar orçamento existente (opcional)
@@ -545,7 +588,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       type="text"
                       required={fOriginCity.required}
                       value={originCity}
-                      onChange={e => setOriginCity(e.target.value)}
+                      onChange={e => { setOriginCity(e.target.value); setOriginCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }}
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                       placeholder={fOriginCity.placeholder}
                     />
@@ -561,7 +604,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       required={fOriginState.required}
                       maxLength={2}
                       value={originState}
-                      onChange={e => setOriginState(e.target.value.toUpperCase())}
+                      onChange={e => { setOriginState(e.target.value.toUpperCase()); setOriginCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }}
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium uppercase"
                       placeholder={fOriginState.placeholder}
                     />
@@ -605,7 +648,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
 
               <div className="grid grid-cols-2 gap-2">
                 <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">CEP Origem
-                  <input value={originZip} onChange={e => setOriginZip(e.target.value)} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="00000-000" />
+                  <CepLookupField value={originZip} onChange={setOriginZip} onFound={data => { setOriginZip(data.zipCode); setOriginAddress(data.address || originAddress); setOriginNeighborhood(data.neighborhood || originNeighborhood); setOriginCity(data.city || originCity); setOriginState(data.state || originState); setOriginCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }} className="mt-1" />
                 </label>
                 <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Bairro Origem
                   <input value={originNeighborhood} onChange={e => setOriginNeighborhood(e.target.value)} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="Bairro" />
@@ -652,7 +695,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       type="text"
                       required={fDestCity.required}
                       value={destCity}
-                      onChange={e => setDestCity(e.target.value)}
+                      onChange={e => { setDestCity(e.target.value); setDestinationCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }}
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                       placeholder={fDestCity.placeholder}
                     />
@@ -668,7 +711,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       required={fDestState.required}
                       maxLength={2}
                       value={destState}
-                      onChange={e => setDestState(e.target.value.toUpperCase())}
+                      onChange={e => { setDestState(e.target.value.toUpperCase()); setDestinationCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }}
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium uppercase"
                       placeholder={fDestState.placeholder}
                     />
@@ -712,7 +755,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
 
               <div className="grid grid-cols-2 gap-2">
                 <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">CEP Destino
-                  <input value={destZip} onChange={e => setDestZip(e.target.value)} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="00000-000" />
+                  <CepLookupField value={destZip} onChange={setDestZip} onFound={data => { setDestZip(data.zipCode); setDestAddress(data.address || destAddress); setDestNeighborhood(data.neighborhood || destNeighborhood); setDestCity(data.city || destCity); setDestState(data.state || destState); setDestinationCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }} className="mt-1" />
                 </label>
                 <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Bairro Destino
                   <input value={destNeighborhood} onChange={e => setDestNeighborhood(e.target.value)} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="Bairro" />
@@ -799,7 +842,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {fWeight.enabled && (
+              {!isVehicleCargo && fWeight.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                     {fWeight.label} {fWeight.required && <span className="text-red-500">*</span>}
@@ -814,7 +857,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                   />
                 </div>
               )}
-              {fVolumes.enabled && (
+              {!isVehicleCargo && fVolumes.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                     {fVolumes.label} {fVolumes.required && <span className="text-red-500">*</span>}
@@ -829,7 +872,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                   />
                 </div>
               )}
-              {fVehicleType.enabled && (
+              {!isVehicleCargo && fVehicleType.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                     {fVehicleType.label} {fVehicleType.required && <span className="text-red-500">*</span>}
@@ -850,14 +893,20 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                   </select>
                 </div>
               )}
+              {isVehicleCargo && (
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">Tipo de veículo / caminhão / implemento (opcional)</label>
+                  <input type="text" value={vehicleTypeManual} onChange={e => setVehicleTypeManual(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="Ex.: Caminhão VW 24.280, carreta, implemento..." />
+                </div>
+              )}
               {fBodyType.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    {fBodyType.label} {fBodyType.required && <span className="text-red-500">*</span>}
+                    {fBodyType.label} {!isVehicleCargo && fBodyType.required && <span className="text-red-500">*</span>}
                   </label>
                   <select
                     value={bodyType}
-                    required={fBodyType.required}
+                    required={!isVehicleCargo && fBodyType.required}
                     onChange={e => setBodyType(e.target.value as BodyType)}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                   >
@@ -867,7 +916,18 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                     <option value="GRANELEIRO">Graneleiro</option>
                     <option value="REFRIGERADO">Refrigerado</option>
                     <option value="PLATAFORMA">Plataforma</option>
+                    <option value="OUTRO">Outros</option>
                   </select>
+                  {bodyType === 'OUTRO' && (
+                    <input
+                      type="text"
+                      required={!isVehicleCargo}
+                      value={otherBodyType}
+                      onChange={e => setOtherBodyType(e.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder="Informe o tipo de carroceria"
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -876,11 +936,11 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
               {fBrand.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    {fBrand.label} {fBrand.required && <span className="text-red-500">*</span>}
+                    {fBrand.label} {!isVehicleCargo && fBrand.required && <span className="text-red-500">*</span>}
                   </label>
                   <select
                     value={vehicleBrand}
-                    required={fBrand.required}
+                    required={!isVehicleCargo && fBrand.required}
                     onChange={e => setVehicleBrand(e.target.value)}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
                   >
@@ -899,7 +959,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">Especifique a Marca / Veículo</label>
                   <input
                     type="text"
-                    required={vehicleBrand === 'Outro'}
+                    required={!isVehicleCargo && vehicleBrand === 'Outro'}
                     value={otherVehicleBrand}
                     onChange={e => setOtherVehicleBrand(e.target.value)}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"

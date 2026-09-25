@@ -294,7 +294,9 @@ const canAssignUserRole = (actor: User | undefined, targetRole: unknown): target
 };
 
 const VALID_STATUS_TRANSITIONS: Record<FreightStatus, FreightStatus[]> = {
-  RASCUNHO: ['PUBLICADO', 'CANCELADO'],
+  RASCUNHO: ['AGUARDANDO_APROVACAO', 'CANCELADO'],
+  AGUARDANDO_APROVACAO: ['APROVADO', 'CANCELADO'],
+  APROVADO: ['PUBLICADO', 'CANCELADO'],
   PUBLICADO: ['DISPONIVEL', 'RESERVADO', 'CANCELADO'],
   DISPONIVEL: ['RESERVADO', 'CANCELADO'],
   RESERVADO: ['EM_COLETA', 'DISPONIVEL', 'CANCELADO'],
@@ -329,6 +331,13 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     '/health',
     '/public/mapbox/geocode',
     '/public/mapbox/client-config',
+    '/public/cep',
+    // Mapbox is called server-side and these GET endpoints return only route
+    // results; keeping them public prevents a stale app session from blocking
+    // address resolution and route calculation in the budget screen.
+    '/mapbox/geocode',
+    '/mapbox/geocode-tracking',
+    '/mapbox/directions',
     '/internal/backups/event'
   ];
 
@@ -421,8 +430,28 @@ export function sanitizeUser(user?: User | null): any {
 
 function sanitizeDriver(driver?: Driver | null): any {
   if (!driver) return driver;
-  const { bankName, bankAgency, bankAccount, pixKeyType, pixKey, ...safeDriver } = driver as any;
+  const { bankName, bankAgency, bankAccount, pixKeyType, pixKey, notes, ...safeDriver } = driver as any;
   return safeDriver;
+}
+
+function sanitizeDriverLookup(driver: Driver): any {
+  return {
+    id: driver.id,
+    name: driver.name,
+    phone: driver.phone,
+    email: driver.email,
+    cpf: driver.cpf,
+    rg: driver.rg,
+    birthDate: driver.birthDate,
+    address: driver.address,
+    zipCode: driver.zipCode,
+    cnh: driver.cnh,
+    cnhCategory: driver.cnhCategory,
+    cnhExpiresAt: driver.cnhExpiresAt,
+    city: driver.city,
+    state: driver.state,
+    status: driver.status
+  };
 }
 
 function safeSupportIdentity(user: User): Pick<User, 'id' | 'name' | 'email' | 'role' | 'tenantId'> {
@@ -895,7 +924,6 @@ const trackingSubscribers = new Map<string, Set<Response>>();
   apiRouter.get('/mapbox/geocode', handleGeocode);
   apiRouter.get('/mapbox/geocode-tracking', handleGeocode);
 apiRouter.get('/mapbox/directions', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
   const origin = String(req.query.origin || '').split(',').map(Number); const destination = String(req.query.destination || '').split(',').map(Number);
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
   if (origin.length !== 2 || destination.length !== 2 || origin.some(Number.isNaN) || destination.some(Number.isNaN)) return res.status(400).json({ error: 'Coordenadas de origem e destino inválidas.' });
@@ -938,6 +966,19 @@ apiRouter.get('/public/mapbox/client-config', (_req: AuthenticatedRequest, res: 
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
   const isPublicToken = token.startsWith('pk.');
   return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : '', defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || 'streets-v12', defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
+});
+apiRouter.get('/public/cep', async (req: AuthenticatedRequest, res: Response) => {
+  const cep = String(req.query.cep || '').replace(/\D/g, '').slice(0, 8);
+  if (cep.length !== 8) return res.status(400).json({ error: 'Informe um CEP válido com 8 dígitos.' });
+  try {
+    const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o CEP.' });
+    const data: any = await response.json();
+    if (data.erro) return res.status(404).json({ error: 'CEP não encontrado.' });
+    return res.json({ zipCode: cep, address: data.logradouro || '', neighborhood: data.bairro || '', city: data.localidade || '', state: data.uf || '', complement: data.complemento || '' });
+  } catch {
+    return res.status(502).json({ error: 'Serviço de CEP indisponível no momento.' });
+  }
 });
 apiRouter.get('/public/freights', (req: AuthenticatedRequest, res: Response) => {
   res.json(db.freights.filter(isPublicFreight).map(publicFreightSummary));
@@ -2068,22 +2109,18 @@ apiRouter.post('/auth/logout', async (req: AuthenticatedRequest, res: Response) 
 
 // Temporary support access. It never accepts a target identity from the browser as a login credential;
 // the authenticated Super Admin creates a short-lived, signed, in-memory support session.
-apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || req.user.role !== 'SUPER_ADMIN' || req.supportSession) {
-    return res.status(403).json({ error: 'Somente um Super Admin autenticado pode iniciar uma sessão de suporte.' });
+const createSupportSession = (req: AuthenticatedRequest, res: Response, targetUser: User) => {
+  if (targetUser.role === 'SUPER_ADMIN') {
+    return { status: 400, body: { error: 'Uma sessão de suporte não pode assumir outro Super Admin.' } };
   }
-  const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
-  if (!targetUserId) return res.status(400).json({ error: 'targetUserId é obrigatório.' });
-
-  const targetUser = db.users.find(user => user.id === targetUserId);
-  if (!targetUser) return res.status(404).json({ error: 'Usuário de suporte não encontrado.' });
-  if (targetUser.role === 'SUPER_ADMIN') return res.status(400).json({ error: 'Uma sessão de suporte não pode assumir outro Super Admin.' });
-  if (targetUser.status !== 'ATIVO') return res.status(409).json({ error: 'Somente usuários ativos podem receber acesso de suporte.' });
+  if (targetUser.status !== 'ATIVO') {
+    return { status: 409, body: { error: 'Somente usuários ativos podem receber acesso de suporte.' } };
+  }
 
   const expiresAt = new Date(Date.now() + SUPPORT_SESSION_TTL_MS).toISOString();
   const supportSession: SupportSessionRecord = {
     id: randomUUID(),
-    actorUserId: req.user.id,
+    actorUserId: req.user!.id,
     targetUserId: targetUser.id,
     expiresAt
   };
@@ -2093,7 +2130,7 @@ apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) =
     userId: targetUser.id,
     support: true,
     supportSessionId: supportSession.id,
-    actorUserId: req.user.id,
+    actorUserId: req.user!.id,
     targetUserId: targetUser.id,
     iss: 'elolog-support'
   }, SAFE_JWT_SECRET, { expiresIn: '30m' });
@@ -2101,25 +2138,57 @@ apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) =
   db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
     tenantName: targetUser.tenantId ? db.tenants.find(t => t.id === targetUser.tenantId)?.name : undefined,
-    userId: req.user.id,
-    userName: req.user.name,
-    userRole: req.user.role,
+    userId: req.user!.id,
+    userName: req.user!.name,
+    userRole: req.user!.role,
     action: 'SUPORTE_INICIADO',
     entity: 'SupportSession',
     entityId: supportSession.id,
     details: `Acesso assistido iniciado para ${targetUser.name} (${targetUser.role}); expira em 30 minutos.`
   });
-
   setSessionCookies(res, token);
-  return res.json({
-    ...getSessionDataForUser(targetUser),
-    supportSession: {
-      id: supportSession.id,
-      targetUser: safeSupportIdentity(targetUser),
-      actorUser: safeSupportIdentity(req.user),
-      expiresAt: supportSession.expiresAt
+  return {
+    status: 200,
+    body: {
+      ...getSessionDataForUser(targetUser),
+      supportSession: {
+        id: supportSession.id,
+        targetUser: safeSupportIdentity(targetUser),
+        actorUser: safeSupportIdentity(req.user!),
+        expiresAt: supportSession.expiresAt
+      }
     }
-  });
+  };
+};
+
+apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'SUPER_ADMIN' || req.supportSession) {
+    return res.status(403).json({ error: 'Somente um Super Admin autenticado pode iniciar uma sessão de suporte.' });
+  }
+  const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
+  if (!targetUserId) return res.status(400).json({ error: 'targetUserId é obrigatório.' });
+
+  const targetUser = db.users.find(user => user.id === targetUserId);
+  if (!targetUser) return res.status(404).json({ error: 'Usuário de suporte não encontrado.' });
+  const result = createSupportSession(req, res, targetUser);
+  return res.status(result.status).json(result.body);
+});
+
+// Compatibilidade com o botão "Acessar como empresa" do painel SaaS.
+// A rota cria a mesma sessão curta e redireciona a nova janela para a SPA.
+apiRouter.get('/admin/impersonate/:tenantId', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'SUPER_ADMIN' || req.supportSession) {
+    return res.status(403).json({ error: 'Somente um Super Admin autenticado pode acessar uma empresa em modo suporte.' });
+  }
+  const tenant = db.tenants.find(item => item.id === req.params.tenantId);
+  if (!tenant) return res.status(404).json({ error: 'Empresa não encontrada.' });
+
+  const targetUser = db.users.find(user => user.tenantId === tenant.id && user.status === 'ATIVO' && ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'USUARIO'].includes(user.role));
+  if (!targetUser) return res.status(404).json({ error: 'Nenhum usuário ativo disponível para suporte nesta empresa.' });
+
+  const result = createSupportSession(req, res, targetUser);
+  if (result.status !== 200) return res.status(result.status).json(result.body);
+  return res.redirect('/');
 });
 
 apiRouter.post('/support/sessions/end', (req: AuthenticatedRequest, res: Response) => {
@@ -3424,11 +3493,10 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
    4. DRIVERS & VEHICLES MANAGEMENT
    ========================================================================= */
 
-// Register a global driver from an authenticated company administration.
+// Register a global driver from any real authenticated company user.
 // The identity is global; only the company relationship is tenant-scoped.
 apiRouter.post('/drivers/register', async (req: AuthenticatedRequest, res: Response) => {
-  const allowedRoles = ['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'];
-  if (!req.user || !allowedRoles.includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem cadastrar motorista.' });
+  if (!req.user || isTestOrDemoUser(req.user) || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Usuário autenticado e empresa válida são obrigatórios para cadastrar motorista.' });
   const targetTenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : String(req.user.tenantId || '');
   if (!targetTenantId || !db.tenants.some(tenant => tenant.id === targetTenantId)) return res.status(400).json({ error: 'Empresa de vínculo não identificada.' });
   const name = String(req.body?.name || '').trim();
@@ -3472,6 +3540,58 @@ apiRouter.get('/drivers', (req: AuthenticatedRequest, res: Response) => {
   // Scoped by independent company link; a driver may belong to many companies.
   const drivers = db.drivers.filter(d => req.user?.tenantId ? db.hasDriverCompanyAccess(d.id, req.user.tenantId, true) : false);
   res.json(drivers.map(sanitizeDriver));
+});
+
+apiRouter.get('/drivers/lookup', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Empresa não identificada.' });
+  const phone = normalizePhoneForLookup(String(req.query.phone || ''));
+  const cnh = normalizePublicIdentity(String(req.query.cnh || ''));
+  if (!phone && !cnh) return res.status(400).json({ error: 'Informe telefone ou número de CNH.' });
+  const driver = db.drivers.find(item => (phone && normalizePhoneForLookup(item.phone) === phone) || (cnh && normalizePublicIdentity(item.cnh) === cnh));
+  if (!driver) return res.status(404).json({ error: 'Nenhum motorista encontrado com os dados informados.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : req.user.tenantId!;
+  const link = tenantId ? db.driverCompanyLinks.find(item => item.driverId === driver.id && item.tenantId === tenantId && item.scope === 'EMPRESA') : undefined;
+  return res.json({ driver: sanitizeDriverLookup(driver), companyLink: link || null });
+});
+
+apiRouter.post('/drivers/:id/company-link', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Empresa não identificada.' });
+  const driver = db.drivers.find(item => item.id === req.params.id);
+  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user.tenantId!;
+  if (!tenantId || !db.tenants.some(item => item.id === tenantId)) return res.status(400).json({ error: 'Empresa de vínculo inválida.' });
+  const existing = db.driverCompanyLinks.find(item => item.driverId === driver.id && item.tenantId === tenantId && item.scope === 'EMPRESA');
+  const link = existing || db.upsertDriverCompanyLink({ driverId: driver.id, tenantId, status: 'PENDENTE', scope: 'EMPRESA', source: 'COMPANY_ADMIN_REGISTRATION' });
+  await db.persistNow();
+  return res.status(existing ? 200 : 201).json({ driver: sanitizeDriverLookup(driver), companyLink: link });
+});
+
+apiRouter.get('/drivers/:id/company-profile', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user?.tenantId && req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Empresa não identificada.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : req.user.tenantId!;
+  if (req.user.role !== 'SUPER_ADMIN' && !db.hasDriverCompanyAccess(req.params.id, tenantId, true)) return res.status(403).json({ error: 'Motorista não possui vínculo com esta empresa.' });
+  const profile = db.driverCompanyProfiles.find(item => item.driverId === req.params.id && item.tenantId === tenantId);
+  return res.json(profile || { driverId: req.params.id, tenantId, notes: '', files: [] });
+});
+
+apiRouter.put('/drivers/:id/company-profile', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user?.tenantId && req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Empresa não identificada.' });
+  const driver = db.drivers.find(item => item.id === req.params.id);
+  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user.tenantId!;
+  if (!tenantId || !db.hasDriverCompanyAccess(driver.id, tenantId, true)) return res.status(403).json({ error: 'Motorista não possui vínculo com esta empresa.' });
+  let profile = db.driverCompanyProfiles.find(item => item.driverId === driver.id && item.tenantId === tenantId);
+  if (!profile) {
+    profile = { id: randomUUID(), driverId: driver.id, tenantId, notes: '', files: [], createdAt: new Date().toISOString() };
+    db.driverCompanyProfiles.unshift(profile);
+  }
+  if (req.body?.notes !== undefined) profile.notes = String(req.body.notes || '').slice(0, 10000);
+  if (Array.isArray(req.body?.files)) {
+    profile.files = req.body.files.filter((file: any) => file && typeof file.name === 'string' && typeof file.dataUrl === 'string' && file.dataUrl.length <= 8_000_000).slice(0, 20).map((file: any) => ({ id: file.id || randomUUID(), name: file.name.slice(0, 180), mimeType: String(file.mimeType || 'application/octet-stream').slice(0, 120), dataUrl: file.dataUrl, createdAt: file.createdAt || new Date().toISOString() }));
+  }
+  profile.updatedAt = new Date().toISOString();
+  await db.persistNow();
+  return res.json(profile);
 });
 
 apiRouter.put('/drivers/:id', (req: AuthenticatedRequest, res: Response) => {
@@ -3692,7 +3812,7 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   const requestedBudgetId = customData?.budgetId ? String(customData.budgetId) : '';
   const linkedBudget = requestedBudgetId ? db.budgets.find((budget: any) => budget.id === requestedBudgetId && budget.tenantId === tenantId && !budget.convertedFreightId) : undefined;
   if (requestedBudgetId && !linkedBudget) return res.status(400).json({ error: 'Orçamento selecionado não pertence à empresa, não existe ou já foi convertido.' });
-  if (linkedBudget && linkedBudget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode ser vinculado a um frete.' });
+  if (linkedBudget && req.user?.role !== 'SUPER_ADMIN' && linkedBudget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode ser vinculado a um frete.' });
 
   if (!origin?.city || !origin?.state || !destination?.city || !destination?.state || !payment?.price) {
     return res.status(400).json({ error: 'Origem, destino e valor são obrigatórios' });
@@ -3702,7 +3822,7 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   if (req.body.operationType !== undefined && !['CARGA_GERAL', 'LOGISTICA_VEICULOS'].includes(req.body.operationType)) return res.status(400).json({ error: 'Tipo de operação inválido.' });
   const safeOperationType = req.body.operationType === 'LOGISTICA_VEICULOS' ? 'LOGISTICA_VEICULOS' : 'CARGA_GERAL';
   const safePublicListing = Boolean(publicListingEnabled);
-  const initialStatus: FreightStatus = publishImmediately ? 'DISPONIVEL' : 'RASCUNHO';
+  const initialStatus: FreightStatus = 'AGUARDANDO_APROVACAO';
   const now = new Date().toISOString();
   const nextSeq = db.freights.length + 1;
   const code = `FRT-2026-${String(nextSeq).padStart(4, '0')}`;
@@ -4066,6 +4186,43 @@ apiRouter.post('/freights/:id/accept', async (req: AuthenticatedRequest, res: Re
   });
 });
 
+// Internal acceptance/driver assignment. This is intentionally available to
+// every authenticated company user; tenant isolation and the atomic lock still
+// prevent cross-company access and double reservation.
+apiRouter.post('/freights/:id/assign-driver', async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Não autenticado.' });
+  const freight = db.freights.find(item => item.id === req.params.id);
+  if (!freight) return res.status(404).json({ error: 'Frete não encontrado.' });
+  if (user.role !== 'SUPER_ADMIN' && freight.tenantId !== user.tenantId) return res.status(403).json({ error: 'Este frete pertence a outra empresa.' });
+  const driverId = String(req.body?.driverId || '').trim();
+  const driver = db.drivers.find(item => item.id === driverId);
+  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
+  if (!db.hasDriverCompanyAccess(driver.id, freight.tenantId, true)) return res.status(403).json({ error: 'O motorista não está aprovado para esta empresa.' });
+  if (driver.status === 'INATIVO') return res.status(409).json({ error: 'Motorista inativo não pode ser vinculado ao frete.' });
+
+  const result = await db.withLock(`freight-accept-${freight.id}`, async () => {
+    if (freight.status !== 'DISPONIVEL' && freight.status !== 'PUBLICADO') return { ok: false, status: 409, error: `Frete indisponível para aceite. Status atual: ${freight.status}.` };
+    if (freight.assignedDriverId) return { ok: false, status: 409, error: 'Este frete já foi reservado por outro motorista.' };
+    const vehicle = db.vehicles.find(item => item.driverId === driver.id);
+    const now = new Date().toISOString();
+    freight.status = 'RESERVADO';
+    freight.assignedDriverId = driver.id;
+    freight.assignedDriverName = driver.name;
+    freight.assignedDriverPhone = driver.phone;
+    freight.assignedVehiclePlate = vehicle?.plate || 'Não inf.';
+    freight.assignedVehicleModel = vehicle ? `${vehicle.brand} ${vehicle.model}` : 'Veículo padrão';
+    freight.assignedAt = now;
+    freight.updatedAt = now;
+    freight.statusHistory.push({ status: 'RESERVADO', timestamp: now, changedByUserId: user.id, changedByName: user.name, notes: `Frete aceito internamente e vinculado ao motorista ${driver.name}.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: freight.tenantId, tenantName: freight.tenantName, userId: user.id, userName: user.name, userRole: user.role, action: 'VINCULO_MOTORISTA_INTERNO', entity: 'Freight', entityId: freight.id, details: `Frete ${freight.code} aceito internamente e vinculado ao motorista ${driver.name}.` });
+    await db.persistNow();
+    return { ok: true, freight };
+  });
+  if (!result.ok) return res.status(result.status || 409).json({ error: result.error });
+  return res.json({ message: 'Frete aceito e motorista vinculado com sucesso.', freight: result.freight });
+});
+
 /* =========================================================================
    7. STATE MACHINE TRANSITION (EM_COLETA, COLETADO, EM_TRANSITO, ENTREGUE, etc.)
    ========================================================================= */
@@ -4132,6 +4289,9 @@ apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response
   }
 
   const currentStatus = freight.status;
+  if (['AGUARDANDO_APROVACAO', 'APROVADO'].includes(newStatus) && !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user?.role || '')) {
+    return res.status(403).json({ error: 'Somente Super Admin, Super Admin da empresa ou Admin podem aprovar o frete.' });
+  }
   const allowedTransitions = VALID_STATUS_TRANSITIONS[currentStatus] || [];
 
   if (!allowedTransitions.includes(newStatus)) {
@@ -4309,6 +4469,7 @@ apiRouter.post('/forms/:id/copy', async (req: AuthenticatedRequest, res: Respons
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem copiar formulários.' });
   const source = db.forms.find(form => form.id === req.params.id);
   if (!source) return res.status(404).json({ error: 'Modelo de formulário não encontrado.' });
+  if (req.user.role !== 'SUPER_ADMIN' && source.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Este formulário pertence a outra empresa.' });
   const targetTenantId = req.user.role === 'SUPER_ADMIN' ? (req.body?.tenantId || source.tenantId) : req.user.tenantId;
   if (!targetTenantId || !db.tenants.some(tenant => tenant.id === targetTenantId)) return res.status(400).json({ error: 'Empresa de destino inválida.' });
   const now = new Date().toISOString();
@@ -5371,7 +5532,7 @@ apiRouter.delete('/freights/:id', async (req: AuthenticatedRequest, res: Respons
 });
 
 apiRouter.delete('/drivers/:id', async (req: AuthenticatedRequest, res: Response) => {
-  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem desativar motoristas.' });
+  if (!req.user || !['SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente Super Admin ou Admin podem desativar motoristas.' });
   const driver = db.drivers.find(d => d.id === req.params.id);
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
   if (req.user?.role !== 'SUPER_ADMIN' && (!req.user?.tenantId || !db.hasDriverCompanyAccess(driver.id, req.user.tenantId, true))) {
@@ -5396,31 +5557,6 @@ apiRouter.delete('/drivers/:id', async (req: AuthenticatedRequest, res: Response
   });
   await db.persistNow();
   res.json({ success: true, message: 'Motorista desativado; cadastro global e histórico preservados.' });
-});
-
-apiRouter.delete('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
-  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem desativar usuários.' });
-  const targetUser = db.users.find(u => u.id === req.params.id);
-  if (!targetUser) return res.status(404).json({ error: 'Usuário não encontrado' });
-  if (req.user?.role !== 'SUPER_ADMIN' && targetUser.tenantId !== req.user?.tenantId) {
-    return res.status(403).json({ error: 'Acesso não autorizado. Este usuário pertence a outra empresa.' });
-  }
-  if (targetUser.id === req.user?.id) return res.status(400).json({ error: 'Você não pode desativar seu próprio usuário' });
-  targetUser.status = 'BLOQUEADO';
-  targetUser.readOnly = true;
-  targetUser.updatedAt = new Date().toISOString();
-  db.addAuditLog({ ip: requestIp(req),
-    tenantId: targetUser.tenantId || undefined,
-    userId: req.user?.id || 'system',
-    userName: req.user?.name || 'Sistema',
-    userRole: req.user?.role || 'ADMIN',
-    action: 'BLOQUEAR_USUARIO',
-    entity: 'User',
-    entityId: targetUser.id,
-    details: `Usuário ${targetUser.name} (${targetUser.email}) bloqueado sem apagar cadastro ou auditoria.`
-  });
-  await db.persistNow();
-  res.json({ success: true, message: 'Usuário bloqueado; cadastro e histórico preservados.' });
 });
 
 apiRouter.delete('/forms/:id', async (req: AuthenticatedRequest, res: Response) => {
@@ -6619,9 +6755,9 @@ apiRouter.put('/budgets/:id', async (req: AuthenticatedRequest, res: Response) =
   const expectedVersion = req.body?.expectedVersion === undefined ? undefined : Number(req.body.expectedVersion);
   if (expectedVersion !== undefined && (!Number.isInteger(expectedVersion) || expectedVersion !== budget.version)) return res.status(409).json({ error: 'Este orçamento foi alterado por outra sessão. Recarregue os dados antes de salvar.', currentVersion: budget.version });
   if (req.body?.clientId !== undefined && !db.clients.some(client => client.id === req.body.clientId && client.tenantId === budget.tenantId && client.status !== 'ARQUIVADO')) return res.status(400).json({ error: 'Cliente inválido para esta empresa.' });
-  const allowed = ['clientId','clientName','origin','destination','date','cargoType','weightKg','quantity','vehicleType','driverId','distanceKm','pricePerKm','priceTableReference','tolls','insurance','dailyRate','dailyCount','assistantCount','assistantDailyRate','estimatedMinutes','routeGeometry','notes','taxes','profitType','profitValue','driverPassed','driverPaid','customFields']; for (const key of allowed) if (req.body[key] !== undefined) budget[key] = req.body[key]; if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)); budget.version += 1; budget.updatedAt = new Date().toISOString(); budget.financials = calculateBudget(budget); budget.versions.push({ id: randomUUID(), budgetId: budget.id, version: budget.version, snapshot: JSON.parse(JSON.stringify(budget)), createdAt: budget.updatedAt, createdByUserId: req.user!.id }); await db.persistNow(); res.json(budget);
+  const allowed = ['clientId','clientName','origin','destination','date','cargoType','weightKg','quantity','vehicleType','bodyType','bodyTypeOther','driverId','distanceKm','pricePerKm','priceTableReference','tolls','insurance','dailyRate','dailyCount','assistantCount','assistantDailyRate','estimatedMinutes','routeGeometry','notes','taxes','profitType','profitValue','driverPassed','driverPaid','customFields']; for (const key of allowed) if (req.body[key] !== undefined) budget[key] = req.body[key]; if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)); budget.version += 1; budget.updatedAt = new Date().toISOString(); budget.financials = calculateBudget(budget); budget.versions.push({ id: randomUUID(), budgetId: budget.id, version: budget.version, snapshot: JSON.parse(JSON.stringify(budget)), createdAt: budget.updatedAt, createdByUserId: req.user!.id }); await db.persistNow(); res.json(budget);
 });
 apiRouter.post('/budgets/:id/status', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const status = String(req.body?.status || ''); if (!validBudgetTransition[budget.status]?.includes(status)) return res.status(409).json({ error: `Transição ${budget.status} → ${status} não permitida.` }); budget.status = status; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });
 apiRouter.post('/budgets/:id/duplicate', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const source: any = budgetForRequest(req, req.params.id); if (!source) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const now = new Date().toISOString(); const copy: any = { ...JSON.parse(JSON.stringify(source)), id: randomUUID(), code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, convertedFreightId: undefined, createdAt: now, updatedAt: now, versions: [] }; copy.expenses = copy.expenses.map((item: any, index: number) => ({ ...item, id: randomUUID() })); copy.financials = calculateBudget(copy); copy.versions = [{ id: randomUUID(), budgetId: copy.id, version: 1, snapshot: JSON.parse(JSON.stringify(copy)), createdAt: now, createdByUserId: req.user!.id }]; db.budgets.unshift(copy); await db.persistNow(); res.status(201).json(copy); });
-apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const inferredCargoType = ['GERAL', 'FRAGIL', 'REFRIGERADA', 'PERIGOSA', 'ALIMENTOS', 'CONSTRUCAO', 'MAQUINARIO', 'GRAOS'].includes(String(budget.cargoType || '').toUpperCase()) ? String(budget.cargoType).toUpperCase() : 'GERAL'; const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType || 'Carga geral', type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: 'RASCUNHO', statusHistory: [], createdByUserId: req.user!.id, createdByName: req.user!.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: 'BUDGET_CONVERSION' }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
+apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (req.user?.role !== 'SUPER_ADMIN' && budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const inferredCargoType = ['VEICULO', 'GERAL', 'FRAGIL', 'REFRIGERADA', 'PERIGOSA', 'ALIMENTOS', 'CONSTRUCAO', 'MAQUINARIO', 'GRAOS'].includes(String(budget.cargoType || '').toUpperCase()) ? String(budget.cargoType).toUpperCase() : 'GERAL'; const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, routeGeometry: budget.routeGeometry, cargo: { description: budget.cargoType || 'Carga geral', type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', bodyTypeRequired: budget.bodyType || undefined, bodyTypeOther: budget.bodyType === 'OUTRO' ? budget.bodyTypeOther || undefined : undefined, minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: 'AGUARDANDO_APROVACAO', statusHistory: [{ status: 'AGUARDANDO_APROVACAO', timestamp: now, changedByUserId: req.user!.id, changedByName: req.user!.name, notes: 'Frete gerado a partir de orçamento e aguardando aprovação administrativa.' }], createdByUserId: req.user!.id, createdByName: req.user!.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: 'BUDGET_CONVERSION' }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
 apiRouter.delete('/budgets/:id', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.status === 'CONVERTIDO') return res.status(409).json({ error: 'Orçamento convertido não pode ser apagado.' }); budget.status = 'CANCELADO'; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });
