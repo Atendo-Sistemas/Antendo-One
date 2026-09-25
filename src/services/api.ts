@@ -142,7 +142,7 @@ export const api = {
     return request<{ token: string; refreshToken: string; user: User }>('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, code }) });
   },
   async startFreightInterest(data: any) {
-    return request<{ userId: string }>('/freights/interest', { method: 'POST', body: JSON.stringify(data) });
+  return publicRequest<{ userId: string }>(`/public/freights/${encodeURIComponent(data.freightId)}/interest`, { method: 'POST', body: JSON.stringify(data) });
   },
   async completeQuickDriver(userId: string, data: any) {
     return request<{ driver: Driver }>(`/drivers/${userId}/quick-complete`, { method: 'POST', body: JSON.stringify(data) });
@@ -165,7 +165,7 @@ export const api = {
   async getFreight(id: string) { return request<Freight>(`/freights/${id}`); },
   async createFreight(data: Partial<Freight>) { return request<Freight>('/freights', { method: 'POST', body: JSON.stringify(data) }); },
   async updateFreight(id: string, data: Partial<Freight>) { return request<Freight>(`/freights/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async updateFreightStatus(id: string, status: string, notes?: string) { return request<Freight>(`/freights/${id}/status`, { method: 'POST', body: JSON.stringify({ newStatus: status, ...(notes ? { notes } : {}) }) }); },
+  async updateFreightStatus(id: string, status: string, notes?: string) { return request<Freight>(`/freights/${id}/status`, { method: 'POST', body: JSON.stringify({ status, ...(notes ? { notes } : {}) }) }); },
   async deleteFreight(id: string) { return request<{ success: boolean }>(`/freights/${id}`, { method: 'DELETE' }); },
   async publishFreight(id: string, data: any) { return request<Freight>(`/freights/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }); },
   async unpublishFreight(id: string) { return request<Freight>(`/freights/${id}/unpublish`, { method: 'POST' }); },
