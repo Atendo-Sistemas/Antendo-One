@@ -3,7 +3,7 @@ import { api, budgetApi, tenantApi } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { useAuth } from '../../context/AuthContext';
 import { CepLookupField } from '../common/CepLookupField';
-import { VehicleType, CargoType, PaymentMethod, BodyType, Freight, OperationType, CompanyVehicle, Budget, Tenant } from '../../types';
+import { VehicleType, CargoType, PaymentMethod, BodyType, Freight, OperationType, CompanyVehicle, Vehicle, Budget, Tenant } from '../../types';
 import { Truck, MapPin, DollarSign, Calendar, Package, X, Sparkles, AlertCircle, Split } from 'lucide-react';
 
 interface FreightFormModalProps {
@@ -105,6 +105,15 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
 
   const [publishImmediately, setPublishImmediately] = useState(true);
   const [companyVehicles, setCompanyVehicles] = useState<CompanyVehicle[]>([]);
+  const [companyDrivers, setCompanyDrivers] = useState<any[]>([]);
+  const [driverVehicles, setDriverVehicles] = useState<Vehicle[]>([]);
+  const [targetedDriverId, setTargetedDriverId] = useState('');
+  const [targetedVehicleId, setTargetedVehicleId] = useState('');
+  useEffect(() => {
+    if (!targetedDriverId) { setTargetedVehicleId(''); return; }
+    const eligible = driverVehicles.filter(vehicle => vehicle.driverId === targetedDriverId && vehicle.status !== 'INATIVO');
+    if (!eligible.some(vehicle => vehicle.id === targetedVehicleId)) setTargetedVehicleId(eligible[0]?.id || '');
+  }, [targetedDriverId, driverVehicles, targetedVehicleId]);
   const [companyVehicleId, setCompanyVehicleId] = useState('');
   const [publicListingEnabled, setPublicListingEnabled] = useState(false);
   const [publicPriceVisibleToRegistered, setPublicPriceVisibleToRegistered] = useState(true);
@@ -133,6 +142,8 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
     }
     if (isOpen && effectiveTenantId) {
       api.getCompanyVehicles().then(setCompanyVehicles).catch(() => setCompanyVehicles([]));
+      api.getDrivers('', effectiveTenantId).then(setCompanyDrivers).catch(() => setCompanyDrivers([]));
+      api.getVehicles().then(setDriverVehicles).catch(() => setDriverVehicles([]));
       budgetApi.list(undefined, effectiveTenantId).then(result => setBudgets(result.filter(item => !item.convertedFreightId && !['CANCELADO', 'CONVERTIDO'].includes(item.status) && (isSuperAdmin || item.status === 'APROVADO')))).catch(() => setBudgets([]));
     }
   }, [isOpen, isSuperAdmin, effectiveTenantId, freightToEdit?.tenantId]);
@@ -193,6 +204,8 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setTollIncluded(freightToEdit.payment.tollIncluded);
       setPaymentNotes(freightToEdit.payment.notes || '');
       setCompanyVehicleId(freightToEdit.companyVehicleId || '');
+      setTargetedDriverId(freightToEdit.targetedDriverId || '');
+      setTargetedVehicleId(freightToEdit.targetedVehicleId || '');
       setPublicListingEnabled(freightToEdit.publicListingEnabled === true);
       setPublicPriceVisibleToRegistered(freightToEdit.publicPriceVisibleToRegistered !== false);
       setPublicInterestEnabled(freightToEdit.publicInterestEnabled !== false);
@@ -210,6 +223,8 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setClientRevenue('');
       setDriverCost('');
       setCompanyVehicleId('');
+      setTargetedDriverId('');
+      setTargetedVehicleId('');
       setVehicleTypeManual('');
       setPublicListingEnabled(false);
       setPublicPriceVisibleToRegistered(true);
@@ -409,6 +424,8 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
         routeGeometry: routeGeometry || undefined,
         publishImmediately,
         companyVehicleId: companyVehicleId || undefined,
+        targetedDriverId: targetedDriverId || null,
+        targetedVehicleId: targetedDriverId ? (targetedVehicleId || null) : null,
         publicListingEnabled,
         publicPriceVisibleToRegistered,
         publicInterestEnabled,
@@ -1144,6 +1161,15 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
               />
               <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
             </label>
+          </div>
+
+          <div className="p-3.5 bg-violet-50/70 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 rounded-xl space-y-3">
+            <div><span className="text-xs font-bold text-violet-900 dark:text-violet-200 block">Direcionar para um motorista específico (opcional)</span><span className="text-[11px] text-violet-800/80 dark:text-violet-300/80">Sem publicar na vitrine, o frete ficará disponível somente no painel do motorista selecionado após a aprovação da empresa. Se nada for selecionado, o frete seguirá o fluxo normal.</span></div>
+            <select value={targetedDriverId} onChange={e => { setTargetedDriverId(e.target.value); if (!e.target.value) setTargetedVehicleId(''); }} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-800 rounded-lg text-xs">
+              <option value="">Nenhum motorista específico</option>
+              {companyDrivers.filter(driver => driver.status !== 'INATIVO').map(driver => <option key={driver.id} value={driver.id}>{driver.name}{driver.city ? ` — ${driver.city}/${driver.state || ''}` : ''}</option>)}
+            </select>
+            {targetedDriverId && <select value={targetedVehicleId} onChange={e => setTargetedVehicleId(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-800 rounded-lg text-xs"><option value="">Qualquer veículo elegível do motorista</option>{driverVehicles.filter(vehicle => vehicle.driverId === targetedDriverId && vehicle.status !== 'INATIVO').map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} • {vehicle.brand} {vehicle.model}</option>)}</select>}
           </div>
 
           {(

@@ -789,6 +789,7 @@ var DatabaseStore = class {
     this.errorLogs = [];
     this.visitAnalytics = [];
     this.driverCompanyLinks = [];
+    this.driverCompanyProfiles = [];
     this.freightInterests = [];
     this.companyVehicles = [];
     this.companyStops = [];
@@ -1244,6 +1245,7 @@ var DatabaseStore = class {
       errorLogs: this.errorLogs,
       visitAnalytics: this.visitAnalytics,
       driverCompanyLinks: this.driverCompanyLinks,
+      driverCompanyProfiles: this.driverCompanyProfiles,
       freightInterests: this.freightInterests,
       companyVehicles: this.companyVehicles,
       companyStops: this.companyStops,
@@ -1279,7 +1281,7 @@ var DatabaseStore = class {
         this.ensureSystemContent();
         return;
       }
-      for (const key of ["tenants", "users", "drivers", "vehicles", "freights", "freightLocations", "tripExpenses", "notifications", "notificationDeliveries", "pushSubscriptions", "forms", "formResponses", "auditLogs", "errorLogs", "visitAnalytics", "driverCompanyLinks", "freightInterests", "companyVehicles", "companyStops", "lodgingPartners", "clients", "budgets", "tenantBudgetForms", "pages", "posts", "asaasPayments", "asaasSubscriptions", "helpPages", "legalDocumentVersions"]) {
+      for (const key of ["tenants", "users", "drivers", "vehicles", "freights", "freightLocations", "tripExpenses", "notifications", "notificationDeliveries", "pushSubscriptions", "forms", "formResponses", "auditLogs", "errorLogs", "visitAnalytics", "driverCompanyLinks", "driverCompanyProfiles", "freightInterests", "companyVehicles", "companyStops", "lodgingPartners", "clients", "budgets", "tenantBudgetForms", "pages", "posts", "asaasPayments", "asaasSubscriptions", "helpPages", "legalDocumentVersions"]) {
         if (Array.isArray(state[key])) this[key] = state[key];
       }
       if (state.whatsappConfigs && typeof state.whatsappConfigs === "object") {
@@ -3248,7 +3250,7 @@ var sanitizeServerHtml = (value) => (0, import_sanitize_html.default)(String(val
 });
 
 // src/version.ts
-var APP_VERSION = "v1.8.43";
+var APP_VERSION = "v1.8.59";
 
 // server/budgetService.ts
 var money = (value) => Math.round((Number(value) || 0) * 100) / 100;
@@ -3510,7 +3512,9 @@ var canAssignUserRole = (actor, targetRole) => {
   return DIRECTORY_ADMIN_ROLES.includes(actor.role);
 };
 var VALID_STATUS_TRANSITIONS = {
-  RASCUNHO: ["PUBLICADO", "CANCELADO"],
+  RASCUNHO: ["AGUARDANDO_APROVACAO", "CANCELADO"],
+  AGUARDANDO_APROVACAO: ["APROVADO", "CANCELADO"],
+  APROVADO: ["PUBLICADO", "CANCELADO"],
   PUBLICADO: ["DISPONIVEL", "RESERVADO", "CANCELADO"],
   DISPONIVEL: ["RESERVADO", "CANCELADO"],
   RESERVADO: ["EM_COLETA", "DISPONIVEL", "CANCELADO"],
@@ -3541,6 +3545,14 @@ function authMiddleware(req, res, next) {
     "/health",
     "/public/mapbox/geocode",
     "/public/mapbox/client-config",
+    "/public/cep",
+    // Mapbox is called server-side and these GET endpoints return only route
+    // results; keeping them public prevents a stale app session from blocking
+    // address resolution and route calculation in the budget screen.
+    "/mapbox/geocode",
+    "/mapbox/geocode-tracking",
+    "/mapbox/directions",
+    "/mapbox/client-config",
     "/internal/backups/event"
   ];
   const isPublicRoute = publicPaths.includes(path4) || req.method === "GET" && /^\/public\/tracking\/[^/]+$/.test(path4) || path4 === "/saas/config" && req.method === "GET" || path4 === "/push/vapid-key" && req.method === "GET";
@@ -3603,8 +3615,27 @@ function sanitizeUser(user) {
 }
 function sanitizeDriver(driver) {
   if (!driver) return driver;
-  const { bankName, bankAgency, bankAccount, pixKeyType, pixKey, ...safeDriver } = driver;
+  const { bankName, bankAgency, bankAccount, pixKeyType, pixKey, notes, ...safeDriver } = driver;
   return safeDriver;
+}
+function sanitizeDriverLookup(driver) {
+  return {
+    id: driver.id,
+    name: driver.name,
+    phone: driver.phone,
+    email: driver.email,
+    cpf: driver.cpf,
+    rg: driver.rg,
+    birthDate: driver.birthDate,
+    address: driver.address,
+    zipCode: driver.zipCode,
+    cnh: driver.cnh,
+    cnhCategory: driver.cnhCategory,
+    cnhExpiresAt: driver.cnhExpiresAt,
+    city: driver.city,
+    state: driver.state,
+    status: driver.status
+  };
 }
 function safeSupportIdentity(user) {
   return {
@@ -3973,14 +4004,21 @@ apiRouter.get("/public/registration-content/:slug", (req, res) => {
 });
 var normalizePublicPlate = (value) => String(value || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 var normalizePublicIdentity = (value) => String(value || "").replace(/\D/g, "");
+var BRAZILIAN_UFS = /* @__PURE__ */ new Set(["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]);
+var normalizePublicUf = (value, city) => {
+  const raw = String(value || "").trim().toUpperCase();
+  if (BRAZILIAN_UFS.has(raw)) return raw;
+  if (/^SÃ/.test(raw) || raw === "SAO" || String(city || "").toUpperCase().includes("RIO PRETO")) return "SP";
+  return raw.slice(0, 2);
+};
 var publicFreightSummary = (freight) => ({
   id: freight.id,
   code: freight.code,
   operationType: freight.operationType || "CARGA_GERAL",
   originCity: freight.origin.city,
-  originState: freight.origin.state,
+  originState: normalizePublicUf(freight.origin.state, freight.origin.city),
   destinationCity: freight.destination.city,
-  destinationState: freight.destination.state,
+  destinationState: normalizePublicUf(freight.destination.state, freight.destination.city),
   date: freight.origin.date,
   cargoType: freight.cargo.description,
   weightKg: freight.cargo.weightKg,
@@ -3988,7 +4026,9 @@ var publicFreightSummary = (freight) => ({
   bodyType: freight.requirements.bodyTypeRequired,
   minCapacityKg: freight.requirements.minCapacityKg,
   interestEnabled: freight.publicInterestEnabled !== false,
-  publishedAt: freight.publicPublishedAt
+  publishedAt: freight.publicPublishedAt,
+  routeAvailable: Boolean(freight.routeGeometry && Number(freight.distanceKm) > 0),
+  distanceKm: Number(freight.distanceKm) > 0 ? freight.distanceKm : void 0
 });
 var driverCanSeeFreightPrice = (driverId, freight) => {
   if (!driverId) return false;
@@ -4041,7 +4081,6 @@ var geocodeWithMapbox = async (query, token) => {
   throw new Error("Mapbox geocoding request failed");
 };
 var handleGeocode = async (req, res) => {
-  if (!req.user) return res.status(401).json({ error: "Autentica\xE7\xE3o necess\xE1ria." });
   const query = String(req.query.q || "").trim().slice(0, 180);
   if (query.length < 3) return res.json([]);
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
@@ -4055,7 +4094,6 @@ var handleGeocode = async (req, res) => {
 apiRouter.get("/mapbox/geocode", handleGeocode);
 apiRouter.get("/mapbox/geocode-tracking", handleGeocode);
 apiRouter.get("/mapbox/directions", async (req, res) => {
-  if (!req.user) return res.status(401).json({ error: "Autentica\xE7\xE3o necess\xE1ria." });
   const origin = String(req.query.origin || "").split(",").map(Number);
   const destination = String(req.query.destination || "").split(",").map(Number);
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
@@ -4095,7 +4133,6 @@ apiRouter.get("/public/mapbox/geocode", async (req, res) => {
   }
 });
 apiRouter.get("/mapbox/client-config", (req, res) => {
-  if (!req.user) return res.status(401).json({ error: "Autentica\xE7\xE3o necess\xE1ria." });
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
   const isPublicToken = token.startsWith("pk.");
   return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : "", defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || "streets-v12", defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
@@ -4104,6 +4141,19 @@ apiRouter.get("/public/mapbox/client-config", (_req, res) => {
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || "";
   const isPublicToken = token.startsWith("pk.");
   return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : "", defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || "streets-v12", defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
+});
+apiRouter.get("/public/cep", async (req, res) => {
+  const cep = String(req.query.cep || "").replace(/\D/g, "").slice(0, 8);
+  if (cep.length !== 8) return res.status(400).json({ error: "Informe um CEP v\xE1lido com 8 d\xEDgitos." });
+  try {
+    const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8e3) });
+    if (!response.ok) return res.status(502).json({ error: "N\xE3o foi poss\xEDvel consultar o CEP." });
+    const data = await response.json();
+    if (data.erro) return res.status(404).json({ error: "CEP n\xE3o encontrado." });
+    return res.json({ zipCode: cep, address: data.logradouro || "", neighborhood: data.bairro || "", city: data.localidade || "", state: data.uf || "", complement: data.complemento || "" });
+  } catch {
+    return res.status(502).json({ error: "Servi\xE7o de CEP indispon\xEDvel no momento." });
+  }
 });
 apiRouter.get("/public/freights", (req, res) => {
   res.json(db.freights.filter(isPublicFreight).map(publicFreightSummary));
@@ -4438,8 +4488,11 @@ apiRouter.post("/public/freights/:id/interest/complete", async (req, res) => {
   const interest = db.freightInterests.find((item) => item.freightId === freight.id && item.driverId === driver.id && item.status === "PENDENTE");
   if (!interest) return res.status(404).json({ error: "Solicita\xE7\xE3o pendente n\xE3o encontrada." });
   const body = req.body || {};
-  const required = ["email", "cpf", "cnh", "cnhCategory", "cnhExpiresAt", "city", "state", "vehicleType", "vehicleBrand", "vehicleModel", "vehicleYear", "vehiclePlate", "capacityKg"];
-  if (required.some((key) => !String(body[key] || "").trim())) return res.status(400).json({ error: "Conclua todas as informa\xE7\xF5es obrigat\xF3rias do motorista e do ve\xEDculo." });
+  const required = ["email", "cpf", "cnh", "cnhCategory", "cnhExpiresAt", "city", "state"];
+  if (required.some((key) => !String(body[key] || "").trim())) return res.status(400).json({ error: "Conclua todas as informa\xE7\xF5es obrigat\xF3rias do motorista." });
+  const vehicleKeys = ["vehicleType", "vehicleBrand", "vehicleModel", "vehicleYear", "vehiclePlate", "capacityKg"];
+  const hasVehicleData = vehicleKeys.some((key) => String(body[key] || "").trim());
+  if (hasVehicleData && vehicleKeys.some((key) => !String(body[key] || "").trim())) return res.status(400).json({ error: "Se iniciar o cadastro de ve\xEDculo, preencha todos os dados do ve\xEDculo ou deixe todos em branco." });
   const cleanCpf = normalizePublicIdentity(body.cpf);
   const cleanCnh = normalizePublicIdentity(body.cnh);
   const cleanEmail = String(body.email).trim().toLowerCase();
@@ -4461,12 +4514,14 @@ apiRouter.post("/public/freights/:id/interest/complete", async (req, res) => {
   user.termsVersion = CURRENT_LEGAL_VERSIONS.terms;
   user.privacyVersion = CURRENT_LEGAL_VERSIONS.privacy;
   user.updatedAt = completedAt;
-  const plate = normalizePublicPlate(body.vehiclePlate);
-  const existingVehicle = db.vehicles.find((item) => normalizePublicPlate(item.plate) === plate && item.driverId !== driver.id);
-  if (existingVehicle) return res.status(409).json({ error: "Esta placa j\xE1 est\xE1 vinculada a outro ve\xEDculo. Verifique os dados." });
-  const existingDriverVehicle = db.vehicles.find((item) => item.driverId === driver.id);
-  if (existingDriverVehicle) Object.assign(existingDriverVehicle, { type: String(body.vehicleType), brand: String(body.vehicleBrand).trim(), model: String(body.vehicleModel).trim(), year: Number(body.vehicleYear), plate: String(body.vehiclePlate).trim().toUpperCase(), capacityKg: Number(body.capacityKg), bodyType: String(body.bodyType || "BAU"), renavam: String(body.vehicleRenavam || existingDriverVehicle.renavam || ""), status: "ATIVO" });
-  else db.vehicles.push({ id: `vehicle-public-${Date.now()}`, driverId: driver.id, tenantId: null, type: String(body.vehicleType), brand: String(body.vehicleBrand).trim(), model: String(body.vehicleModel).trim(), year: Number(body.vehicleYear), plate: String(body.vehiclePlate).trim().toUpperCase(), renavam: String(body.vehicleRenavam || ""), capacityKg: Number(body.capacityKg), bodyType: String(body.bodyType || "BAU"), status: "ATIVO", createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+  if (hasVehicleData) {
+    const plate = normalizePublicPlate(body.vehiclePlate);
+    const existingVehicle = db.vehicles.find((item) => normalizePublicPlate(item.plate) === plate && item.driverId !== driver.id);
+    if (existingVehicle) return res.status(409).json({ error: "Esta placa j\xE1 est\xE1 vinculada a outro ve\xEDculo. Verifique os dados." });
+    const existingDriverVehicle = db.vehicles.find((item) => item.driverId === driver.id);
+    if (existingDriverVehicle) Object.assign(existingDriverVehicle, { type: String(body.vehicleType), brand: String(body.vehicleBrand).trim(), model: String(body.vehicleModel).trim(), year: Number(body.vehicleYear), plate: String(body.vehiclePlate).trim().toUpperCase(), capacityKg: Number(body.capacityKg), bodyType: String(body.bodyType || "BAU"), renavam: String(body.vehicleRenavam || existingDriverVehicle.renavam || ""), status: "ATIVO" });
+    else db.vehicles.push({ id: `vehicle-public-${Date.now()}`, driverId: driver.id, tenantId: null, type: String(body.vehicleType), brand: String(body.vehicleBrand).trim(), model: String(body.vehicleModel).trim(), year: Number(body.vehicleYear), plate: String(body.vehiclePlate).trim().toUpperCase(), renavam: String(body.vehicleRenavam || ""), capacityKg: Number(body.capacityKg), bodyType: String(body.bodyType || "BAU"), status: "ATIVO", createdAt: (/* @__PURE__ */ new Date()).toISOString() });
+  }
   interest.profileCompleted = true;
   interest.updatedAt = completedAt;
   await db.recordLegalConsent({ userId: user.id, tenantId: freight.tenantId, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy, acceptedAt: completedAt });
@@ -5183,16 +5238,13 @@ apiRouter.post("/auth/logout", async (req, res) => {
   clearSessionCookies(res);
   return res.json({ success: true });
 });
-apiRouter.post("/support/sessions", (req, res) => {
-  if (!req.user || req.user.role !== "SUPER_ADMIN" || req.supportSession) {
-    return res.status(403).json({ error: "Somente um Super Admin autenticado pode iniciar uma sess\xE3o de suporte." });
+var createSupportSession = (req, res, targetUser) => {
+  if (targetUser.role === "SUPER_ADMIN") {
+    return { status: 400, body: { error: "Uma sess\xE3o de suporte n\xE3o pode assumir outro Super Admin." } };
   }
-  const targetUserId = typeof req.body?.targetUserId === "string" ? req.body.targetUserId.trim() : "";
-  if (!targetUserId) return res.status(400).json({ error: "targetUserId \xE9 obrigat\xF3rio." });
-  const targetUser = db.users.find((user) => user.id === targetUserId);
-  if (!targetUser) return res.status(404).json({ error: "Usu\xE1rio de suporte n\xE3o encontrado." });
-  if (targetUser.role === "SUPER_ADMIN") return res.status(400).json({ error: "Uma sess\xE3o de suporte n\xE3o pode assumir outro Super Admin." });
-  if (targetUser.status !== "ATIVO") return res.status(409).json({ error: "Somente usu\xE1rios ativos podem receber acesso de suporte." });
+  if (targetUser.status !== "ATIVO") {
+    return { status: 409, body: { error: "Somente usu\xE1rios ativos podem receber acesso de suporte." } };
+  }
   const expiresAt = new Date(Date.now() + SUPPORT_SESSION_TTL_MS).toISOString();
   const supportSession = {
     id: (0, import_crypto.randomUUID)(),
@@ -5223,15 +5275,41 @@ apiRouter.post("/support/sessions", (req, res) => {
     details: `Acesso assistido iniciado para ${targetUser.name} (${targetUser.role}); expira em 30 minutos.`
   });
   setSessionCookies(res, token);
-  return res.json({
-    ...getSessionDataForUser(targetUser),
-    supportSession: {
-      id: supportSession.id,
-      targetUser: safeSupportIdentity(targetUser),
-      actorUser: safeSupportIdentity(req.user),
-      expiresAt: supportSession.expiresAt
+  return {
+    status: 200,
+    body: {
+      ...getSessionDataForUser(targetUser),
+      supportSession: {
+        id: supportSession.id,
+        targetUser: safeSupportIdentity(targetUser),
+        actorUser: safeSupportIdentity(req.user),
+        expiresAt: supportSession.expiresAt
+      }
     }
-  });
+  };
+};
+apiRouter.post("/support/sessions", (req, res) => {
+  if (!req.user || req.user.role !== "SUPER_ADMIN" || req.supportSession) {
+    return res.status(403).json({ error: "Somente um Super Admin autenticado pode iniciar uma sess\xE3o de suporte." });
+  }
+  const targetUserId = typeof req.body?.targetUserId === "string" ? req.body.targetUserId.trim() : "";
+  if (!targetUserId) return res.status(400).json({ error: "targetUserId \xE9 obrigat\xF3rio." });
+  const targetUser = db.users.find((user) => user.id === targetUserId);
+  if (!targetUser) return res.status(404).json({ error: "Usu\xE1rio de suporte n\xE3o encontrado." });
+  const result = createSupportSession(req, res, targetUser);
+  return res.status(result.status).json(result.body);
+});
+apiRouter.get("/admin/impersonate/:tenantId", (req, res) => {
+  if (!req.user || req.user.role !== "SUPER_ADMIN" || req.supportSession) {
+    return res.status(403).json({ error: "Somente um Super Admin autenticado pode acessar uma empresa em modo suporte." });
+  }
+  const tenant = db.tenants.find((item) => item.id === req.params.tenantId);
+  if (!tenant) return res.status(404).json({ error: "Empresa n\xE3o encontrada." });
+  const targetUser = db.users.find((user) => user.tenantId === tenant.id && user.status === "ATIVO" && ["EMPRESA_SUPER_ADMIN", "ADMIN", "SUPERVISOR", "USUARIO"].includes(user.role));
+  if (!targetUser) return res.status(404).json({ error: "Nenhum usu\xE1rio ativo dispon\xEDvel para suporte nesta empresa." });
+  const result = createSupportSession(req, res, targetUser);
+  if (result.status !== 200) return res.status(result.status).json(result.body);
+  return res.redirect("/");
 });
 apiRouter.post("/support/sessions/end", (req, res) => {
   const supportSession = req.supportSession;
@@ -6342,8 +6420,7 @@ apiRouter.put("/auth/profile", async (req, res) => {
   });
 });
 apiRouter.post("/drivers/register", async (req, res) => {
-  const allowedRoles = ["SUPER_ADMIN", "EMPRESA_SUPER_ADMIN", "ADMIN"];
-  if (!req.user || !allowedRoles.includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Apenas administradores reais podem cadastrar motorista." });
+  if (!req.user || isTestOrDemoUser(req.user) || req.user.role !== "SUPER_ADMIN" && !req.user.tenantId) return res.status(403).json({ error: "Usu\xE1rio autenticado e empresa v\xE1lida s\xE3o obrigat\xF3rios para cadastrar motorista." });
   const targetTenantId = req.user.role === "SUPER_ADMIN" ? String(req.body?.tenantId || "") : String(req.user.tenantId || "");
   if (!targetTenantId || !db.tenants.some((tenant) => tenant.id === targetTenantId)) return res.status(400).json({ error: "Empresa de v\xEDnculo n\xE3o identificada." });
   const name = String(req.body?.name || "").trim();
@@ -6366,25 +6443,75 @@ apiRouter.post("/drivers/register", async (req, res) => {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const userId = `user-driver-${Date.now()}`;
   const driverId = `driver-${Date.now()}`;
-  const vehicleId = `vehicle-${Date.now()}`;
+  const hasVehicle = Boolean(String(req.body?.vehiclePlate || "").trim() || String(req.body?.vehicleBrand || "").trim() || String(req.body?.vehicleModel || "").trim());
   const newUser = { id: userId, tenantId: null, name, email, phone, role: "MOTORISTA", status: "ATIVO", accountType: "REAL", readOnly: false, driverId, lastLoginAt: null, createdAt: now };
-  const newDriver = { id: driverId, userId, tenantId: null, name, cpf, rg: String(req.body?.rg || ""), birthDate: String(req.body?.birthDate || ""), phone, email, zipCode: String(req.body?.zipCode || ""), address: String(req.body?.address || ""), city: String(req.body?.city || ""), state: String(req.body?.state || "").toUpperCase(), cnh, cnhCategory: String(req.body?.cnhCategory || "B"), cnhExpiresAt: String(req.body?.cnhExpiresAt || ""), status: "DISPONIVEL", rating: 0, completedTrips: 0, vehiclesCount: 1, createdAt: now };
-  const newVehicle = { id: vehicleId, driverId, tenantId: null, type: String(req.body?.vehicleType || "TRUCK"), brand: String(req.body?.vehicleBrand || ""), model: String(req.body?.vehicleModel || ""), year: Number(req.body?.vehicleYear || (/* @__PURE__ */ new Date()).getFullYear()), plate, renavam: String(req.body?.vehicleRenavam || ""), capacityKg: Number(req.body?.capacityKg || 0), bodyType: String(req.body?.bodyType || "BAU"), status: "ATIVO", createdAt: now };
+  const newDriver = { id: driverId, userId, tenantId: null, name, cpf, rg: String(req.body?.rg || ""), birthDate: String(req.body?.birthDate || ""), phone, email, zipCode: String(req.body?.zipCode || ""), address: String(req.body?.address || ""), city: String(req.body?.city || ""), state: String(req.body?.state || "").toUpperCase(), cnh, cnhCategory: String(req.body?.cnhCategory || "B"), cnhExpiresAt: String(req.body?.cnhExpiresAt || ""), status: "DISPONIVEL", rating: 0, completedTrips: 0, vehiclesCount: hasVehicle ? 1 : 0, createdAt: now };
+  const newVehicle = hasVehicle ? { id: `vehicle-${Date.now()}`, driverId, tenantId: null, type: String(req.body?.vehicleType || "TRUCK"), brand: String(req.body?.vehicleBrand || ""), model: String(req.body?.vehicleModel || ""), year: Number(req.body?.vehicleYear || (/* @__PURE__ */ new Date()).getFullYear()), plate, renavam: String(req.body?.vehicleRenavam || ""), capacityKg: Number(req.body?.capacityKg || 0), bodyType: String(req.body?.bodyType || "BAU"), status: "ATIVO", createdAt: now } : void 0;
   db.users.push(newUser);
   db.drivers.push(newDriver);
-  db.vehicles.push(newVehicle);
+  if (newVehicle) db.vehicles.push(newVehicle);
   db.upsertDriverCompanyLink({ driverId, tenantId: targetTenantId, status: "APROVADO", scope: "EMPRESA", source: "COMPANY_ADMIN_REGISTRATION", approvedAt: now, approvedByUserId: req.user.id });
   db.addAuditLog({ ip: requestIp(req), tenantId: targetTenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: "CADASTRO_MOTORISTA", entity: "Driver", entityId: driverId, details: `Motorista global cadastrado e aprovado para a empresa ${targetTenantId}.` });
   void dispatchConfiguredNotification("MOTORISTA_CADASTRADO", [newUser, ...db.users.filter((user) => user.tenantId === targetTenantId && ["EMPRESA_SUPER_ADMIN", "ADMIN", "SUPERVISOR"].includes(user.role))], { nome: name, empresa: db.tenants.find((tenant) => tenant.id === targetTenantId)?.name || "", status: newUser.status, link: process.env.APP_URL || "" });
   await db.persistNow();
-  return res.status(201).json({ user: sanitizeUser(newUser), driver: newDriver, vehicle: newVehicle });
+  return res.status(201).json({ user: sanitizeUser(newUser), driver: newDriver, vehicle: newVehicle || null });
 });
 apiRouter.get("/drivers", (req, res) => {
   if (req.user?.role === "SUPER_ADMIN") {
-    return res.json(db.drivers.map(sanitizeDriver));
+    const tenantId = String(req.query.tenantId || "").trim();
+    const drivers2 = tenantId ? db.drivers.filter((driver) => db.hasDriverCompanyAccess(driver.id, tenantId, true)) : db.drivers;
+    return res.json(drivers2.map(sanitizeDriver));
   }
   const drivers = db.drivers.filter((d) => req.user?.tenantId ? db.hasDriverCompanyAccess(d.id, req.user.tenantId, true) : false);
   res.json(drivers.map(sanitizeDriver));
+});
+apiRouter.get("/drivers/lookup", (req, res) => {
+  if (!req.user || req.user.role !== "SUPER_ADMIN" && !req.user.tenantId) return res.status(403).json({ error: "Empresa n\xE3o identificada." });
+  const phone = normalizePhoneForLookup(String(req.query.phone || ""));
+  const cnh = normalizePublicIdentity(String(req.query.cnh || ""));
+  if (!phone && !cnh) return res.status(400).json({ error: "Informe telefone ou n\xFAmero de CNH." });
+  const driver = db.drivers.find((item) => phone && normalizePhoneForLookup(item.phone) === phone || cnh && normalizePublicIdentity(item.cnh) === cnh);
+  if (!driver) return res.status(404).json({ error: "Nenhum motorista encontrado com os dados informados." });
+  const tenantId = req.user.role === "SUPER_ADMIN" ? String(req.query.tenantId || "") : req.user.tenantId;
+  const link = tenantId ? db.driverCompanyLinks.find((item) => item.driverId === driver.id && item.tenantId === tenantId && item.scope === "EMPRESA") : void 0;
+  return res.json({ driver: sanitizeDriverLookup(driver), companyLink: link || null });
+});
+apiRouter.post("/drivers/:id/company-link", async (req, res) => {
+  if (!req.user || req.user.role !== "SUPER_ADMIN" && !req.user.tenantId) return res.status(403).json({ error: "Empresa n\xE3o identificada." });
+  const driver = db.drivers.find((item) => item.id === req.params.id);
+  if (!driver) return res.status(404).json({ error: "Motorista n\xE3o encontrado." });
+  const tenantId = req.user.role === "SUPER_ADMIN" ? String(req.body?.tenantId || "") : req.user.tenantId;
+  if (!tenantId || !db.tenants.some((item) => item.id === tenantId)) return res.status(400).json({ error: "Empresa de v\xEDnculo inv\xE1lida." });
+  const existing = db.driverCompanyLinks.find((item) => item.driverId === driver.id && item.tenantId === tenantId && item.scope === "EMPRESA");
+  const link = existing || db.upsertDriverCompanyLink({ driverId: driver.id, tenantId, status: "PENDENTE", scope: "EMPRESA", source: "COMPANY_ADMIN_REGISTRATION" });
+  await db.persistNow();
+  return res.status(existing ? 200 : 201).json({ driver: sanitizeDriverLookup(driver), companyLink: link });
+});
+apiRouter.get("/drivers/:id/company-profile", (req, res) => {
+  if (!req.user?.tenantId && req.user?.role !== "SUPER_ADMIN") return res.status(403).json({ error: "Empresa n\xE3o identificada." });
+  const tenantId = req.user.role === "SUPER_ADMIN" ? String(req.query.tenantId || "") : req.user.tenantId;
+  if (req.user.role !== "SUPER_ADMIN" && !db.hasDriverCompanyAccess(req.params.id, tenantId, true)) return res.status(403).json({ error: "Motorista n\xE3o possui v\xEDnculo com esta empresa." });
+  const profile = db.driverCompanyProfiles.find((item) => item.driverId === req.params.id && item.tenantId === tenantId);
+  return res.json(profile || { driverId: req.params.id, tenantId, notes: "", files: [] });
+});
+apiRouter.put("/drivers/:id/company-profile", async (req, res) => {
+  if (!req.user?.tenantId && req.user?.role !== "SUPER_ADMIN") return res.status(403).json({ error: "Empresa n\xE3o identificada." });
+  const driver = db.drivers.find((item) => item.id === req.params.id);
+  if (!driver) return res.status(404).json({ error: "Motorista n\xE3o encontrado." });
+  const tenantId = req.user.role === "SUPER_ADMIN" ? String(req.body?.tenantId || "") : req.user.tenantId;
+  if (!tenantId || !db.hasDriverCompanyAccess(driver.id, tenantId, true)) return res.status(403).json({ error: "Motorista n\xE3o possui v\xEDnculo com esta empresa." });
+  let profile = db.driverCompanyProfiles.find((item) => item.driverId === driver.id && item.tenantId === tenantId);
+  if (!profile) {
+    profile = { id: (0, import_crypto.randomUUID)(), driverId: driver.id, tenantId, notes: "", files: [], createdAt: (/* @__PURE__ */ new Date()).toISOString() };
+    db.driverCompanyProfiles.unshift(profile);
+  }
+  if (req.body?.notes !== void 0) profile.notes = String(req.body.notes || "").slice(0, 1e4);
+  if (Array.isArray(req.body?.files)) {
+    profile.files = req.body.files.filter((file) => file && typeof file.name === "string" && typeof file.dataUrl === "string" && file.dataUrl.length <= 8e6).slice(0, 20).map((file) => ({ id: file.id || (0, import_crypto.randomUUID)(), name: file.name.slice(0, 180), mimeType: String(file.mimeType || "application/octet-stream").slice(0, 120), dataUrl: file.dataUrl, createdAt: file.createdAt || (/* @__PURE__ */ new Date()).toISOString() }));
+  }
+  profile.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  await db.persistNow();
+  return res.json(profile);
 });
 apiRouter.put("/drivers/:id", (req, res) => {
   const driver = db.drivers.find((d) => d.id === req.params.id);
@@ -6489,7 +6616,7 @@ apiRouter.get("/freights", (req, res) => {
       list = list.filter((f) => f.assignedDriverId === driverId);
     } else {
       list = list.filter(
-        (f) => db.hasDriverCompanyAccess(driverId || "", f.tenantId, false, f.id) && ["DISPONIVEL", "PUBLICADO"].includes(f.status) || f.assignedDriverId === driverId
+        (f) => db.hasDriverCompanyAccess(driverId || "", f.tenantId, false, f.id) && ["DISPONIVEL", "PUBLICADO"].includes(f.status) || f.assignedDriverId === driverId || f.targetedDriverId === driverId && ["APROVADO", "DISPONIVEL", "PUBLICADO"].includes(f.status)
       );
     }
   } else {
@@ -6557,6 +6684,8 @@ apiRouter.post("/freights", (req, res) => {
     distanceKm,
     customData,
     companyVehicleId,
+    targetedDriverId,
+    targetedVehicleId,
     publicListingEnabled,
     publicPriceVisibleToRegistered,
     publicInterestEnabled
@@ -6564,15 +6693,19 @@ apiRouter.post("/freights", (req, res) => {
   const requestedBudgetId = customData?.budgetId ? String(customData.budgetId) : "";
   const linkedBudget = requestedBudgetId ? db.budgets.find((budget) => budget.id === requestedBudgetId && budget.tenantId === tenantId && !budget.convertedFreightId) : void 0;
   if (requestedBudgetId && !linkedBudget) return res.status(400).json({ error: "Or\xE7amento selecionado n\xE3o pertence \xE0 empresa, n\xE3o existe ou j\xE1 foi convertido." });
-  if (linkedBudget && linkedBudget.status !== "APROVADO") return res.status(409).json({ error: "Apenas or\xE7amento aprovado pode ser vinculado a um frete." });
+  if (linkedBudget && req.user?.role !== "SUPER_ADMIN" && linkedBudget.status !== "APROVADO") return res.status(409).json({ error: "Apenas or\xE7amento aprovado pode ser vinculado a um frete." });
   if (!origin?.city || !origin?.state || !destination?.city || !destination?.state || !payment?.price) {
     return res.status(400).json({ error: "Origem, destino e valor s\xE3o obrigat\xF3rios" });
   }
   if (companyVehicleId && !db.companyVehicles.some((vehicle) => vehicle.id === companyVehicleId && vehicle.tenantId === tenantId && vehicle.status === "ATIVO")) return res.status(400).json({ error: "Ve\xEDculo pr\xF3prio selecionado n\xE3o pertence \xE0 empresa ou est\xE1 inativo." });
+  const targetedDriver = targetedDriverId ? db.drivers.find((driver) => driver.id === String(targetedDriverId) && driver.status !== "INATIVO" && db.hasDriverCompanyAccess(driver.id, tenantId, true)) : void 0;
+  if (targetedDriverId && !targetedDriver) return res.status(400).json({ error: "Motorista direcionado n\xE3o est\xE1 aprovado para esta empresa ou est\xE1 inativo." });
+  const targetedVehicle = targetedVehicleId ? db.vehicles.find((vehicle) => vehicle.id === String(targetedVehicleId) && vehicle.driverId === targetedDriver?.id && vehicle.status !== "INATIVO") : void 0;
+  if (targetedVehicleId && !targetedVehicle) return res.status(400).json({ error: "Ve\xEDculo direcionado n\xE3o pertence ao motorista selecionado ou est\xE1 inativo." });
   if (req.body.operationType !== void 0 && !["CARGA_GERAL", "LOGISTICA_VEICULOS"].includes(req.body.operationType)) return res.status(400).json({ error: "Tipo de opera\xE7\xE3o inv\xE1lido." });
   const safeOperationType = req.body.operationType === "LOGISTICA_VEICULOS" ? "LOGISTICA_VEICULOS" : "CARGA_GERAL";
   const safePublicListing = Boolean(publicListingEnabled);
-  const initialStatus = publishImmediately ? "DISPONIVEL" : "RASCUNHO";
+  const initialStatus = "AGUARDANDO_APROVACAO";
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const nextSeq = db.freights.length + 1;
   const code = `FRT-2026-${String(nextSeq).padStart(4, "0")}`;
@@ -6655,6 +6788,12 @@ apiRouter.post("/freights", (req, res) => {
     updatedAt: now,
     customData: requestedBudgetId ? { ...customData || {}, budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status, budgetVersion: linkedBudget?.version, budgetFinancials: linkedBudget?.financials, budgetTaxes: linkedBudget?.taxes, budgetExpenses: linkedBudget?.expenses } : customData,
     companyVehicleId: companyVehicleId || void 0,
+    targetedDriverId: targetedDriver?.id,
+    targetedDriverName: targetedDriver?.name,
+    targetedDriverPhone: targetedDriver?.phone,
+    targetedVehicleId: targetedVehicle?.id,
+    targetedVehiclePlate: targetedVehicle?.plate,
+    targetedAt: targetedDriver ? now : void 0,
     publicListingEnabled: safePublicListing,
     publicPriceVisibleToRegistered: safePublicListing && publicPriceVisibleToRegistered !== false,
     publicInterestEnabled: safePublicListing && publicInterestEnabled !== false,
@@ -6679,6 +6818,20 @@ apiRouter.post("/freights", (req, res) => {
     entityId: newFreight.id,
     details: `Criou frete ${newFreight.code}: ${newFreight.origin.city}/${newFreight.origin.state} \u27A1\uFE0F ${newFreight.destination.city}/${newFreight.destination.state} por R$ ${newFreight.payment.price.toFixed(2)}`
   });
+  if (targetedDriver) {
+    const targetedUser = db.users.find((user) => user.id === targetedDriver.userId);
+    if (targetedUser) void dispatchConfiguredNotification("FRETE_PUBLICADO", [targetedUser], {
+      codigoFrete: newFreight.code,
+      origem: `${newFreight.origin.city}/${newFreight.origin.state}`,
+      destino: `${newFreight.destination.city}/${newFreight.destination.state}`,
+      valor: `R$ ${newFreight.payment.price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+      empresa: newFreight.tenantName,
+      tenantId: newFreight.tenantId,
+      freightId: newFreight.id,
+      link: process.env.APP_URL || ""
+    });
+    db.addNotification({ tenantId, userId: targetedDriver.userId, freightId: newFreight.id, type: "FRETE_DISPONIVEL", title: "\u{1F69A} Frete direcionado para voc\xEA", message: `${newFreight.origin.city}/${newFreight.origin.state} \u27A1\uFE0F ${newFreight.destination.city}/${newFreight.destination.state} | Dispon\xEDvel no seu painel ap\xF3s aprova\xE7\xE3o.` });
+  }
   if (publishImmediately) {
     const eligibleDrivers = db.drivers.filter((d) => d.tenantId === tenantId);
     eligibleDrivers.forEach((d) => {
@@ -6722,6 +6875,12 @@ apiRouter.put("/freights/:id", (req, res) => {
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const nextCompanyVehicleId = body.companyVehicleId !== void 0 ? body.companyVehicleId ? String(body.companyVehicleId) : void 0 : freight.companyVehicleId;
   if (nextCompanyVehicleId && !db.companyVehicles.some((vehicle) => vehicle.id === nextCompanyVehicleId && vehicle.tenantId === freight.tenantId && vehicle.status === "ATIVO")) return res.status(400).json({ error: "Ve\xEDculo pr\xF3prio selecionado n\xE3o pertence \xE0 empresa ou est\xE1 inativo." });
+  const nextTargetedDriverId = body.targetedDriverId !== void 0 ? body.targetedDriverId ? String(body.targetedDriverId) : void 0 : freight.targetedDriverId;
+  const nextTargetedDriver = nextTargetedDriverId ? db.drivers.find((driver) => driver.id === nextTargetedDriverId && driver.status !== "INATIVO" && db.hasDriverCompanyAccess(driver.id, freight.tenantId, true)) : void 0;
+  if (nextTargetedDriverId && !nextTargetedDriver) return res.status(400).json({ error: "Motorista direcionado n\xE3o est\xE1 aprovado para esta empresa ou est\xE1 inativo." });
+  const nextTargetedVehicleId = body.targetedVehicleId !== void 0 ? body.targetedVehicleId ? String(body.targetedVehicleId) : void 0 : freight.targetedVehicleId;
+  const nextTargetedVehicle = nextTargetedVehicleId ? db.vehicles.find((vehicle) => vehicle.id === nextTargetedVehicleId && vehicle.driverId === nextTargetedDriver?.id && vehicle.status !== "INATIVO") : void 0;
+  if (nextTargetedVehicleId && !nextTargetedVehicle) return res.status(400).json({ error: "Ve\xEDculo direcionado n\xE3o pertence ao motorista selecionado ou est\xE1 inativo." });
   const nextOperationType = body.operationType !== void 0 ? body.operationType : freight.operationType || "CARGA_GERAL";
   if (!["CARGA_GERAL", "LOGISTICA_VEICULOS"].includes(nextOperationType)) return res.status(400).json({ error: "Tipo de opera\xE7\xE3o inv\xE1lido." });
   const requestedStatus = body.status !== void 0 ? body.status : body.publishImmediately === true && freight.status === "RASCUNHO" ? "DISPONIVEL" : freight.status;
@@ -6800,6 +6959,12 @@ apiRouter.put("/freights/:id", (req, res) => {
   }
   freight.operationType = nextOperationType;
   freight.companyVehicleId = nextCompanyVehicleId;
+  freight.targetedDriverId = nextTargetedDriver?.id;
+  freight.targetedDriverName = nextTargetedDriver?.name;
+  freight.targetedDriverPhone = nextTargetedDriver?.phone;
+  freight.targetedVehicleId = nextTargetedVehicle?.id;
+  freight.targetedVehiclePlate = nextTargetedVehicle?.plate;
+  freight.targetedAt = nextTargetedDriver ? freight.targetedAt || updatedAt : void 0;
   freight.updatedAt = updatedAt;
   if (nextStatus !== freight.status) {
     const previousStatus = freight.status;
@@ -6843,13 +7008,15 @@ apiRouter.post("/freights/:id/accept", async (req, res) => {
   if (!driver) {
     return res.status(400).json({ error: "Perfil de motorista n\xE3o configurado para este usu\xE1rio" });
   }
-  const vehicle = db.vehicles.find((v) => v.driverId === driver.id);
+  let vehicle;
   const result = await db.withLock(`freight-accept-${freightId}`, async () => {
     const freight = db.freights.find((f) => f.id === freightId);
     if (!freight) {
       return { success: false, status: 404, error: "Frete n\xE3o encontrado" };
     }
-    if (freight.status !== "DISPONIVEL" && freight.status !== "PUBLICADO") {
+    const isPrivateTarget = freight.targetedDriverId === driver.id;
+    vehicle = db.vehicles.find((v) => v.id === freight.targetedVehicleId && v.driverId === driver.id && v.status !== "INATIVO") || db.vehicles.find((v) => v.driverId === driver.id && v.status !== "INATIVO");
+    if (!isPrivateTarget && freight.status !== "DISPONIVEL" && freight.status !== "PUBLICADO" || isPrivateTarget && !["APROVADO", "DISPONIVEL", "PUBLICADO"].includes(freight.status)) {
       return {
         success: false,
         status: 409,
@@ -6858,6 +7025,9 @@ apiRouter.post("/freights/:id/accept", async (req, res) => {
     }
     if (user.driverId && !db.hasDriverCompanyAccess(user.driverId, freight.tenantId, false, freight.id)) {
       return { success: false, status: 403, error: "A empresa ainda n\xE3o aprovou este motorista para seus fretes." };
+    }
+    if (freight.targetedDriverId && freight.targetedDriverId !== driver.id) {
+      return { success: false, status: 403, error: "Este frete foi direcionado a outro motorista." };
     }
     if (freight.assignedDriverId) {
       return {
@@ -6913,6 +7083,38 @@ apiRouter.post("/freights/:id/accept", async (req, res) => {
     message: "Frete aceito com sucesso.",
     freight: result.freight
   });
+});
+apiRouter.post("/freights/:id/assign-driver", async (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: "N\xE3o autenticado." });
+  const freight = db.freights.find((item) => item.id === req.params.id);
+  if (!freight) return res.status(404).json({ error: "Frete n\xE3o encontrado." });
+  if (user.role !== "SUPER_ADMIN" && freight.tenantId !== user.tenantId) return res.status(403).json({ error: "Este frete pertence a outra empresa." });
+  const driverId = String(req.body?.driverId || "").trim();
+  const driver = db.drivers.find((item) => item.id === driverId);
+  if (!driver) return res.status(404).json({ error: "Motorista n\xE3o encontrado." });
+  if (!db.hasDriverCompanyAccess(driver.id, freight.tenantId, true)) return res.status(403).json({ error: "O motorista n\xE3o est\xE1 aprovado para esta empresa." });
+  if (driver.status === "INATIVO") return res.status(409).json({ error: "Motorista inativo n\xE3o pode ser vinculado ao frete." });
+  const result = await db.withLock(`freight-accept-${freight.id}`, async () => {
+    if (freight.status !== "DISPONIVEL" && freight.status !== "PUBLICADO") return { ok: false, status: 409, error: `Frete indispon\xEDvel para aceite. Status atual: ${freight.status}.` };
+    if (freight.assignedDriverId) return { ok: false, status: 409, error: "Este frete j\xE1 foi reservado por outro motorista." };
+    const vehicle = db.vehicles.find((item) => item.driverId === driver.id);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    freight.status = "RESERVADO";
+    freight.assignedDriverId = driver.id;
+    freight.assignedDriverName = driver.name;
+    freight.assignedDriverPhone = driver.phone;
+    freight.assignedVehiclePlate = vehicle?.plate || "N\xE3o inf.";
+    freight.assignedVehicleModel = vehicle ? `${vehicle.brand} ${vehicle.model}` : "Ve\xEDculo padr\xE3o";
+    freight.assignedAt = now;
+    freight.updatedAt = now;
+    freight.statusHistory.push({ status: "RESERVADO", timestamp: now, changedByUserId: user.id, changedByName: user.name, notes: `Frete aceito internamente e vinculado ao motorista ${driver.name}.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: freight.tenantId, tenantName: freight.tenantName, userId: user.id, userName: user.name, userRole: user.role, action: "VINCULO_MOTORISTA_INTERNO", entity: "Freight", entityId: freight.id, details: `Frete ${freight.code} aceito internamente e vinculado ao motorista ${driver.name}.` });
+    await db.persistNow();
+    return { ok: true, freight };
+  });
+  if (!result.ok) return res.status(result.status || 409).json({ error: result.error });
+  return res.json({ message: "Frete aceito e motorista vinculado com sucesso.", freight: result.freight });
 });
 apiRouter.get("/freights/:id/locations", (req, res) => {
   const freight = db.freights.find((item) => item.id === req.params.id);
@@ -6979,6 +7181,9 @@ apiRouter.post("/freights/:id/status", (req, res) => {
     }
   }
   const currentStatus = freight.status;
+  if (["AGUARDANDO_APROVACAO", "APROVADO"].includes(newStatus) && !["SUPER_ADMIN", "EMPRESA_SUPER_ADMIN", "ADMIN"].includes(req.user?.role || "")) {
+    return res.status(403).json({ error: "Somente Super Admin, Super Admin da empresa ou Admin podem aprovar o frete." });
+  }
   const allowedTransitions = VALID_STATUS_TRANSITIONS[currentStatus] || [];
   if (!allowedTransitions.includes(newStatus)) {
     return res.status(400).json({
@@ -7136,6 +7341,7 @@ apiRouter.post("/forms/:id/copy", async (req, res) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Somente administradores reais podem copiar formul\xE1rios." });
   const source = db.forms.find((form) => form.id === req.params.id);
   if (!source) return res.status(404).json({ error: "Modelo de formul\xE1rio n\xE3o encontrado." });
+  if (req.user.role !== "SUPER_ADMIN" && source.tenantId !== req.user.tenantId) return res.status(403).json({ error: "Este formul\xE1rio pertence a outra empresa." });
   const targetTenantId = req.user.role === "SUPER_ADMIN" ? req.body?.tenantId || source.tenantId : req.user.tenantId;
   if (!targetTenantId || !db.tenants.some((tenant) => tenant.id === targetTenantId)) return res.status(400).json({ error: "Empresa de destino inv\xE1lida." });
   const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -8030,7 +8236,7 @@ apiRouter.delete("/freights/:id", async (req, res) => {
   res.json({ success: true, message: "Frete cancelado e preservado no hist\xF3rico.", freight });
 });
 apiRouter.delete("/drivers/:id", async (req, res) => {
-  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Somente administradores reais podem desativar motoristas." });
+  if (!req.user || !["SUPER_ADMIN", "ADMIN"].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Somente Super Admin ou Admin podem desativar motoristas." });
   const driver = db.drivers.find((d) => d.id === req.params.id);
   if (!driver) return res.status(404).json({ error: "Motorista n\xE3o encontrado" });
   if (req.user?.role !== "SUPER_ADMIN" && (!req.user?.tenantId || !db.hasDriverCompanyAccess(driver.id, req.user.tenantId, true))) {
@@ -8057,31 +8263,6 @@ apiRouter.delete("/drivers/:id", async (req, res) => {
   });
   await db.persistNow();
   res.json({ success: true, message: "Motorista desativado; cadastro global e hist\xF3rico preservados." });
-});
-apiRouter.delete("/users/:id", async (req, res) => {
-  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Somente administradores reais podem desativar usu\xE1rios." });
-  const targetUser = db.users.find((u) => u.id === req.params.id);
-  if (!targetUser) return res.status(404).json({ error: "Usu\xE1rio n\xE3o encontrado" });
-  if (req.user?.role !== "SUPER_ADMIN" && targetUser.tenantId !== req.user?.tenantId) {
-    return res.status(403).json({ error: "Acesso n\xE3o autorizado. Este usu\xE1rio pertence a outra empresa." });
-  }
-  if (targetUser.id === req.user?.id) return res.status(400).json({ error: "Voc\xEA n\xE3o pode desativar seu pr\xF3prio usu\xE1rio" });
-  targetUser.status = "BLOQUEADO";
-  targetUser.readOnly = true;
-  targetUser.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  db.addAuditLog({
-    ip: requestIp(req),
-    tenantId: targetUser.tenantId || void 0,
-    userId: req.user?.id || "system",
-    userName: req.user?.name || "Sistema",
-    userRole: req.user?.role || "ADMIN",
-    action: "BLOQUEAR_USUARIO",
-    entity: "User",
-    entityId: targetUser.id,
-    details: `Usu\xE1rio ${targetUser.name} (${targetUser.email}) bloqueado sem apagar cadastro ou auditoria.`
-  });
-  await db.persistNow();
-  res.json({ success: true, message: "Usu\xE1rio bloqueado; cadastro e hist\xF3rico preservados." });
 });
 apiRouter.delete("/forms/:id", async (req, res) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Somente administradores reais podem desativar formul\xE1rios." });
@@ -8783,14 +8964,14 @@ apiRouter.post("/expenses", (req, res) => {
   if (!req.user || !data) return res.status(400).json({ error: "Dados da presta\xE7\xE3o de contas inv\xE1lidos." });
   const canSubmitExpense = req.user.role === "SUPER_ADMIN" || ["EMPRESA_SUPER_ADMIN", "ADMIN", "SUPERVISOR", "MOTORISTA"].includes(req.user.role);
   if (!canSubmitExpense || isTestOrDemoUser(req.user)) return res.status(403).json({ error: "Este perfil n\xE3o pode criar presta\xE7\xF5es de contas." });
-  const requestedTenantId = req.user.role === "SUPER_ADMIN" ? String(data.tenantId || "") : String(req.user.tenantId || "");
+  const requestedTenantId = req.user.role === "SUPER_ADMIN" || req.user.role === "MOTORISTA" ? String(data.tenantId || req.user.tenantId || "") : String(req.user.tenantId || "");
   const assignedTenantId = requestedTenantId && db.tenants.some((tenant) => tenant.id === requestedTenantId) ? requestedTenantId : "";
   if (!assignedTenantId) return res.status(400).json({ error: "Empresa v\xE1lida \xE9 obrigat\xF3ria para a presta\xE7\xE3o de contas." });
   const freight = data.freightId ? db.freights.find((item) => item.id === String(data.freightId)) : void 0;
   if (data.freightId && (!freight || freight.tenantId !== assignedTenantId)) return res.status(403).json({ error: "Frete n\xE3o pertence \xE0 empresa informada." });
   const requestedDriverId = req.user.role === "MOTORISTA" ? req.user.driverId || req.user.id : String(data.driverId || "");
   const driver = requestedDriverId ? db.drivers.find((item) => item.id === requestedDriverId || item.userId === requestedDriverId) : void 0;
-  if (!driver || req.user.role === "MOTORISTA" && driver.userId !== req.user.id && driver.id !== req.user.driverId || !["SUPER_ADMIN", "MOTORISTA"].includes(req.user.role) && !db.hasDriverCompanyAccess(driver.id, assignedTenantId, true)) return res.status(403).json({ error: "Motorista n\xE3o autorizado para esta presta\xE7\xE3o de contas." });
+  if (!driver || req.user.role === "MOTORISTA" && driver.userId !== req.user.id && driver.id !== req.user.driverId || req.user.role === "MOTORISTA" && !db.hasDriverCompanyAccess(driver.id, assignedTenantId, true) || !["SUPER_ADMIN", "MOTORISTA"].includes(req.user.role) && !db.hasDriverCompanyAccess(driver.id, assignedTenantId, true)) return res.status(403).json({ error: "Motorista n\xE3o autorizado para esta presta\xE7\xE3o de contas." });
   const items = normalizeExpenseItems(data.items);
   const totalExpenses = items.reduce((acc, it) => acc + (Number(it.amount) || 0), 0);
   const totalLiters = items.filter((it) => it.category === "ABASTECIMENTO" && it.liters).reduce((acc, it) => acc + (Number(it.liters) || 0), 0);
@@ -9183,7 +9364,7 @@ apiRouter.put("/budgets/:id", async (req, res) => {
   const expectedVersion = req.body?.expectedVersion === void 0 ? void 0 : Number(req.body.expectedVersion);
   if (expectedVersion !== void 0 && (!Number.isInteger(expectedVersion) || expectedVersion !== budget.version)) return res.status(409).json({ error: "Este or\xE7amento foi alterado por outra sess\xE3o. Recarregue os dados antes de salvar.", currentVersion: budget.version });
   if (req.body?.clientId !== void 0 && !db.clients.some((client) => client.id === req.body.clientId && client.tenantId === budget.tenantId && client.status !== "ARQUIVADO")) return res.status(400).json({ error: "Cliente inv\xE1lido para esta empresa." });
-  const allowed = ["clientId", "clientName", "origin", "destination", "date", "cargoType", "weightKg", "quantity", "vehicleType", "driverId", "distanceKm", "pricePerKm", "priceTableReference", "tolls", "insurance", "dailyRate", "dailyCount", "assistantCount", "assistantDailyRate", "estimatedMinutes", "routeGeometry", "notes", "taxes", "profitType", "profitValue", "driverPassed", "driverPaid", "customFields"];
+  const allowed = ["clientId", "clientName", "origin", "destination", "date", "cargoType", "weightKg", "quantity", "vehicleType", "bodyType", "bodyTypeOther", "driverId", "distanceKm", "pricePerKm", "priceTableReference", "tolls", "insurance", "dailyRate", "dailyCount", "assistantCount", "assistantDailyRate", "estimatedMinutes", "routeGeometry", "notes", "taxes", "profitType", "profitValue", "driverPassed", "driverPaid", "customFields"];
   for (const key of allowed) if (req.body[key] !== void 0) budget[key] = req.body[key];
   if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item, index) => normalizeExpense(item, index));
   budget.version += 1;
@@ -9222,10 +9403,10 @@ apiRouter.post("/budgets/:id/convert", async (req, res) => {
   const budget = budgetForRequest(req, req.params.id);
   if (!budget) return res.status(404).json({ error: "Or\xE7amento n\xE3o encontrado." });
   if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true });
-  if (budget.status !== "APROVADO") return res.status(409).json({ error: "Apenas or\xE7amento aprovado pode virar frete." });
+  if (req.user?.role !== "SUPER_ADMIN" && budget.status !== "APROVADO") return res.status(409).json({ error: "Apenas or\xE7amento aprovado pode virar frete." });
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  const inferredCargoType = ["GERAL", "FRAGIL", "REFRIGERADA", "PERIGOSA", "ALIMENTOS", "CONSTRUCAO", "MAQUINARIO", "GRAOS"].includes(String(budget.cargoType || "").toUpperCase()) ? String(budget.cargoType).toUpperCase() : "GERAL";
-  const freight = { id: (0, import_crypto.randomUUID)(), code: `FRT-${(/* @__PURE__ */ new Date()).getFullYear()}-${String(db.freights.length + 1).padStart(4, "0")}`, tenantId: budget.tenantId, tenantName: db.tenants.find((t) => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType || "Carga geral", type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || "TRUCK", minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: "A_VISTA", tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: "RASCUNHO", statusHistory: [], createdByUserId: req.user.id, createdByName: req.user.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: "BUDGET_CONVERSION" }, publicTrackingEnabled: false, publicTrackingToken: (0, import_crypto.randomBytes)(16).toString("hex") };
+  const inferredCargoType = ["VEICULO", "GERAL", "FRAGIL", "REFRIGERADA", "PERIGOSA", "ALIMENTOS", "CONSTRUCAO", "MAQUINARIO", "GRAOS"].includes(String(budget.cargoType || "").toUpperCase()) ? String(budget.cargoType).toUpperCase() : "GERAL";
+  const freight = { id: (0, import_crypto.randomUUID)(), code: `FRT-${(/* @__PURE__ */ new Date()).getFullYear()}-${String(db.freights.length + 1).padStart(4, "0")}`, tenantId: budget.tenantId, tenantName: db.tenants.find((t) => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, routeGeometry: budget.routeGeometry, cargo: { description: budget.cargoType || "Carga geral", type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || "TRUCK", bodyTypeRequired: budget.bodyType || void 0, bodyTypeOther: budget.bodyType === "OUTRO" ? budget.bodyTypeOther || void 0 : void 0, minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: "A_VISTA", tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: "AGUARDANDO_APROVACAO", statusHistory: [{ status: "AGUARDANDO_APROVACAO", timestamp: now, changedByUserId: req.user.id, changedByName: req.user.name, notes: "Frete gerado a partir de or\xE7amento e aguardando aprova\xE7\xE3o administrativa." }], createdByUserId: req.user.id, createdByName: req.user.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: "BUDGET_CONVERSION" }, publicTrackingEnabled: false, publicTrackingToken: (0, import_crypto.randomBytes)(16).toString("hex") };
   db.freights.unshift(freight);
   budget.convertedFreightId = freight.id;
   budget.status = "CONVERTIDO";
@@ -9457,10 +9638,11 @@ async function startServer() {
       const item = slug ? publicItemBySlug(slug) : null;
       const isShowcase = req.path === "/vitrine-fretes";
       const routeMatchesItem = Boolean(item && (item.publicPath === publicSection || !item.publicPath && publicSection === "conteudo"));
-      const isKnownPublicRoute = req.path === "/" || isShowcase || isSolutionIndex || isContentIndex || (req.path.startsWith("/conteudo/") || req.path.startsWith("/elo-log/")) && routeMatchesItem;
+      const isLoginRoute = req.path === "/login";
+      const isKnownPublicRoute = req.path === "/" || isLoginRoute || isShowcase || isSolutionIndex || isContentIndex || (req.path.startsWith("/conteudo/") || req.path.startsWith("/elo-log/")) && routeMatchesItem;
       const isNotFound = !isKnownPublicRoute;
-      const title = isNotFound ? `P\xE1gina n\xE3o encontrada | ${seo.siteName}` : isSolutionIndex ? `Solu\xE7\xF5es para opera\xE7\xF5es log\xEDsticas | ${seo.siteName}` : isContentIndex ? `Conte\xFAdos sobre transporte e gest\xE3o de fretes | ${seo.siteName}` : isShowcase ? `Fretes de mercadorias dispon\xEDveis | ${seo.siteName}` : normalizeSeoBrand(item?.metaTitle || item?.title || seo.title, seo.siteName);
-      const description = isNotFound ? "A p\xE1gina solicitada n\xE3o foi encontrada." : isSolutionIndex ? "Conhe\xE7a as solu\xE7\xF5es do Atendo One para gest\xE3o de fretes, transportadoras, motoristas, ve\xEDculos e viagens." : isContentIndex ? "Guias e conte\xFAdos pr\xE1ticos sobre TMS, fretes, motoristas, viagens, checklists e opera\xE7\xE3o log\xEDstica." : isShowcase ? "Encontre fretes de mercadorias publicados por empresas e cadastre-se para demonstrar interesse com seguran\xE7a." : item?.metaDescription || item?.excerpt || seo.description;
+      const title = isNotFound ? `P\xE1gina n\xE3o encontrada | ${seo.siteName}` : isLoginRoute ? `Entrar | ${seo.siteName}` : isSolutionIndex ? `Solu\xE7\xF5es para opera\xE7\xF5es log\xEDsticas | ${seo.siteName}` : isContentIndex ? `Conte\xFAdos sobre transporte e gest\xE3o de fretes | ${seo.siteName}` : isShowcase ? `Fretes de mercadorias dispon\xEDveis | ${seo.siteName}` : normalizeSeoBrand(item?.metaTitle || item?.title || seo.title, seo.siteName);
+      const description = isNotFound ? "A p\xE1gina solicitada n\xE3o foi encontrada." : isLoginRoute ? "Acesse sua conta Atendo One." : isSolutionIndex ? "Conhe\xE7a as solu\xE7\xF5es do Atendo One para gest\xE3o de fretes, transportadoras, motoristas, ve\xEDculos e viagens." : isContentIndex ? "Guias e conte\xFAdos pr\xE1ticos sobre TMS, fretes, motoristas, viagens, checklists e opera\xE7\xE3o log\xEDstica." : isShowcase ? "Encontre fretes de mercadorias publicados por empresas e cadastre-se para demonstrar interesse com seguran\xE7a." : item?.metaDescription || item?.excerpt || seo.description;
       const itemPath = item ? item.publicPath === "elo-log" ? "elo-log" : "conteudo" : publicSection;
       const itemCanonical = safeHttpsUrl(item?.canonicalUrl);
       const canonical = isNotFound ? `${seo.canonicalUrl}/404` : isSolutionIndex ? `${seo.canonicalUrl}/elo-log` : isContentIndex ? `${seo.canonicalUrl}/conteudo` : isShowcase ? `${seo.canonicalUrl}/vitrine-fretes` : itemCanonical || `${seo.canonicalUrl}${slug ? `/${itemPath}/${encodeURIComponent(slug)}` : "/"}`;
@@ -9572,7 +9754,7 @@ async function startServer() {
       const publicPathMatch = normalizedPath.match(/^\/(conteudo|elo-log)\/([^/]+)$/);
       const publicItem = publicPathMatch ? publicItemBySlug(decodeURIComponent(publicPathMatch[2])) : null;
       const publicItemMatchesSection = Boolean(publicItem && (publicItem.publicPath === publicPathMatch?.[1] || !publicItem.publicPath && publicPathMatch?.[1] === "conteudo"));
-      const isKnownPublic = normalizedPath === "/" || normalizedPath === "/vitrine-fretes" || normalizedPath === "/elo-log" || normalizedPath === "/conteudo" || publicItemMatchesSection;
+      const isKnownPublic = normalizedPath === "/" || normalizedPath === "/login" || normalizedPath === "/vitrine-fretes" || normalizedPath === "/elo-log" || normalizedPath === "/conteudo" || publicItemMatchesSection;
       res.status(isKnownPublic ? 200 : 404).type("html").send(renderSeoHtml(req));
     });
   } else {

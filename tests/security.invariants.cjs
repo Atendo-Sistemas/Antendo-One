@@ -89,7 +89,8 @@ assert.match(server, /isNotFound \|\| !seo\.allowIndexing \|\| isRegistrationOnl
 assert.match(client, /getRegistrationLegalContent/, 'Cliente deve usar endpoint exclusivo do cadastro para conteúdo legal.');
 assert.match(interestUi, /termsAccepted/, 'Fluxo de cadastro deve manter aceite de termos.');
 assert.match(api, /driverId: driver\.id, tenantId: null, type:/, 'Veículo criado no interesse deve ser global do motorista.');
-assert.match(api, /const newVehicle: Vehicle = \{ id: vehicleId, driverId, tenantId: null,/, 'Cadastro administrativo deve criar veículo de motorista global.');
+assert.match(api, /const newVehicle: Vehicle \| undefined = hasVehicle \?/, 'Cadastro administrativo deve manter veículo opcional.');
+assert.match(api, /if \(newVehicle\) db\.vehicles\.push\(newVehicle\)/, 'Veículo só deve ser criado quando informado.');
 assert.match(api, /vehicle\.tenantId === null && db\.hasDriverCompanyAccess/, 'Empresas devem acessar veículo global somente por vínculo.');
 assert.match(types, /export interface Vehicle[\s\S]*tenantId: string \| null;/, 'Vehicle deve admitir identidade global sem tenant.');
 assert.ok(!api.includes('db.vehicles.splice'), 'Exclusão de veículo não pode remover o registro físico.');

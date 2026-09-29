@@ -1,7 +1,25 @@
+## Release v1.8.57 — Veículo opcional no cadastro de motorista
+
+O cadastro do motorista agora pode ser concluído sem veículo. Quando houver veículo informado, ele continua sendo criado e vinculado normalmente. No direcionamento de frete, primeiro seleciona-se o motorista e, se houver veículo ativo cadastrado, o sistema o seleciona automaticamente; a seleção manual continua disponível.
+
+---
+
 # Atendo One — Changelog completo
-**Versão consolidada:** v1.8.54  
+**Versão consolidada:** v1.8.57  
 **Data de referência:** 25 de setembro de 2026  
 **Status:** build geral de produção validado
+
+## Release v1.8.56 — Direcionamento privado para motorista
+
+A empresa agora pode selecionar opcionalmente um motorista global já vinculado/aprovado para sua operação, sem publicar o frete na vitrine. O frete aparece no painel do motorista selecionado após a aprovação da empresa e pode ser aceito pelo próprio motorista. O veículo do motorista também pode ser indicado, mas ambos continuam opcionais; sem seleção, permanece o fluxo normal de publicação/aceite. A regra respeita o cadastro global multiempresa do motorista e impede que outro motorista aceite o frete direcionado.
+
+---
+
+## Release v1.8.55 — UF pública e rota no interesse do motorista
+
+Corrigida a apresentação de UFs públicas afetadas por registros legados com encoding incorreto, incluindo o caso `SÃ` exibido no frete FRT-2026-0013, normalizado para `SP` quando a cidade corresponde a São José do Rio Preto. O resumo público agora informa se há geometria e distância de rota calculadas. O modal de interesse deixa de apresentar um erro genérico de rota e informa claramente quando a rota ainda não foi calculada, sem expor endereços exatos.
+
+---
 
 ## Release v1.8.54 — Aprovação formal de fretes
 
@@ -293,3 +311,13 @@ O pacote de produção correspondente a este changelog é o arquivo `Antendo-One
 [5]: ./RELEASE-NOTES-v1.8.31.md "Release v1.8.31 — Menu agrupado para usuários empresariais"
 
 [6]: ./PROPOSTA-v2.0.0-CTE-MDFE.md "Proposta do módulo fiscal adicional CT-e e MDF-e"
+
+
+## v1.8.58 — Rotas Mapbox e despesas avulsas
+
+A versão corrige a exigência indevida de autenticação nos endpoints server-side de geocodificação, direções e configuração pública do Mapbox. O cadastro de despesas aceita `freightId` ausente: empresa, motorista e autorização continuam sendo validados, mas o frete é opcional. Motoristas podem lançar despesas avulsas somente para empresas às quais estejam vinculados.
+
+
+## v1.8.59 — Motoristas vinculados no direcionamento de fretes
+
+Corrigida a consulta do campo de direcionamento privado do formulário de frete. A lista agora recebe a empresa efetivamente selecionada e retorna motoristas com vínculo empresarial válido, inclusive no fluxo do Super Admin. A validação de criação e edição continua protegendo o escopo da empresa, o status do motorista e o vínculo opcional do veículo.

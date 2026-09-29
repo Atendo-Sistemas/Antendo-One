@@ -333,6 +333,8 @@ export interface PublicFreightSummary {
   minCapacityKg: number;
   interestEnabled: boolean;
   publishedAt?: string;
+  routeAvailable?: boolean;
+  distanceKm?: number;
 }
 export interface Vehicle {
   id: string;
@@ -494,6 +496,12 @@ export interface Freight {
   assignedVehiclePlate?: string;
   assignedVehicleModel?: string;
   assignedAt?: string;
+  targetedDriverId?: string;
+  targetedDriverName?: string;
+  targetedDriverPhone?: string;
+  targetedVehicleId?: string;
+  targetedVehiclePlate?: string;
+  targetedAt?: string;
   startedAt?: string;
   collectedAt?: string;
   inTransitAt?: string;

@@ -142,7 +142,7 @@ export const api = {
     return request<{ token: string; refreshToken: string; user: User }>('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, code }) });
   },
   async startFreightInterest(data: any) {
-  return publicRequest<{ userId: string }>(`/public/freights/${encodeURIComponent(data.freightId)}/interest`, { method: 'POST', body: JSON.stringify(data) });
+    return request<{ userId: string }>('/freights/interest', { method: 'POST', body: JSON.stringify(data) });
   },
   async completeQuickDriver(userId: string, data: any) {
     return request<{ driver: Driver }>(`/drivers/${userId}/quick-complete`, { method: 'POST', body: JSON.stringify(data) });
@@ -165,7 +165,7 @@ export const api = {
   async getFreight(id: string) { return request<Freight>(`/freights/${id}`); },
   async createFreight(data: Partial<Freight>) { return request<Freight>('/freights', { method: 'POST', body: JSON.stringify(data) }); },
   async updateFreight(id: string, data: Partial<Freight>) { return request<Freight>(`/freights/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
-  async updateFreightStatus(id: string, status: string, notes?: string) { return request<Freight>(`/freights/${id}/status`, { method: 'POST', body: JSON.stringify({ status, ...(notes ? { notes } : {}) }) }); },
+  async updateFreightStatus(id: string, status: string, notes?: string) { return request<Freight>(`/freights/${id}/status`, { method: 'POST', body: JSON.stringify({ newStatus: status, ...(notes ? { notes } : {}) }) }); },
   async deleteFreight(id: string) { return request<{ success: boolean }>(`/freights/${id}`, { method: 'DELETE' }); },
   async publishFreight(id: string, data: any) { return request<Freight>(`/freights/${id}/publish`, { method: 'POST', body: JSON.stringify(data) }); },
   async unpublishFreight(id: string) { return request<Freight>(`/freights/${id}/unpublish`, { method: 'POST' }); },
@@ -293,7 +293,7 @@ export const api = {
   async deleteUser(id: string) { return request<{ success: boolean }>(`/users/${id}`, { method: 'DELETE' }); },
 
   // Drivers
-  async getDrivers(search = '') { return request<Driver[]>(`/drivers?search=${encodeURIComponent(search)}`); },
+  async getDrivers(search = '', tenantId = '') { const params = new URLSearchParams({ search }); if (tenantId) params.set('tenantId', tenantId); return request<Driver[]>(`/drivers?${params.toString()}`); },
   async lookupDriver(phone?: string, cnh?: string) { return request<any>(`/drivers/lookup?${new URLSearchParams({ ...(phone ? { phone } : {}), ...(cnh ? { cnh } : {}) }).toString()}`); },
   async linkDriverToCompany(driverId: string, tenantId?: string) { return request<any>(`/drivers/${encodeURIComponent(driverId)}/company-link`, { method: 'POST', body: JSON.stringify(tenantId ? { tenantId } : {}) }); },
   async getDriverCompanyProfile(driverId: string, tenantId?: string) { return request<any>(`/drivers/${encodeURIComponent(driverId)}/company-profile${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
