@@ -1043,7 +1043,8 @@ export interface TripExpenseReport {
   tenantId?: string;
   freightId?: string;
   freightCode?: string;
-  driverId: string;
+  /** Motorista é opcional em prestações avulsas ou lançadas antes da vinculação. */
+  driverId?: string;
   driverName: string;
   driverPhone?: string;
   vehiclePlate?: string;

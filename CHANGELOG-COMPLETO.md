@@ -1,3 +1,9 @@
+## Release v1.8.61 — Prestação de contas sem motorista e persistência PostgreSQL
+
+A prestação de contas agora pode ser criada e salva sem motorista ou frete vinculado. A gravação passou a ser feita diretamente na tabela relacional `trip_expenses`, com recuperação dos registros no carregamento da aplicação, incluindo itens, valores, revisão, aprovação e arquivamento. Super Admin pode administrar registros de qualquer empresa; Admin fica limitado aos registros da própria empresa.
+
+---
+
 ## Release v1.8.57 — Veículo opcional no cadastro de motorista
 
 O cadastro do motorista agora pode ser concluído sem veículo. Quando houver veículo informado, ele continua sendo criado e vinculado normalmente. No direcionamento de frete, primeiro seleciona-se o motorista e, se houver veículo ativo cadastrado, o sistema o seleciona automaticamente; a seleção manual continua disponível.
@@ -5,7 +11,7 @@ O cadastro do motorista agora pode ser concluído sem veículo. Quando houver ve
 ---
 
 # Atendo One — Changelog completo
-**Versão consolidada:** v1.8.57  
+**Versão consolidada:** v1.8.61
 **Data de referência:** 25 de setembro de 2026  
 **Status:** build geral de produção validado
 

@@ -330,6 +330,7 @@ class DatabaseStore {
   private persistenceReady: Promise<void>;
   private persistenceQueue: Promise<void> = Promise.resolve();
   private analyticsPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  private tripExpenseSchemaReady: Promise<void> | null = null;
   legalDocumentVersions: LegalDocumentVersion[] = [];
 
   constructor() {
@@ -639,6 +640,7 @@ class DatabaseStore {
         await this.hydrateSecureEmailConfig();
         await this.hydrateSecureTenantEmailConfigs();
         await this.hydrateSecureAsaasConfig();
+        await this.hydrateTripExpensesFromRelational();
         this.ensureSystemContent();
         return;
       }
@@ -735,6 +737,7 @@ class DatabaseStore {
       }
       await this.hydrateSecureEmailConfig();
       await this.hydrateSecureAsaasConfig();
+      await this.hydrateTripExpensesFromRelational();
       this.ensureSystemContent();
       if (process.env.DISABLE_RETENTION_CLEANUP !== 'true') await this.pruneOperationalData();
     } catch (error: any) {
@@ -1098,6 +1101,98 @@ class DatabaseStore {
       }
     });
     await this.persistenceQueue;
+  }
+
+  private async ensureTripExpenseSchema(): Promise<void> {
+    if (!sqlAdapter.isEnabled()) throw new Error('PostgreSQL não está configurado para persistir prestações de contas.');
+    if (!this.tripExpenseSchemaReady) {
+      this.tripExpenseSchemaReady = sqlAdapter.query(`
+        ALTER TABLE IF EXISTS trip_expenses ALTER COLUMN driver_id DROP NOT NULL;
+        ALTER TABLE IF EXISTS trip_expenses ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+      `).then(() => undefined).catch(error => {
+        this.tripExpenseSchemaReady = null;
+        throw error;
+      });
+    }
+    await this.tripExpenseSchemaReady;
+  }
+
+  /** Persiste a prestação na tabela relacional, mantendo todos os campos e itens JSON. */
+  async persistTripExpense(report: TripExpenseReport): Promise<void> {
+    await this.ensureTripExpenseSchema();
+    await sqlAdapter.query(`
+      INSERT INTO trip_expenses (
+        id, tenant_id, freight_id, freight_code, driver_id, driver_name, driver_phone,
+        vehicle_plate, vehicle_model, chassis, client_name, start_date, end_date, trip_days,
+        initial_km, final_km, total_km, total_liters, average_km_per_liter, cost_per_km,
+        advance_amount, driver_labor_amount, total_expenses, balance_amount, balance_status,
+        status, items, general_notes, reviewer_notes, reviewed_by, reviewed_at, approved_at,
+        archived_at, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, '')::date,
+        NULLIF($13, '')::date, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+        $25, $26, $27::jsonb, $28, $29, $30, $31, $32, $33, $34, $35
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        tenant_id = EXCLUDED.tenant_id, freight_id = EXCLUDED.freight_id,
+        freight_code = EXCLUDED.freight_code, driver_id = EXCLUDED.driver_id,
+        driver_name = EXCLUDED.driver_name, driver_phone = EXCLUDED.driver_phone,
+        vehicle_plate = EXCLUDED.vehicle_plate, vehicle_model = EXCLUDED.vehicle_model,
+        chassis = EXCLUDED.chassis, client_name = EXCLUDED.client_name,
+        start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date,
+        trip_days = EXCLUDED.trip_days, initial_km = EXCLUDED.initial_km,
+        final_km = EXCLUDED.final_km, total_km = EXCLUDED.total_km,
+        total_liters = EXCLUDED.total_liters, average_km_per_liter = EXCLUDED.average_km_per_liter,
+        cost_per_km = EXCLUDED.cost_per_km, advance_amount = EXCLUDED.advance_amount,
+        driver_labor_amount = EXCLUDED.driver_labor_amount, total_expenses = EXCLUDED.total_expenses,
+        balance_amount = EXCLUDED.balance_amount, balance_status = EXCLUDED.balance_status,
+        status = EXCLUDED.status, items = EXCLUDED.items, general_notes = EXCLUDED.general_notes,
+        reviewer_notes = EXCLUDED.reviewer_notes, reviewed_by = EXCLUDED.reviewed_by,
+        reviewed_at = EXCLUDED.reviewed_at, approved_at = EXCLUDED.approved_at,
+        archived_at = EXCLUDED.archived_at, updated_at = EXCLUDED.updated_at
+    `, [
+      report.id, report.tenantId || null, report.freightId || null, report.freightCode || null,
+      report.driverId || null, report.driverName || 'Motorista não informado', report.driverPhone || null,
+      report.vehiclePlate || null, report.vehicleModel || null, report.chassis || null,
+      report.clientName || null, report.startDate || '', report.endDate || '', report.tripDays || 1,
+      report.initialKm || 0, report.finalKm || 0, report.totalKm || 0, report.totalLiters || 0,
+      report.averageKmPerLiter || 0, report.costPerKm || 0, report.advanceAmount || 0,
+      report.driverLaborAmount || 0, report.totalExpenses || 0, report.balanceAmount || 0,
+      report.balanceStatus, report.status, JSON.stringify(report.items || []), report.generalNotes || null,
+      report.reviewerNotes || null, report.reviewedBy || null, report.reviewedAt || null,
+      report.approvedAt || null, report.archivedAt || null, report.createdAt, report.updatedAt
+    ]);
+  }
+
+  private async hydrateTripExpensesFromRelational(): Promise<void> {
+    if (!sqlAdapter.isEnabled()) return;
+    try {
+      const result = await sqlAdapter.query<any>(`SELECT * FROM trip_expenses ORDER BY updated_at DESC`);
+      if (!result.rows.length) return;
+      const iso = (value: any) => value instanceof Date ? value.toISOString() : String(value || '');
+      this.tripExpenses = result.rows.map(row => ({
+        id: String(row.id), tenantId: row.tenant_id || undefined, freightId: row.freight_id || undefined,
+        freightCode: row.freight_code || undefined, driverId: row.driver_id || undefined,
+        driverName: row.driver_name || 'Motorista não informado', driverPhone: row.driver_phone || undefined,
+        vehiclePlate: row.vehicle_plate || undefined, vehicleModel: row.vehicle_model || undefined,
+        chassis: row.chassis || undefined, clientName: row.client_name || undefined,
+        startDate: iso(row.start_date).slice(0, 10), endDate: iso(row.end_date).slice(0, 10),
+        tripDays: Number(row.trip_days) || 1, initialKm: Number(row.initial_km) || 0,
+        finalKm: Number(row.final_km) || 0, totalKm: Number(row.total_km) || 0,
+        totalLiters: Number(row.total_liters) || 0, averageKmPerLiter: Number(row.average_km_per_liter) || 0,
+        costPerKm: Number(row.cost_per_km) || 0, advanceAmount: Number(row.advance_amount) || 0,
+        driverLaborAmount: Number(row.driver_labor_amount) || 0, totalExpenses: Number(row.total_expenses) || 0,
+        balanceAmount: Number(row.balance_amount) || 0, balanceStatus: row.balance_status,
+        status: row.status, items: Array.isArray(row.items) ? row.items : [],
+        generalNotes: row.general_notes || undefined, reviewerNotes: row.reviewer_notes || undefined,
+        reviewedBy: row.reviewed_by || undefined, reviewedAt: row.reviewed_at ? iso(row.reviewed_at) : undefined,
+        approvedAt: row.approved_at ? iso(row.approved_at) : undefined,
+        archivedAt: row.archived_at ? iso(row.archived_at) : undefined,
+        createdAt: iso(row.created_at), updatedAt: iso(row.updated_at)
+      }));
+    } catch (error: any) {
+      if (!String(error?.message || '').includes('relation "trip_expenses" does not exist')) throw error;
+    }
   }
 
   // Mutex wrapper to guarantee single atomic transaction for a given key

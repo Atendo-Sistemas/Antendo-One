@@ -98,7 +98,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}, allowRefr
     if (res.status === 429) {
       throw new Error('Limite de requisições excedido pelo servidor. Por favor, aguarde alguns segundos.');
     }
-    throw new Error(text || 'Ocorreu um erro inesperado no servidor');
+    if (res.status >= 500) {
+      throw new Error(`Servidor indisponível no momento (HTTP ${res.status}). A prestação não foi confirmada como salva; tente novamente em instantes.`);
+    }
+    const plainText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    throw new Error(plainText.slice(0, 300) || 'Ocorreu um erro inesperado no servidor');
   }
 
   if (!res.ok) {

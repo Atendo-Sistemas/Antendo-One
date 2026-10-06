@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TripExpenseReport, TripExpenseItem, ExpenseCategory, Freight, Tenant, TenantReportTemplate } from '../../types';
+import { TripExpenseReport, TripExpenseItem, ExpenseCategory, Freight, Tenant, TenantReportTemplate, User } from '../../types';
 import { api } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { generateExpenseReportPdf, CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from '../../utils/expensePdfGenerator';
@@ -42,6 +42,7 @@ interface TripExpenseModalProps {
   onClose: () => void;
   freight?: Freight | null;
   existingReport?: TripExpenseReport | null;
+  currentUser?: User | null;
   onSuccess?: (report: TripExpenseReport) => void;
 }
 
@@ -50,6 +51,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
   onClose,
   freight,
   existingReport,
+  currentUser,
   onSuccess
 }) => {
   const { getField, config } = useSaaS();
@@ -68,6 +70,8 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
   const fLabor = getField('expenseForm', 'driverLaborAmount') || { label: 'Mão de Obra Motorista (R$)', enabled: true, required: true };
 
   const [freightsList, setFreightsList] = useState<Freight[]>([]);
+  const [tenantsList, setTenantsList] = useState<Tenant[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState(existingReport?.tenantId || currentUser?.tenantId || '');
   const [reportCompany, setReportCompany] = useState<Tenant | undefined>(undefined);
   const [expenseTemplate, setExpenseTemplate] = useState<TenantReportTemplate | undefined>(undefined);
   const [selectedFreightId, setSelectedFreightId] = useState<string>(freight?.id || existingReport?.freightId || '');
@@ -125,11 +129,17 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     api.getFreights().then(list => setFreightsList(list)).catch(console.error);
-    const tenantId = existingReport?.tenantId || freight?.tenantId;
+    if (currentUser?.role === 'SUPER_ADMIN') {
+      api.getTenants().then(list => {
+        setTenantsList(list);
+        setSelectedTenantId(current => current || existingReport?.tenantId || list[0]?.id || '');
+      }).catch(console.error);
+    }
+    const tenantId = existingReport?.tenantId || freight?.tenantId || currentUser?.tenantId || selectedTenantId;
     if (!tenantId) return;
     api.getTenants().then(tenants => setReportCompany(tenants.find(tenant => tenant.id === tenantId))).catch(err => console.warn('Não foi possível carregar a empresa para o relatório:', err));
     api.getTenantReportTemplates().then(templates => setExpenseTemplate(templates.find(template => template.type === 'EXPENSE'))).catch(err => console.warn('Não foi possível carregar o modelo de relatório:', err));
-  }, [isOpen, existingReport?.tenantId, freight?.tenantId]);
+  }, [isOpen, existingReport?.tenantId, freight?.tenantId, currentUser?.role, currentUser?.tenantId]);
 
   // Sync when freight is selected
   useEffect(() => {
@@ -308,10 +318,10 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
     const selectedFreight = freightsList.find(f => f.id === selectedFreightId);
     return {
       id: existingReport?.id || `exp-${Date.now()}`,
-      tenantId: existingReport?.tenantId,
+      tenantId: existingReport?.tenantId || freight?.tenantId || currentUser?.tenantId || selectedTenantId || undefined,
       freightId: selectedFreightId || undefined,
       freightCode: selectedFreight?.code || existingReport?.freightCode || undefined,
-      driverId: existingReport?.driverId || 'driver-current',
+      driverId: existingReport?.driverId || undefined,
       driverName: driverName || 'Motorista não informado',
       driverPhone: driverPhone || undefined,
       vehiclePlate: vehiclePlate || undefined,
@@ -1078,6 +1088,15 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {currentUser?.role === 'SUPER_ADMIN' && (
+                    <div>
+                      <label className="text-[11px] font-bold text-amber-700 dark:text-amber-300 block mb-1">Empresa da prestação *</label>
+                      <select value={selectedTenantId} onChange={e => setSelectedTenantId(e.target.value)} className="w-full text-xs p-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white">
+                        <option value="">Selecione a empresa</option>
+                        {tenantsList.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
                       Vincular a Frete Cadastrado

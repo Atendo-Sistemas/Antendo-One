@@ -20,6 +20,8 @@ import {
   Driver,
   Vehicle,
   FormDefinition,
+  FormField,
+  FormFieldType,
   FormResponse,
   UserRole,
   WhatsAppConfig,
@@ -1085,7 +1087,7 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
   const expiresAt = Date.now() + 5 * 60 * 1000;
   activeOTPs.set(cleanPhone, { code, expiresAt, failedAttempts: 0 });
   activeOTPs.set(user.id, { code, expiresAt, failedAttempts: 0 });
-  const waResult = await sendToWhatsAppGateway(resolveWhatsAppConfig(freight.tenantId), { number: cleanPhone, body: `ELO LOG: seu código para concluir o cadastro de interesse no frete ${freight.code} é ${code}. Válido por 5 minutos.`, externalKey: `freight-interest-${Date.now()}` });
+  const waResult = await sendToWhatsAppGateway(resolveWhatsAppConfig(freight.tenantId), { number: cleanPhone, body: `Atendo One: seu código para concluir o cadastro de interesse no frete ${freight.code} é ${code}. Válido por 5 minutos.`, externalKey: `freight-interest-${Date.now()}` });
   await db.persistNow();
   if (!waResult.success) return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Solicite novamente em alguns instantes.' });
   res.status(201).json({ success: true, userId: user.id, message: 'Código enviado pelo WhatsApp. Valide o telefone para continuar.' });
@@ -1099,7 +1101,8 @@ apiRouter.use((req: AuthenticatedRequest, _res: Response, next: NextFunction) =>
     req.path.startsWith('/saas/') ||
     req.path.startsWith('/tenants') ||
     req.path.startsWith('/analytics/') ||
-    req.path === '/health/detailed'
+    req.path === '/health/detailed' ||
+    req.path.startsWith('/expenses')
   );
   runWithTenantDbContext({
     tenantId: req.user?.tenantId || null,
@@ -2711,7 +2714,7 @@ apiRouter.post('/auth/register-company', async (req: AuthenticatedRequest, res: 
   if (config?.baseUrl && config?.token && config?.isActive) {
     sendToWhatsAppGateway(config, {
       number: cleanPhone,
-      body: `🚚 [ELO LOG] Olá ${responsibleName}, seu código de verificação para o cadastro da empresa ${companyName} é: *${code}*.`,
+      body: `🚚 [Atendo One] Olá ${responsibleName}, seu código de verificação para o cadastro da empresa ${companyName} é: *${code}*.`,
       externalKey: `reg-wa-${Date.now()}`
     }).catch(err => console.error('WhatsApp reg err:', err));
   }
@@ -3213,19 +3216,26 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     bodyType
   } = req.body;
 
-  const requestedRole = role || (createAsDriver ? 'MOTORISTA' : 'USUARIO');
+  const requestedRole = createAsDriver ? 'MOTORISTA' : (role || 'USUARIO');
   if (!canAssignUserRole(req.user, requestedRole)) return res.status(403).json({ error: 'Você não pode atribuir este nível de acesso.' });
   const targetTenantId = req.user?.role === 'SUPER_ADMIN' ? (requestedRole === 'SUPER_ADMIN' ? null : tenantId) : req.user?.tenantId;
   if (requestedRole !== 'SUPER_ADMIN' && (!targetTenantId || !db.tenants.some(tenant => tenant.id === targetTenantId))) return res.status(400).json({ error: 'Empresa válida é obrigatória para este perfil.' });
 
-  if (!name || !email) {
+  const normalizedName = String(name || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 160);
+  const normalizedEmail = String(email || '').trim().toLowerCase().slice(0, 254);
+  const normalizedPhone = String(phone || '').trim().slice(0, 30);
+  if (normalizedName.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     return res.status(400).json({ error: 'Nome e e-mail são obrigatórios' });
   }
+  if (password !== undefined && String(password).trim() && String(password).trim().length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
 
   // Check if email already registered
-  const emailExists = db.users.some(u => u.email.toLowerCase() === email.toLowerCase());
+  const emailExists = db.users.some(u => u.email.trim().toLowerCase() === normalizedEmail);
   if (emailExists) {
     return res.status(400).json({ error: 'Este e-mail já está sendo utilizado por outra conta.' });
+  }
+  if (normalizedPhone && db.users.some(u => u.phone && normalizePhoneForLookup(u.phone) === normalizePhoneForLookup(normalizedPhone))) {
+    return res.status(409).json({ error: 'Este telefone já está associado a outra conta.' });
   }
 
   const hashedPassword = password && password.trim() ? await bcrypt.hash(password.trim(), 10) : undefined;
@@ -3233,15 +3243,15 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
 
   const newUserId = `user-${Date.now()}`;
   const newDriverId = `driver-${Date.now()}`;
-  const isDriver = requestedRole === 'MOTORISTA' || createAsDriver;
+  const isDriver = requestedRole === 'MOTORISTA';
 
   const newUser: User = {
     id: newUserId,
     tenantId: targetTenantId || null,
-    name,
-    email,
-    phone: phone || '',
-    role: isDriver ? 'MOTORISTA' : requestedRole,
+    name: normalizedName,
+    email: normalizedEmail,
+    phone: normalizedPhone,
+    role: requestedRole,
     status: 'ATIVO',
     accountType: 'REAL',
     readOnly: false,
@@ -3257,12 +3267,12 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
       id: newDriverId,
       userId: newUserId,
       tenantId: targetTenantId || null,
-      name,
-      cpf: cpf || '',
+      name: normalizedName,
+      cpf: String(cpf || '').replace(/\D/g, '').slice(0, 11),
       rg: rg || '',
       birthDate: birthDate || '',
-      phone: phone || '',
-      email,
+      phone: normalizedPhone,
+      email: normalizedEmail,
       zipCode: zipCode || '',
       address: address || '',
       city: city || '',
@@ -3329,6 +3339,7 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     tenantId: targetTenantId || undefined,
     link: process.env.APP_URL || ''
   });
+  await db.persistNow();
   res.status(201).json(sanitizeUser(newUser));
 });
 
@@ -3380,9 +3391,9 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
   if (user.driverId) {
     const driver = db.drivers.find(d => d.id === user.driverId || d.userId === user.id);
     if (driver) {
-      if (name) driver.name = name;
-      if (email) driver.email = email;
-      if (phone) driver.phone = phone;
+      driver.name = normalizedName;
+      driver.email = normalizedEmail;
+      driver.phone = normalizedPhone;
     }
   }
 
@@ -3409,6 +3420,7 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
       link: process.env.APP_URL || ''
     });
   }
+  await db.persistNow();
   res.json(sanitizeUser(user));
 });
 
@@ -3448,10 +3460,17 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
     return res.status(404).json({ error: 'Usuário não encontrado' });
   }
 
-  const { name, email, phone, password } = req.body;
-  if (name) user.name = name;
-  if (email) user.email = email;
-  if (phone) user.phone = phone;
+  const { name, email, phone, password } = req.body || {};
+  const normalizedName = name === undefined ? user.name : String(name).replace(/[\r\n]+/g, ' ').trim().slice(0, 160);
+  const normalizedEmail = email === undefined ? user.email : String(email).trim().toLowerCase().slice(0, 254);
+  const normalizedPhone = phone === undefined ? user.phone : String(phone).trim().slice(0, 30);
+  if (normalizedName.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return res.status(400).json({ error: 'Nome e e-mail válidos são obrigatórios.' });
+  if (db.users.some(item => item.id !== user.id && item.email.trim().toLowerCase() === normalizedEmail)) return res.status(409).json({ error: 'Este e-mail já está sendo utilizado por outra conta.' });
+  if (normalizedPhone && db.users.some(item => item.id !== user.id && item.phone && normalizePhoneForLookup(item.phone) === normalizePhoneForLookup(normalizedPhone))) return res.status(409).json({ error: 'Este telefone já está associado a outra conta.' });
+  if (password !== undefined && String(password).trim() && String(password).trim().length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
+  user.name = normalizedName;
+  user.email = normalizedEmail;
+  user.phone = normalizedPhone;
   if (password && password.trim()) {
     user.password = await bcrypt.hash(password.trim(), 10);
   }
@@ -3474,9 +3493,9 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
   if (user.driverId) {
     const driver = db.drivers.find(d => d.id === user.driverId || d.userId === user.id);
     if (driver) {
-      if (name) driver.name = name;
-      if (email) driver.email = email;
-      if (phone) driver.phone = phone;
+      driver.name = normalizedName;
+      driver.email = normalizedEmail;
+      driver.phone = normalizedPhone;
       if (req.body.address) driver.address = req.body.address;
       if (req.body.city) driver.city = req.body.city;
       if (req.body.state) driver.state = req.body.state;
@@ -3496,6 +3515,7 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
     details: `Perfil de usuário atualizado pelo próprio titular`
   });
 
+  await db.persistNow();
   res.json({
     success: true,
     user: sanitizeUser(user),
@@ -3612,7 +3632,7 @@ apiRouter.put('/drivers/:id/company-profile', async (req: AuthenticatedRequest, 
   return res.json(profile);
 });
 
-apiRouter.put('/drivers/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/drivers/:id', async (req: AuthenticatedRequest, res: Response) => {
   const driver = db.drivers.find(d => d.id === req.params.id);
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
 
@@ -3649,6 +3669,7 @@ apiRouter.put('/drivers/:id', (req: AuthenticatedRequest, res: Response) => {
     details: `Motorista ${driver.name} atualizado`
   });
 
+  await db.persistNow();
   res.json(sanitizeDriver(driver));
 });
 
@@ -4439,6 +4460,56 @@ apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response
 
 const canManageLocalResources = (user: User | undefined) => Boolean(user && DIRECTORY_ADMIN_ROLES.includes(user.role));
 const resourceTenantId = (req: AuthenticatedRequest) => req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || req.query?.tenantId || '') : req.user?.tenantId || '';
+const FORM_FIELD_TYPES = new Set<FormFieldType>(['text', 'textarea', 'number', 'cpf', 'cnpj', 'phone', 'email', 'date', 'time', 'select', 'radio', 'checkbox', 'file', 'photo', 'signature']);
+const FORM_OPTION_TYPES = new Set<FormFieldType>(['select', 'radio', 'checkbox']);
+
+function normalizeFormFields(input: unknown): FormField[] | null {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 80) return null;
+  const names = new Set<string>();
+  const fields: FormField[] = [];
+  for (let index = 0; index < input.length; index += 1) {
+    const raw = input[index] as any;
+    if (!raw || typeof raw !== 'object') return null;
+    const type = String(raw.type || '').trim() as FormFieldType;
+    const name = String(raw.name || '').trim().slice(0, 80);
+    const label = String(raw.label || '').trim().slice(0, 240);
+    if (!FORM_FIELD_TYPES.has(type) || !/^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(name) || !label || names.has(name)) return null;
+    names.add(name);
+    const options: string[] | undefined = FORM_OPTION_TYPES.has(type)
+      ? (Array.from(new Set((Array.isArray(raw.options) ? raw.options : []).map((item: unknown) => String(item || '').trim().slice(0, 160)).filter(Boolean))) as string[]).slice(0, 40)
+      : undefined;
+    if (FORM_OPTION_TYPES.has(type) && (!options || options.length < 1)) return null;
+    fields.push({
+      id: String(raw.id || `field-${randomUUID().slice(0, 8)}`).slice(0, 100),
+      name,
+      label,
+      type,
+      placeholder: raw.placeholder === undefined ? undefined : String(raw.placeholder).trim().slice(0, 240),
+      required: raw.required === true,
+      defaultValue: ['string', 'number', 'boolean'].includes(typeof raw.defaultValue) ? raw.defaultValue : undefined,
+      options,
+      order: index + 1
+    });
+  }
+  return fields;
+}
+
+function validateFormAnswers(form: FormDefinition, answers: unknown, isDraft: boolean): string | null {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return 'Respostas inválidas.';
+  const record = answers as Record<string, unknown>;
+  if (JSON.stringify(record).length > 100000) return 'Respostas acima do limite permitido.';
+  if (isDraft) return null;
+  for (const field of form.fields) {
+    const value = record[field.id] ?? record[field.name];
+    const empty = value === undefined || value === null || (typeof value === 'string' && !value.trim()) || (Array.isArray(value) && value.length === 0);
+    if (field.required && empty) return `O campo obrigatório "${field.label}" não foi preenchido.`;
+    if (value !== undefined && FORM_OPTION_TYPES.has(field.type)) {
+      const values = Array.isArray(value) ? value : [value];
+      if (values.some(item => typeof item !== 'string' || !field.options?.includes(item))) return `A resposta do campo "${field.label}" é inválida.`;
+    }
+  }
+  return null;
+}
 
 apiRouter.get('/company-stops', (req: AuthenticatedRequest, res: Response) => {
   if (!req.user || !TENANT_USER_ROLES.includes(req.user.role)) return res.status(403).json({ error: 'Acesso não autorizado.' });
@@ -4496,18 +4567,21 @@ apiRouter.post('/forms', (req: AuthenticatedRequest, res: Response) => {
   const { title, description, category, triggerEvent, fields, tenantId } = req.body;
   const targetTenantId = req.user?.role === 'SUPER_ADMIN' ? (tenantId || db.tenants[0].id) : req.user?.tenantId;
 
-  if (!title || !fields || !Array.isArray(fields)) {
+  const normalizedFields = normalizeFormFields(fields);
+  const validCategories = new Set(['CHECKLIST_COLETA', 'CHECKLIST_ENTREGA', 'COMPROVANTE_ENTREGA', 'AVALIACAO_MOTORISTA', 'CADASTRO_MOTORISTA', 'OCORRENCIA']);
+  const validTriggers = new Set(['ANTES_COLETA', 'DURANTE_COLETA', 'EM_TRANSITO', 'NA_ENTREGA', 'FINALIZACAO', 'MANUAL']);
+  if (typeof title !== 'string' || title.trim().length < 2 || title.trim().length > 160 || !normalizedFields || !validCategories.has(String(category || 'CHECKLIST_COLETA')) || !validTriggers.has(String(triggerEvent || 'MANUAL'))) {
     return res.status(400).json({ error: 'Título e campos do formulário são obrigatórios' });
   }
 
   const newForm: FormDefinition = {
     id: `form-${Date.now()}`,
     tenantId: targetTenantId!,
-    title,
-    description: description || '',
+    title: title.trim().slice(0, 160),
+    description: typeof description === 'string' ? description.trim().slice(0, 1000) : '',
     category: category || 'CHECKLIST_COLETA',
     triggerEvent: triggerEvent || 'MANUAL',
-    fields,
+    fields: normalizedFields,
     active: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -4526,6 +4600,7 @@ apiRouter.post('/forms', (req: AuthenticatedRequest, res: Response) => {
     details: `Formulário '${newForm.title}' criado com ${newForm.fields.length} campos`
   });
 
+  void db.persistNow();
   res.status(201).json(newForm);
 });
 
@@ -4541,7 +4616,7 @@ apiRouter.post('/forms/:id/copy', async (req: AuthenticatedRequest, res: Respons
     ...source,
     id: `form-${Date.now()}-${randomUUID().slice(0, 8)}`,
     tenantId: targetTenantId,
-    title: req.body?.title || `${source.title} (Cópia)`,
+    title: String(req.body?.title || `${source.title} (Cópia)`).trim().slice(0, 160),
     fields: source.fields.map((field, index) => ({ ...field, id: `field-${randomUUID().slice(0, 8)}`, order: index + 1 })),
     createdAt: now,
     updatedAt: now
@@ -4557,11 +4632,15 @@ apiRouter.put('/forms/:id', async (req: AuthenticatedRequest, res: Response) => 
   const form = db.forms.find(item => item.id === req.params.id);
   if (!form) return res.status(404).json({ error: 'Formulário não encontrado.' });
   if (req.user.role !== 'SUPER_ADMIN' && form.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Este formulário pertence a outra empresa.' });
-  if (typeof req.body?.title === 'string' && req.body.title.trim()) form.title = req.body.title.trim();
-  if (typeof req.body?.description === 'string') form.description = req.body.description;
-  if (Array.isArray(req.body?.fields)) form.fields = req.body.fields.map((field: any, index: number) => ({ ...field, id: field.id || `field-${randomUUID().slice(0, 8)}`, order: index + 1 }));
-  if (req.body?.category) form.category = req.body.category;
-  if (req.body?.triggerEvent) form.triggerEvent = req.body.triggerEvent;
+  if (typeof req.body?.title === 'string' && req.body.title.trim()) form.title = req.body.title.trim().slice(0, 160);
+  if (typeof req.body?.description === 'string') form.description = req.body.description.trim().slice(0, 1000);
+  if (req.body?.fields !== undefined) {
+    const normalizedFields = normalizeFormFields(req.body.fields);
+    if (!normalizedFields) return res.status(400).json({ error: 'Campos inválidos. Revise nomes, tipos, opções e limites.' });
+    form.fields = normalizedFields;
+  }
+  if (req.body?.category && ['CHECKLIST_COLETA', 'CHECKLIST_ENTREGA', 'COMPROVANTE_ENTREGA', 'AVALIACAO_MOTORISTA', 'CADASTRO_MOTORISTA', 'OCORRENCIA'].includes(req.body.category)) form.category = req.body.category;
+  if (req.body?.triggerEvent && ['ANTES_COLETA', 'DURANTE_COLETA', 'EM_TRANSITO', 'NA_ENTREGA', 'FINALIZACAO', 'MANUAL'].includes(req.body.triggerEvent)) form.triggerEvent = req.body.triggerEvent;
   form.updatedAt = new Date().toISOString();
   db.addAuditLog({ ip: requestIp(req), tenantId: form.tenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'EDITAR_FORMULARIO', entity: 'FormDefinition', entityId: form.id, details: `Formulário '${form.title}' editado.` });
   await db.persistNow();
@@ -4569,7 +4648,7 @@ apiRouter.put('/forms/:id', async (req: AuthenticatedRequest, res: Response) => 
 });
 
 // Submit or Update Form Response (Supports Saving Partial / Retirada / Final Entrega)
-apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/forms/responses', async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Não autenticado.' });
   const { responseId, formId, freightId, answers, stage, isDraft } = req.body || {};
   const form = db.forms.find(f => f.id === formId);
@@ -4579,7 +4658,10 @@ apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) =>
   }
   if (req.user.role !== 'SUPER_ADMIN' && form.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Este formulário pertence a outra empresa.' });
   if (stage !== undefined && !['RETIRADA_INICIADA', 'FINALIZADO_ENTREGA', 'COMPLETO'].includes(stage)) return res.status(400).json({ error: 'Etapa de formulário inválida.' });
-  if (answers !== undefined && (!answers || typeof answers !== 'object' || Array.isArray(answers) || JSON.stringify(answers).length > 100000)) return res.status(400).json({ error: 'Respostas inválidas ou acima do limite permitido.' });
+  if (answers !== undefined) {
+    const answerError = validateFormAnswers(form, answers, isDraft === true);
+    if (answerError) return res.status(400).json({ error: answerError });
+  }
 
   // Security check: ensure associated freight belongs to user's tenant or assigned driver
   if (freightId) {
@@ -4652,6 +4734,7 @@ apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) =>
       details: `${isDraft ? 'Salvo rascunho de progresso' : 'Atualizado formulário'} '${form.title}' (Etapa: ${stage || 'Andamento'})${freightId ? ` para o frete #${freightId}` : ''}`
     });
 
+    await db.persistNow();
     return res.json(existingResponse);
   }
 
@@ -4692,6 +4775,7 @@ apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) =>
     details: `${isDraft ? 'Iniciou e salvou etapa de retirada' : 'Respondeu e finalizou formulário'} '${form.title}'${freightId ? ` para o frete #${freightId}` : ''}`
   });
 
+  await db.persistNow();
   res.status(201).json(newResponse);
 });
 
@@ -6344,7 +6428,7 @@ apiRouter.get('/expenses', (req: AuthenticatedRequest, res: Response) => {
     list = list.filter(e => e.driverId === req.user?.id || e.driverId === req.user?.driverId || (req.user?.name && e.driverName === req.user.name));
   } else if (req.user?.role !== 'SUPER_ADMIN') {
     // Tenant users see their company's reports
-    list = list.filter(e => !e.tenantId || e.tenantId === req.user?.tenantId);
+    list = list.filter(e => Boolean(e.tenantId) && e.tenantId === req.user?.tenantId);
   }
 
   if (freightId) {
@@ -6375,7 +6459,7 @@ apiRouter.get('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
       if (!isOwner) {
         return res.status(403).json({ error: 'Acesso não autorizado a este relatório' });
       }
-    } else if (report.tenantId && report.tenantId !== req.user?.tenantId) {
+    } else if (!report.tenantId || report.tenantId !== req.user?.tenantId) {
       return res.status(403).json({ error: 'Acesso não autorizado a relatórios de outra empresa' });
     }
   }
@@ -6412,11 +6496,12 @@ const normalizeExpenseItems = (raw: unknown, fallback: TripExpenseItem[] = []): 
 };
 
 // Create new report
-apiRouter.post('/expenses', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/expenses', async (req: AuthenticatedRequest, res: Response) => {
   const data = req.body && typeof req.body === 'object' ? req.body as Record<string, any> : null;
   if (!req.user || !data) return res.status(400).json({ error: 'Dados da prestação de contas inválidos.' });
+  if (!sqlAdapter.isEnabled()) return res.status(503).json({ error: 'PostgreSQL não está configurado; a prestação não foi salva.' });
   const canSubmitExpense = req.user.role === 'SUPER_ADMIN' || ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MOTORISTA'].includes(req.user.role);
-  if (!canSubmitExpense || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Este perfil não pode criar prestações de contas.' });
+  if (!canSubmitExpense) return res.status(403).json({ error: 'Este perfil não pode criar prestações de contas.' });
 
   const requestedTenantId = req.user.role === 'SUPER_ADMIN' || req.user.role === 'MOTORISTA'
     ? String(data.tenantId || req.user.tenantId || '')
@@ -6425,9 +6510,16 @@ apiRouter.post('/expenses', (req: AuthenticatedRequest, res: Response) => {
   if (!assignedTenantId) return res.status(400).json({ error: 'Empresa válida é obrigatória para a prestação de contas.' });
   const freight = data.freightId ? db.freights.find(item => item.id === String(data.freightId)) : undefined;
   if (data.freightId && (!freight || freight.tenantId !== assignedTenantId)) return res.status(403).json({ error: 'Frete não pertence à empresa informada.' });
-  const requestedDriverId = req.user.role === 'MOTORISTA' ? (req.user.driverId || req.user.id) : String(data.driverId || '');
+  const requestedDriverId = req.user.role === 'MOTORISTA'
+    ? (req.user.driverId || req.user.id)
+    : String(data.driverId || freight?.assignedDriverId || '').trim();
   const driver = requestedDriverId ? db.drivers.find(item => item.id === requestedDriverId || item.userId === requestedDriverId) : undefined;
-  if (!driver || (req.user.role === 'MOTORISTA' && driver.userId !== req.user.id && driver.id !== req.user.driverId) || (req.user.role === 'MOTORISTA' && !db.hasDriverCompanyAccess(driver.id, assignedTenantId, true)) || (!['SUPER_ADMIN', 'MOTORISTA'].includes(req.user.role) && !db.hasDriverCompanyAccess(driver.id, assignedTenantId, true))) return res.status(403).json({ error: 'Motorista não autorizado para esta prestação de contas.' });
+  const driverIsAuthorized = !driver
+    ? req.user.role !== 'MOTORISTA'
+    : (req.user.role === 'SUPER_ADMIN' ||
+      (req.user.role === 'MOTORISTA' && (driver.userId === req.user.id || driver.id === req.user.driverId) && db.hasDriverCompanyAccess(driver.id, assignedTenantId, true)) ||
+      (req.user.role !== 'MOTORISTA' && db.hasDriverCompanyAccess(driver.id, assignedTenantId, true)));
+  if (!driverIsAuthorized) return res.status(403).json({ error: 'Motorista não autorizado para esta prestação de contas.' });
 
   const items = normalizeExpenseItems(data.items);
   const totalExpenses = items.reduce((acc: number, it: any) => acc + (Number(it.amount) || 0), 0);
@@ -6451,9 +6543,9 @@ apiRouter.post('/expenses', (req: AuthenticatedRequest, res: Response) => {
     tenantId: assignedTenantId,
     freightId: freight?.id,
     freightCode: freight?.code,
-    driverId: driver.id,
-    driverName: driver.name,
-    driverPhone: driver.phone,
+    driverId: driver?.id,
+    driverName: normalizeExpenseText(data.driverName, 255) || driver?.name || 'Motorista não informado',
+    driverPhone: normalizeExpenseText(data.driverPhone, 32) || driver?.phone,
     vehiclePlate: normalizeExpenseText(data.vehiclePlate, 20),
     chassis: normalizeExpenseText(data.chassis, 100),
     vehicleModel: normalizeExpenseText(data.vehicleModel, 120),
@@ -6496,11 +6588,20 @@ apiRouter.post('/expenses', (req: AuthenticatedRequest, res: Response) => {
     details: `Prestação de contas criada para a viagem/frete ${newReport.freightCode || newReport.id} (Total: R$ ${totalExpenses.toFixed(2)})`
   });
 
+  try {
+    await db.persistTripExpense(newReport);
+    await db.persistNow();
+  } catch (error) {
+    db.tripExpenses = db.tripExpenses.filter(item => item.id !== newReport.id);
+    console.error('Falha ao persistir nova prestação no PostgreSQL:', error);
+    return res.status(503).json({ error: 'Não foi possível salvar a prestação no PostgreSQL. Verifique a conexão e as migrações do banco.' });
+  }
   res.status(201).json(newReport);
 });
 
 // Update report / change status / approve
-apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/expenses/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!sqlAdapter.isEnabled()) return res.status(503).json({ error: 'PostgreSQL não está configurado; a prestação não foi salva.' });
   const index = (db.tripExpenses || []).findIndex(e => e.id === req.params.id);
   if (index === -1) {
     return res.status(404).json({ error: 'Relatório de despesas não encontrado' });
@@ -6511,7 +6612,7 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
 
   // Tenant isolation & authorization check
   const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
-  const isCompanyStaff = (req.user?.role === 'ADMIN' || req.user?.role === 'EMPRESA_SUPER_ADMIN' || req.user?.role === 'SUPERVISOR') && (!existing.tenantId || existing.tenantId === req.user?.tenantId);
+  const isCompanyStaff = (req.user?.role === 'ADMIN' || req.user?.role === 'EMPRESA_SUPER_ADMIN' || req.user?.role === 'SUPERVISOR') && Boolean(existing.tenantId && existing.tenantId === req.user?.tenantId);
   const isDriverOwner = req.user?.role === 'MOTORISTA' && (existing.driverId === req.user?.id || existing.driverId === req.user?.driverId || existing.driverName === req.user?.name);
 
   if (!isSuperAdmin && !isCompanyStaff && !isDriverOwner) {
@@ -6522,6 +6623,15 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
   if (!['RASCUNHO', 'ENVIADO', 'EM_ANALISE', 'APROVADO', 'REJEITADO', 'QUITADO'].includes(requestedStatus)) return res.status(400).json({ error: 'Status de prestação de contas inválido.' });
   const canApproveExpense = isSuperAdmin || (req.user?.role === 'EMPRESA_SUPER_ADMIN' || req.user?.role === 'ADMIN') && existing.tenantId === req.user?.tenantId;
   if (['APROVADO', 'QUITADO'].includes(requestedStatus) && !canApproveExpense) return res.status(403).json({ error: 'Apenas administradores da empresa podem aprovar ou quitar despesas.' });
+  const requestedTenantIdForUpdate = isSuperAdmin && updates.tenantId !== undefined ? String(updates.tenantId || '') : String(existing.tenantId || '');
+  if (!requestedTenantIdForUpdate || !db.tenants.some(tenant => tenant.id === requestedTenantIdForUpdate)) return res.status(400).json({ error: 'Empresa válida é obrigatória para a prestação de contas.' });
+  const requestedFreightId = updates.freightId === undefined ? existing.freightId : String(updates.freightId || '').trim();
+  const linkedFreight = requestedFreightId ? db.freights.find(item => item.id === requestedFreightId) : undefined;
+  if (requestedFreightId && (!linkedFreight || linkedFreight.tenantId !== requestedTenantIdForUpdate)) return res.status(403).json({ error: 'Frete não pertence à empresa informada.' });
+  const requestedDriverIdForUpdate = updates.driverId === undefined ? existing.driverId : String(updates.driverId || '').trim();
+  const updatedDriver = requestedDriverIdForUpdate ? db.drivers.find(item => item.id === requestedDriverIdForUpdate || item.userId === requestedDriverIdForUpdate) : undefined;
+  if (requestedDriverIdForUpdate && !updatedDriver) return res.status(400).json({ error: 'Motorista informado não encontrado.' });
+  if (updatedDriver && !isSuperAdmin && !db.hasDriverCompanyAccess(updatedDriver.id, requestedTenantIdForUpdate, true)) return res.status(403).json({ error: 'Motorista não autorizado para esta empresa.' });
   // Drivers cannot approve their own expenses or modify reviewer fields.
   if (req.user?.role === 'MOTORISTA' && (existing.status === 'APROVADO' || existing.status === 'QUITADO')) return res.status(403).json({ error: 'Este relatório já foi aprovado/quitado e não pode mais ser alterado pelo motorista.' });
 
@@ -6540,12 +6650,12 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
   const balanceStatus: TripExpenseReport['balanceStatus'] = balanceAmount >= 0 ? 'A_DEVOLVER' : 'REEMBOLSO_A_RECEBER';
   const updatedReport: TripExpenseReport = {
     id: existing.id,
-    tenantId: existing.tenantId,
-    freightId: existing.freightId,
-    freightCode: existing.freightCode,
-    driverId: existing.driverId,
-    driverName: existing.driverName,
-    driverPhone: existing.driverPhone,
+    tenantId: requestedTenantIdForUpdate,
+    freightId: requestedFreightId || undefined,
+    freightCode: linkedFreight?.code || (requestedFreightId ? existing.freightCode : undefined),
+    driverId: updatedDriver?.id,
+    driverName: updates.driverName === undefined ? (updatedDriver?.name || existing.driverName || 'Motorista não informado') : (normalizeExpenseText(updates.driverName, 255) || 'Motorista não informado'),
+    driverPhone: updates.driverPhone === undefined ? (updatedDriver?.phone || existing.driverPhone) : normalizeExpenseText(updates.driverPhone, 32),
     vehiclePlate: updates.vehiclePlate === undefined ? existing.vehiclePlate : normalizeExpenseText(updates.vehiclePlate, 20),
     chassis: updates.chassis === undefined ? existing.chassis : normalizeExpenseText(updates.chassis, 100),
     vehicleModel: updates.vehicleModel === undefined ? existing.vehicleModel : normalizeExpenseText(updates.vehicleModel, 120),
@@ -6568,12 +6678,12 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
     items,
     generalNotes: updates.generalNotes === undefined ? existing.generalNotes : normalizeExpenseText(updates.generalNotes, 2000),
     reviewerNotes: canApproveExpense && updates.reviewerNotes !== undefined ? normalizeExpenseText(updates.reviewerNotes, 2000) : existing.reviewerNotes,
-    reviewedBy: existing.reviewedBy,
-    reviewedAt: existing.reviewedAt,
-    approvedAt: existing.approvedAt,
+    reviewedBy: canApproveExpense && updates.reviewedBy !== undefined ? normalizeExpenseText(updates.reviewedBy, 255) : existing.reviewedBy,
+    reviewedAt: canApproveExpense && updates.reviewedAt !== undefined ? (updates.reviewedAt ? String(updates.reviewedAt) : undefined) : existing.reviewedAt,
+    approvedAt: canApproveExpense && updates.approvedAt !== undefined ? (updates.approvedAt ? String(updates.approvedAt) : undefined) : existing.approvedAt,
     createdAt: existing.createdAt,
     updatedAt: new Date().toISOString(),
-    archivedAt: existing.archivedAt
+    archivedAt: canApproveExpense && updates.archivedAt !== undefined ? (updates.archivedAt ? String(updates.archivedAt) : undefined) : existing.archivedAt
   };
 
   if (requestedStatus === 'APROVADO' && existing.status !== 'APROVADO') {
@@ -6595,11 +6705,20 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
     details: `Prestação de contas #${updatedReport.id.slice(0, 8)} atualizada (Status: ${updatedReport.status})`
   });
 
+  try {
+    await db.persistTripExpense(updatedReport);
+    await db.persistNow();
+  } catch (error) {
+    db.tripExpenses[index] = existing;
+    console.error('Falha ao persistir atualização da prestação no PostgreSQL:', error);
+    return res.status(503).json({ error: 'Não foi possível atualizar a prestação no PostgreSQL. Verifique a conexão e as migrações do banco.' });
+  }
   res.json(updatedReport);
 });
 
 // Delete report
-apiRouter.delete('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.delete('/expenses/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!sqlAdapter.isEnabled()) return res.status(503).json({ error: 'PostgreSQL não está configurado; a prestação não foi alterada.' });
   const index = (db.tripExpenses || []).findIndex(e => e.id === req.params.id);
   if (index === -1) {
     return res.status(404).json({ error: 'Relatório não encontrado' });
@@ -6609,13 +6728,15 @@ apiRouter.delete('/expenses/:id', (req: AuthenticatedRequest, res: Response) => 
 
   // Authorization check
   const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
-  const isCompanyAdmin = (req.user?.role === 'ADMIN' || req.user?.role === 'EMPRESA_SUPER_ADMIN') && (!report.tenantId || report.tenantId === req.user?.tenantId);
+  const isCompanyAdmin = (req.user?.role === 'ADMIN' || req.user?.role === 'EMPRESA_SUPER_ADMIN') && Boolean(report.tenantId && report.tenantId === req.user?.tenantId);
   const isDriverOwner = req.user?.role === 'MOTORISTA' && (report.driverId === req.user?.id || report.driverId === req.user?.driverId) && (report.status === 'RASCUNHO' || report.status === 'ENVIADO');
 
   if (!isSuperAdmin && !isCompanyAdmin && !isDriverOwner) {
     return res.status(403).json({ error: 'Você não tem permissão para excluir este relatório' });
   }
 
+  const previousArchivedAt = report.archivedAt;
+  const previousUpdatedAt = report.updatedAt;
   report.archivedAt = new Date().toISOString();
   report.updatedAt = report.archivedAt;
 
@@ -6630,7 +6751,15 @@ apiRouter.delete('/expenses/:id', (req: AuthenticatedRequest, res: Response) => 
     details: `Prestação de contas #${report.id} arquivada sem apagar recibos ou histórico.`
   });
 
-  db.persistNow();
+  try {
+    await db.persistTripExpense(report);
+    await db.persistNow();
+  } catch (error) {
+    report.archivedAt = previousArchivedAt;
+    report.updatedAt = previousUpdatedAt;
+    console.error('Falha ao persistir arquivamento da prestação no PostgreSQL:', error);
+    return res.status(503).json({ error: 'Não foi possível arquivar a prestação no PostgreSQL. Verifique a conexão e as migrações do banco.' });
+  }
   res.json({ success: true, message: 'Relatório arquivado; recibos e histórico preservados.' });
 });
 

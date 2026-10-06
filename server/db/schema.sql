@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
     tenant_id VARCHAR(64) REFERENCES tenants(id) ON DELETE CASCADE,
     freight_id VARCHAR(64) REFERENCES freights(id) ON DELETE SET NULL,
     freight_code VARCHAR(32),
-    driver_id VARCHAR(64) NOT NULL,
+    driver_id VARCHAR(64), -- opcional: prestação avulsa pode ser salva antes da vinculação
     driver_name VARCHAR(255) NOT NULL,
     driver_phone VARCHAR(32),
     vehicle_plate VARCHAR(16),
@@ -189,6 +189,7 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
     reviewed_by VARCHAR(255),
     reviewed_at TIMESTAMPTZ,
     approved_at TIMESTAMPTZ,
+    archived_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
