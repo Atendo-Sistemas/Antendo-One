@@ -73,6 +73,9 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
   const [testing, setTesting] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'analytics' | 'branding' | 'plans' | 'rules' | 'gateway' | 'layout' | 'fields' | 'email' | 'sql-installation' | 'mapbox' | 'help' | 'seo' | 'notifications' | 'backups' | 'error-logs' | 'asaas'>('overview');
   const [selectedForm, setSelectedForm] = useState<'userForm' | 'freightForm' | 'driverForm' | 'expenseForm'>('freightForm');
+  const [newFieldModalOpen, setNewFieldModalOpen] = useState(false);
+  const [newFieldId, setNewFieldId] = useState('');
+  const [newFieldLabel, setNewFieldLabel] = useState('');
   const [showToken, setShowToken] = useState(false);
 
   // SaaS configuration state
@@ -1188,22 +1191,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
               {/* Add New Field */}
               <button
                 type="button"
-                onClick={() => {
-                  const id = prompt('Digite o ID interno do novo campo (ex: obs1):');
-                  const label = prompt('Digite o nome exibido do campo:');
-                  if (id && label) {
-                    const updated = { ...config };
-                    updated.formFields![selectedForm].push({
-                      id,
-                      originalLabel: label,
-                      label,
-                      placeholder: '',
-                      enabled: true,
-                      required: false
-                    });
-                    setConfig(updated);
-                  }
-                }}
+                onClick={() => { setNewFieldId(''); setNewFieldLabel(''); setNewFieldModalOpen(true); }}
                 className="mb-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-2 cursor-pointer"
               >
                 + Adicionar Novo Campo
@@ -1887,7 +1875,18 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
           isOpen={showWhatsAppTenantModal}
           onClose={() => setShowWhatsAppTenantModal(false)}
         />
-
+        {newFieldModalOpen && config && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4" onClick={() => setNewFieldModalOpen(false)}>
+            <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900" onClick={event => event.stopPropagation()}>
+              <div className="flex items-center justify-between rounded-t-3xl bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5 text-white"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-100">Configuração de formulário</p><h2 className="text-xl font-black">Adicionar novo campo</h2></div><button type="button" onClick={() => setNewFieldModalOpen(false)} className="rounded-xl p-2 text-white/80 hover:bg-white/20 cursor-pointer">×</button></div>
+              <form className="space-y-4 p-6" onSubmit={event => { event.preventDefault(); const id = newFieldId.trim(); const label = newFieldLabel.trim(); if (!id || !label) return; const updated = { ...config }; updated.formFields![selectedForm].push({ id, originalLabel: label, label, placeholder: '', enabled: true, required: false }); setConfig(updated); setNewFieldModalOpen(false); }}>
+                <label><span className="field-label">ID interno <b>*</b></span><input required value={newFieldId} onChange={event => setNewFieldId(event.target.value.replace(/[^a-zA-Z0-9_-]/g, ''))} placeholder="Ex.: observacaoInterna" className="form-control font-mono" /></label>
+                <label><span className="field-label">Nome exibido do campo <b>*</b></span><input required value={newFieldLabel} onChange={event => setNewFieldLabel(event.target.value)} placeholder="Ex.: Observações adicionais" className="form-control" /></label>
+                <div className="flex justify-end gap-3 border-t border-slate-100 pt-5 dark:border-slate-800"><button type="button" onClick={() => setNewFieldModalOpen(false)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 dark:border-slate-700 dark:text-slate-300 cursor-pointer">Cancelar</button><button type="submit" className="rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-black text-white hover:bg-emerald-700 cursor-pointer">Adicionar campo</button></div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
 
     </div>

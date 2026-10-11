@@ -3,15 +3,24 @@ import { api, clientApi } from '../../services/api';
 import { Driver } from '../../types';
 import { Camera, MapPin, Search, ShieldAlert, Truck, UploadCloud, X, Send, Lock, RotateCcw } from 'lucide-react';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
+import { useAuth } from '../../context/AuthContext';
 
 export const DriverManager: React.FC = () => {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [companyLinks, setCompanyLinks] = useState<any[]>([]);
+  const [tenants, setTenants] = useState<any[]>([]);
+  const [linkingDriver, setLinkingDriver] = useState<Driver | null>(null);
+  const [linkTenantId, setLinkTenantId] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [modal, setModal] = useState<'create' | 'lookup' | 'edit' | null>(null);
   const [name, setName] = useState('');
+  const [createEmail, setCreateEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [cpf, setCpf] = useState('');
   const [rg, setRg] = useState('');
@@ -24,16 +33,23 @@ export const DriverManager: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [lookupResult, setLookupResult] = useState<any | null>(null);
+  const [lookupPhone, setLookupPhone] = useState('');
+  const [lookupCnh, setLookupCnh] = useState('');
 
-  const handleLookup = async () => {
-    const phoneLookup = window.prompt('Telefone do motorista (deixe vazio para consultar por CNH):')?.trim() || '';
-    const cnhLookup = phoneLookup ? '' : (window.prompt('Número da CNH:')?.trim() || '');
-    if (!phoneLookup && !cnhLookup) return;
+  const handleLookup = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const phoneValue = lookupPhone.trim();
+    const cnhValue = phoneValue ? '' : lookupCnh.trim();
+    if (!phoneValue && !cnhValue) {
+      setError('Informe o telefone ou a CNH para consultar o cadastro global.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
-      const result = await api.lookupDriver(phoneLookup, cnhLookup);
+      const result = await api.lookupDriver(phoneValue, cnhValue);
       setLookupResult(result.driver);
+      setModal(null);
       if (result.companyLink?.status === 'APROVADO') {
         setError('Este motorista já está aprovado nesta empresa.');
       } else {
@@ -48,23 +64,29 @@ export const DriverManager: React.FC = () => {
     }
   };
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     setLookupResult(null);
-    const newName = window.prompt('Nome completo do motorista:')?.trim() || '';
-    if (!newName) return;
-    const newEmail = window.prompt('E-mail do motorista:')?.trim() || '';
-    const newPhone = window.prompt('Telefone/WhatsApp do motorista:')?.trim() || '';
-    const newCpf = window.prompt('CPF do motorista:')?.trim() || '';
-    const newCnh = window.prompt('CNH do motorista:')?.trim() || '';
-    if (!newEmail || !newPhone || !newCpf || !newCnh) {
+    setCreateEmail(''); setName(''); setPhone(''); setCpf(''); setCnh(''); setCity(''); setState('SP');
+    setModal('create');
+  };
+
+  const handleCreateSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const newName = name.trim();
+    const newEmail = createEmail.trim();
+    const newPhone = phone.trim();
+    const newCpf = cpf.trim();
+    const newCnh = cnh.trim();
+    if (!newName || !newEmail || !newPhone || !newCpf || !newCnh) {
       setError('Nome, e-mail, telefone, CPF e CNH são obrigatórios para incluir um motorista.');
       return;
     }
     setSaving(true);
     setError('');
     try {
-      await api.registerDriver({ name: newName, email: newEmail, phone: newPhone, cpf: newCpf, cnh: newCnh, city: '', state: 'SP' });
+      await api.registerDriver({ name: newName, email: newEmail, phone: newPhone, cpf: newCpf, cnh: newCnh, city: city.trim(), state: state.trim().toUpperCase() });
       await load();
+      setModal(null);
     } catch (e: any) {
       setError(e.message || 'Não foi possível incluir o motorista.');
     } finally {
@@ -77,6 +99,11 @@ export const DriverManager: React.FC = () => {
     try {
       const d = await api.getDrivers();
       setDrivers(d);
+      if (isSuperAdmin) {
+        const [links, tenantList] = await Promise.all([api.getDriverCompanyLinks(), api.getTenants()]);
+        setCompanyLinks(links);
+        setTenants(tenantList);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -84,9 +111,30 @@ export const DriverManager: React.FC = () => {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [isSuperAdmin]);
+
+  const openManualLink = (driver: Driver) => {
+    setLinkingDriver(driver);
+    setLinkTenantId('');
+    setError('');
+  };
+
+  const saveManualLink = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!linkingDriver || !linkTenantId) { setError('Selecione uma empresa para criar o vínculo.'); return; }
+    setSaving(true);
+    try {
+      const result = await api.linkDriverToCompany(linkingDriver.id, linkTenantId);
+      if (result.companyLink?.id) await api.updateDriverCompanyLinkStatus(result.companyLink.id, 'APROVADO', undefined, 'EMPRESA');
+      setLinkingDriver(null);
+      await load();
+    } catch (e: any) {
+      setError(e.message || 'Não foi possível criar o vínculo com a empresa.');
+    } finally { setSaving(false); }
+  };
 
   const handleEdit = (driver: Driver) => {
+    setModal('edit');
     setEditingId(driver.id);
     setName(driver.name);
     setPhone(driver.phone);
@@ -105,8 +153,10 @@ export const DriverManager: React.FC = () => {
   };
 
   const cancelEdit = () => {
+    setModal(null);
     setEditingId(null);
     setName('');
+    setCreateEmail('');
     setPhone('');
     setCpf('');
     setRg('');
@@ -170,10 +220,10 @@ export const DriverManager: React.FC = () => {
             <Truck className="w-6 h-6" /> Cadastro de Motoristas
           </h1>
         </div>
-        <button type="button" onClick={() => void handleCreate()} disabled={saving} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">
+        <button type="button" onClick={handleCreate} disabled={saving} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">
           Incluir motorista
         </button>
-        <button type="button" onClick={() => void handleLookup()} disabled={saving} className="rounded-xl border border-emerald-300 px-4 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 cursor-pointer">
+        <button type="button" onClick={() => { setLookupPhone(''); setLookupCnh(''); setError(''); setModal('lookup'); }} disabled={saving} className="rounded-xl border border-emerald-300 px-4 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 cursor-pointer">
           Consultar por telefone/CNH
         </button>
       </div>
@@ -217,9 +267,11 @@ export const DriverManager: React.FC = () => {
                           <span className="shrink-0">{driver.phone}</span>
                           {driver.cpf && <span className="shrink-0 font-medium font-mono text-slate-600 dark:text-slate-400">CPF: {driver.cpf}</span>}
                         </div>
+                        {isSuperAdmin && <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] text-slate-600 dark:bg-slate-950/50 dark:text-slate-300"><strong>Empresas vinculadas:</strong> {companyLinks.filter(link => link.driverId === driver.id && link.scope === 'EMPRESA').map(link => `${link.tenantName || link.tenantId} (${link.status})`).join(', ') || 'Nenhuma'}</div>}
                       </div>
                       <div className="flex flex-col gap-1.5 shrink-0">
                         <button onClick={() => handleEdit(driver)} className="px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-200 dark:hover:bg-emerald-800/40 cursor-pointer transition-colors">Editar Perfil</button>
+                        {isSuperAdmin && <button onClick={() => openManualLink(driver)} className="px-3 py-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-800/40 cursor-pointer transition-colors">Vincular empresa</button>}
                       </div>
                     </div>
                   </article>
@@ -231,7 +283,8 @@ export const DriverManager: React.FC = () => {
 
         {/* Right Column: Editor */}
         {editingId ? (
-          <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900 bg-white dark:bg-slate-900 p-5 shadow-lg relative h-fit sticky top-6">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4" onClick={cancelEdit}>
+            <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900 bg-white dark:bg-slate-900 p-5 shadow-2xl relative w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={event => event.stopPropagation()}>
             <button onClick={cancelEdit} className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"><X className="w-4 h-4" /></button>
             <h2 className="text-lg font-black text-slate-900 dark:text-white pr-8">Editar Motorista</h2>
             <p className="text-xs text-slate-500 mb-5">Atualize os dados, valide documentos e anexe fotos.</p>
@@ -306,6 +359,7 @@ export const DriverManager: React.FC = () => {
                 </button>
               </div>
             </form>
+            </div>
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex flex-col items-center justify-center p-10 text-center h-[75vh]">
@@ -315,6 +369,59 @@ export const DriverManager: React.FC = () => {
           </div>
         )}
       </div>
+
+      {modal === 'create' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4" onClick={() => setModal(null)}>
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-center justify-between bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5 text-white">
+              <div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-100">Cadastro operacional</p><h2 className="text-xl font-black">Novo motorista</h2><p className="mt-1 text-xs text-emerald-100">Preencha os dados para criar o cadastro global e o vínculo com a empresa.</p></div>
+              <button type="button" onClick={() => setModal(null)} className="rounded-xl p-2 text-white/80 hover:bg-white/20 hover:text-white cursor-pointer"><X className="h-5 w-5" /></button>
+            </div>
+            <form onSubmit={handleCreateSubmit} className="space-y-5 p-6">
+              {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">{error}</div>}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="sm:col-span-2"><span className="field-label">Nome completo <b>*</b></span><input required value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: João da Silva" className="form-control" /></label>
+                <label><span className="field-label">E-mail <b>*</b></span><input required type="email" value={createEmail} onChange={event => setCreateEmail(event.target.value)} placeholder="motorista@empresa.com.br" className="form-control" /></label>
+                <label><span className="field-label">Telefone / WhatsApp <b>*</b></span><input required value={phone} onChange={event => setPhone(event.target.value)} placeholder="(11) 99999-9999" className="form-control" /></label>
+                <label><span className="field-label">CPF <b>*</b></span><input required value={cpf} onChange={event => setCpf(event.target.value)} placeholder="000.000.000-00" className="form-control font-mono" /></label>
+                <label><span className="field-label">CNH <b>*</b></span><input required value={cnh} onChange={event => setCnh(event.target.value)} placeholder="Número da CNH" className="form-control font-mono" /></label>
+                <label><span className="field-label">Cidade</span><input value={city} onChange={event => setCity(event.target.value)} placeholder="Cidade" className="form-control" /></label>
+                <label><span className="field-label">UF</span><input maxLength={2} value={state} onChange={event => setState(event.target.value.toUpperCase())} placeholder="SP" className="form-control uppercase" /></label>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-5 dark:border-slate-800"><button type="button" onClick={() => setModal(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer">Cancelar</button><button type="submit" disabled={saving} className="rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">{saving ? 'Salvando...' : 'Salvar motorista'}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {modal === 'lookup' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4" onClick={() => setModal(null)}>
+          <div className="w-full max-w-lg rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-center justify-between bg-gradient-to-r from-slate-800 to-slate-700 px-6 py-5 text-white"><div><p className="text-[10px] font-black uppercase tracking-widest text-slate-300">Cadastro compartilhado</p><h2 className="text-xl font-black">Consultar motorista</h2><p className="mt-1 text-xs text-slate-300">Use telefone ou CNH para localizar um cadastro existente.</p></div><button type="button" onClick={() => setModal(null)} className="rounded-xl p-2 text-white/80 hover:bg-white/20 hover:text-white cursor-pointer"><X className="h-5 w-5" /></button></div>
+            <form onSubmit={handleLookup} className="space-y-5 p-6">
+              {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">{error}</div>}
+              <label><span className="field-label">Telefone / WhatsApp</span><input value={lookupPhone} onChange={event => setLookupPhone(event.target.value)} placeholder="(11) 99999-9999" className="form-control" /></label>
+              <div className="text-center text-[11px] font-bold uppercase tracking-widest text-slate-400">ou</div>
+              <label><span className="field-label">CNH</span><input value={lookupCnh} onChange={event => setLookupCnh(event.target.value)} placeholder="Número da CNH" className="form-control font-mono" /></label>
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-5 dark:border-slate-800"><button type="button" onClick={() => setModal(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer">Cancelar</button><button type="submit" disabled={saving} className="rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-black text-white hover:bg-emerald-700 disabled:opacity-50 cursor-pointer">{saving ? 'Consultando...' : 'Consultar cadastro'}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {linkingDriver && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4" onClick={() => setLinkingDriver(null)}>
+          <div className="w-full max-w-lg rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-center justify-between bg-gradient-to-r from-blue-700 to-indigo-700 px-6 py-5 text-white"><div><p className="text-[10px] font-black uppercase tracking-widest text-blue-100">Super Admin</p><h2 className="text-xl font-black">Vincular motorista a empresa</h2><p className="mt-1 text-xs text-blue-100">{linkingDriver.name} permanecerá como um único cadastro global.</p></div><button type="button" onClick={() => setLinkingDriver(null)} className="rounded-xl p-2 text-white/80 hover:bg-white/20 hover:text-white cursor-pointer"><X className="h-5 w-5" /></button></div>
+            <form onSubmit={saveManualLink} className="space-y-5 p-6">
+              {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">{error}</div>}
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">O vínculo e as decisões dessa empresa serão armazenados separadamente. Outras empresas não terão seus dados internos alterados.</div>
+              <label><span className="field-label">Empresa de destino <b>*</b></span><select required value={linkTenantId} onChange={event => setLinkTenantId(event.target.value)} className="form-control"><option value="">Selecione uma empresa</option>{tenants.filter(tenant => !companyLinks.some(link => link.driverId === linkingDriver.id && link.tenantId === tenant.id && link.scope === 'EMPRESA')).map(tenant => <option key={tenant.id} value={tenant.id}>{tenant.name} — {tenant.cnpj || tenant.id}</option>)}</select></label>
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-5 dark:border-slate-800"><button type="button" onClick={() => setLinkingDriver(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer">Cancelar</button><button type="submit" disabled={saving} className="rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-black text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer">{saving ? 'Vinculando...' : 'Criar vínculo aprovado'}</button></div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Removed missing DriverCnhModal and DriverRiskModal temporarily */}
     </section>

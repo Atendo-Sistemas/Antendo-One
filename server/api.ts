@@ -1389,7 +1389,7 @@ apiRouter.get('/driver-company-links', (req: AuthenticatedRequest, res: Response
       vehiclesCount: sourceDriver.vehiclesCount
     } : undefined;
     const freight = link.freightId ? db.freights.find(item => item.id === link.freightId) : undefined;
-    return { ...link, driver, freightCode: freight?.code, originCity: freight?.origin.city, destinationCity: freight?.destination.city };
+    return { ...link, tenantName: db.tenants.find(item => item.id === link.tenantId)?.name || 'Empresa não identificada', driver, freightCode: freight?.code, originCity: freight?.origin.city, destinationCity: freight?.destination.city };
   });
   res.json(links);
 });

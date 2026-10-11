@@ -356,7 +356,7 @@ export const api = {
   async acceptFreight(id: string) { return request<any>(`/freights/${encodeURIComponent(id)}/accept`, { method: 'POST' }); },
   async assignFreightDriver(id: string, driverId: string) { return request<any>(`/freights/${encodeURIComponent(id)}/assign-driver`, { method: 'POST', body: JSON.stringify({ driverId }) }); },
   async getDriverCompanyLinks(...args: any[]) { return request<any[]>('/driver-company-links'); },
-  async updateDriverCompanyLinkStatus(id: string, ...args: any[]) { return request<any>(`/driver-company-links/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ status: args[0], freightId: args[1], scope: args[2], ...(typeof args[0] === 'object' ? args[0] : {}) }) }); },
+  async updateDriverCompanyLinkStatus(id: string, ...args: any[]) { return request<any>(`/driver-company-links/${encodeURIComponent(id)}/status`, { method: 'PUT', body: JSON.stringify({ status: args[0], freightId: args[1], scope: args[2], ...(typeof args[0] === 'object' ? args[0] : {}) }) }); },
   async registerDriver(data: any) { return request<any>('/drivers/register', { method: 'POST', body: JSON.stringify(data) }); },
   async getTripExpenses(...args: any[]) { return request<any[]>('/expenses'); },
   async createTripExpense(data: any) { return request<any>('/expenses', { method: 'POST', body: JSON.stringify(data) }); },
