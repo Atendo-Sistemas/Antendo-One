@@ -1,0 +1,17 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const api = fs.readFileSync(path.join(root, 'server/api.ts'), 'utf8');
+const client = fs.readFileSync(path.join(root, 'src/services/api.ts'), 'utf8');
+const budget = fs.readFileSync(path.join(root, 'src/components/budgets/BudgetManager.tsx'), 'utf8');
+assert.match(api, /const targetTenantId = req\.user\?\.role === 'SUPER_ADMIN'/);
+assert.match(api, /existingClient: targetTenantId && stored\.tenantId === targetTenantId/);
+assert.match(api, /req\.user\?\.role === 'SUPER_ADMIN' && targetTenantId && !db\.tenants\.some/);
+assert.match(client, /lookupCnpj: \(cnpj: string, tenantId\?: string\)/);
+assert.match(client, /create: \(data: any, tenantId\?: string\)/);
+assert.match(budget, /Selecione a empresa do orçamento antes de consultar o CNPJ/);
+assert.match(budget, /tenantApi\.getTenants/);
+assert.match(budget, /clientApi\.lookupCnpj\(cnpj, isSuperAdmin \? selectedTenantId : undefined\)/);
+assert.match(budget, /clientApi\.create\(/);
+console.log('BUDGET_CNPJ_SUPERADMIN_INVARIANTS_OK');

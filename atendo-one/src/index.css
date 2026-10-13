@@ -1,0 +1,43 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+html, body, #root {
+  min-height: 100%;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.field-label b { color: #ef4444; }
+.form-control {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  padding: 0.625rem 0.75rem;
+  color: #0f172a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  outline: none;
+}
+.form-control:focus { border-color: #10b981; box-shadow: 0 0 0 2px rgb(16 185 129 / 0.2); }
+.dark .field-label { color: #cbd5e1; }
+.dark .form-control { border-color: #334155; background: #1e293b; color: #f8fafc; }
+.label { margin-bottom: 0.25rem; color: #64748b; font-size: 0.6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }

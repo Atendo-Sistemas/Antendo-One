@@ -1,0 +1,14 @@
+const fs = require('node:fs');
+const api = fs.readFileSync('server/api.ts', 'utf8');
+const service = fs.readFileSync('src/services/api.ts', 'utf8');
+const publicBlock = api.slice(api.indexOf('const publicPaths'), api.indexOf('// Helper to safely strip sensitive credentials'));
+if (!publicBlock.includes("'/mapbox/geocode'")) throw new Error('MAPBOX_GEOCODE_NOT_PUBLIC');
+if (!publicBlock.includes("'/mapbox/directions'")) throw new Error('MAPBOX_DIRECTIONS_NOT_PUBLIC');
+if (!publicBlock.includes("'/mapbox/client-config'")) throw new Error('MAPBOX_CONFIG_NOT_PUBLIC');
+const geocodeHandler = api.slice(api.indexOf('const handleGeocode'), api.indexOf("apiRouter.get('/mapbox/geocode'"));
+if (geocodeHandler.includes("if (!req.user)")) throw new Error('MAPBOX_GEOCODE_STILL_REQUIRES_AUTH');
+const configHandler = api.slice(api.indexOf("apiRouter.get('/mapbox/client-config'"), api.indexOf("apiRouter.get('/public/mapbox/client-config'"));
+if (configHandler.includes("if (!req.user)")) throw new Error('MAPBOX_CONFIG_STILL_REQUIRES_AUTH');
+if (!service.includes("/mapbox/geocode?q=")) throw new Error('MAPBOX_GEOCODE_CLIENT_ENDPOINT_MISSING');
+if (!service.includes('/mapbox/directions?')) throw new Error('MAPBOX_DIRECTIONS_CLIENT_ENDPOINT_MISSING');
+console.log('MAPBOX_AUTH_INVARIANTS_OK');
