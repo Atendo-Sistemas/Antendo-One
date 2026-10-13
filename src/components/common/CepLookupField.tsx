@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Search } from 'lucide-react';
-import { publicTrackingApi } from '../../services/api';
+import { publicTrackingApi, userFacingError } from '../../services/api';
 
 interface CepLookupFieldProps {
   value?: string;
@@ -27,7 +27,7 @@ export const CepLookupField: React.FC<CepLookupFieldProps> = ({ value = '', onCh
       onFound(data);
       setMessage('Endereço encontrado. Confira o número e selecione/ajuste a sugestão se necessário.');
     } catch (error: any) {
-      setMessage(error.message || 'CEP não encontrado.');
+      setMessage(userFacingError(error, 'Não foi possível consultar o endereço informado.'));
     } finally {
       setLoading(false);
     }

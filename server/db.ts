@@ -1109,6 +1109,8 @@ class DatabaseStore {
       this.tripExpenseSchemaReady = sqlAdapter.query(`
         ALTER TABLE IF EXISTS trip_expenses ALTER COLUMN driver_id DROP NOT NULL;
         ALTER TABLE IF EXISTS trip_expenses ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+        ALTER TABLE IF EXISTS trip_expenses ADD COLUMN IF NOT EXISTS public_code TEXT;
+        ALTER TABLE IF EXISTS trip_expenses ADD COLUMN IF NOT EXISTS public_token TEXT;
       `).then(() => undefined).catch(error => {
         this.tripExpenseSchemaReady = null;
         throw error;
@@ -1127,11 +1129,11 @@ class DatabaseStore {
         initial_km, final_km, total_km, total_liters, average_km_per_liter, cost_per_km,
         advance_amount, driver_labor_amount, total_expenses, balance_amount, balance_status,
         status, items, general_notes, reviewer_notes, reviewed_by, reviewed_at, approved_at,
-        archived_at, created_at, updated_at
+        archived_at, created_at, updated_at, public_code, public_token
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, '')::date,
         NULLIF($13, '')::date, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-        $25, $26, $27::jsonb, $28, $29, $30, $31, $32, $33, $34, $35
+        $25, $26, $27::jsonb, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37
       )
       ON CONFLICT (id) DO UPDATE SET
         tenant_id = EXCLUDED.tenant_id, freight_id = EXCLUDED.freight_id,
@@ -1149,7 +1151,8 @@ class DatabaseStore {
         status = EXCLUDED.status, items = EXCLUDED.items, general_notes = EXCLUDED.general_notes,
         reviewer_notes = EXCLUDED.reviewer_notes, reviewed_by = EXCLUDED.reviewed_by,
         reviewed_at = EXCLUDED.reviewed_at, approved_at = EXCLUDED.approved_at,
-        archived_at = EXCLUDED.archived_at, updated_at = EXCLUDED.updated_at
+        archived_at = EXCLUDED.archived_at, updated_at = EXCLUDED.updated_at,
+        public_code = EXCLUDED.public_code, public_token = EXCLUDED.public_token
     `, [
       report.id, report.tenantId || null, report.freightId || null, report.freightCode || null,
       report.driverId || null, report.driverName || 'Motorista não informado', report.driverPhone || null,
@@ -1160,7 +1163,8 @@ class DatabaseStore {
       report.driverLaborAmount || 0, report.totalExpenses || 0, report.balanceAmount || 0,
       report.balanceStatus, report.status, JSON.stringify(report.items || []), report.generalNotes || null,
       report.reviewerNotes || null, report.reviewedBy || null, report.reviewedAt || null,
-      report.approvedAt || null, report.archivedAt || null, report.createdAt, report.updatedAt
+      report.approvedAt || null, report.archivedAt || null, report.createdAt, report.updatedAt,
+      report.publicCode || null, report.publicToken || null
     ]);
   }
 
@@ -1171,7 +1175,8 @@ class DatabaseStore {
       if (!result.rows.length) return;
       const iso = (value: any) => value instanceof Date ? value.toISOString() : String(value || '');
       this.tripExpenses = result.rows.map(row => ({
-        id: String(row.id), tenantId: row.tenant_id || undefined, freightId: row.freight_id || undefined,
+        id: String(row.id), publicCode: row.public_code || undefined, publicToken: row.public_token || undefined,
+        tenantId: row.tenant_id || undefined, freightId: row.freight_id || undefined,
         freightCode: row.freight_code || undefined, driverId: row.driver_id || undefined,
         driverName: row.driver_name || 'Motorista não informado', driverPhone: row.driver_phone || undefined,
         vehiclePlate: row.vehicle_plate || undefined, vehicleModel: row.vehicle_model || undefined,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { clientApi } from '../../services/api';
+import { clientApi, userFacingError } from '../../services/api';
 import { Client } from '../../types';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
 
@@ -17,7 +17,7 @@ export const ClientManager: React.FC = () => {
   const refresh = async (term = search) => { 
     setLoading(true); 
     try { setItems(await clientApi.list(term)); } 
-    catch (e: any) { setError(e.message); } 
+    catch (e: any) { setError(userFacingError(e, 'Não foi possível concluir esta operação.')); } 
     finally { setLoading(false); } 
   };
   
@@ -48,7 +48,7 @@ export const ClientManager: React.FC = () => {
         cnpjData: data 
       }); 
     } 
-    catch (e: any) { setError(e.message); } 
+    catch (e: any) { setError(userFacingError(e, 'Não foi possível concluir esta operação.')); } 
     finally { setLookupLoading(false); } 
   };
   
@@ -60,7 +60,7 @@ export const ClientManager: React.FC = () => {
       setDraft(item); 
       await refresh(); 
     } 
-    catch (e: any) { setError(e.message); } 
+    catch (e: any) { setError(userFacingError(e, 'Não foi possível concluir esta operação.')); } 
   };
   
   const archive = async () => { 
@@ -71,7 +71,7 @@ export const ClientManager: React.FC = () => {
       setDraft(empty); 
       await refresh(); 
     } 
-    catch (e: any) { setError(e.message); } 
+    catch (e: any) { setError(userFacingError(e, 'Não foi possível concluir esta operação.')); } 
   };
   
   const field = (key: string, label: string) => (
@@ -111,7 +111,7 @@ export const ClientManager: React.FC = () => {
         <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 p-5 shadow-sm">
           <div className="mb-4 flex gap-2">
             <input value={draft.cnpj || ''} onChange={e => setDraft({ ...draft, cnpj: e.target.value })} placeholder="CNPJ" className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2" />
-            <button onClick={() => void lookup()} disabled={lookupLoading} className="rounded-lg bg-emerald-600 px-3 text-sm font-bold text-white disabled:opacity-50 cursor-pointer hover:bg-emerald-700">{lookupLoading ? 'Consultando…' : 'Consultar CNPJ.ws'}</button>
+            <button onClick={() => void lookup()} disabled={lookupLoading} className="rounded-lg bg-emerald-600 px-3 text-sm font-bold text-white disabled:opacity-50 cursor-pointer hover:bg-emerald-700">{lookupLoading ? 'Consultando…' : 'Preencher dados pelo CNPJ'}</button>
           </div>
           
           <div className="grid gap-3 md:grid-cols-2">

@@ -163,6 +163,7 @@ export interface Tenant {
   notificationBillingStatus?: NotificationBillingStatus;
   notificationSubscriptionId?: string;
   notificationBillingNextDueDate?: string;
+  freightAlertConfig?: FreightAlertConfig;
   isDemo?: boolean;
   atendoCrmTenantId?: string;
   atendoCrmProvisioningStatus?: 'NOT_REQUESTED' | 'PENDING' | 'PROVISIONED' | 'ERROR' | 'NOT_CONFIGURED';
@@ -177,6 +178,17 @@ export interface NotificationConsent {
   whatsapp: boolean;
   updatedAt?: string;
   source?: 'USER' | 'ADMIN' | 'REGISTRATION';
+}
+
+export type FreightAlertFallbackRegion = 'CITY' | 'STATE' | 'NONE';
+export interface FreightAlertConfig {
+  geographicFilterEnabled: boolean;
+  radiusKm: number;
+  fallbackRegion: FreightAlertFallbackRegion;
+  requireCurrentLocation: boolean;
+  maxLocationAgeMinutes: number;
+  maxAccuracyMeters: number;
+  updatedAt?: string;
 }
 
 export interface User {
@@ -201,6 +213,8 @@ export interface User {
   updatedAt?: string;
   activeSessionId?: string;
   activeSessionExpiresAt?: string;
+  mergedIntoUserId?: string;
+  mergedAt?: string;
 }
 
 export interface LegalDocumentVersion {
@@ -254,6 +268,13 @@ export interface Driver {
   bankAccount?: string;
   pixKeyType?: string;
   pixKey?: string;
+  proximityAlertsEnabled?: boolean;
+  currentLocation?: {
+    lat: number;
+    lng: number;
+    accuracyMeters?: number;
+    recordedAt: string;
+  };
   createdAt: string;
   updatedAt?: string;
 }
@@ -1040,6 +1061,9 @@ export type TripExpenseStatus =
 
 export interface TripExpenseReport {
   id: string;
+  /** Código legível e token não previsível para validação de documentos avulsos. */
+  publicCode?: string;
+  publicToken?: string;
   tenantId?: string;
   freightId?: string;
   freightCode?: string;

@@ -119,6 +119,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
   const [isCameraOpen, setIsCameraOpen] = useState(false);
 
   const [saving, setSaving] = useState(false);
+  const [savedReport, setSavedReport] = useState<TripExpenseReport | null>(existingReport || null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'items' | 'summary'>('items');
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
@@ -363,6 +364,7 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
         saved = await api.createTripExpense(reportPayload);
       }
 
+      setSavedReport(saved);
       if (onSuccess) onSuccess(saved);
       alert(`✓ Prestação de contas ${status === 'RASCUNHO' ? 'salva como rascunho' : 'enviada com sucesso'}!`);
       onClose();
@@ -409,27 +411,32 @@ export const TripExpenseModal: React.FC<TripExpenseModalProps> = ({
 
   // WhatsApp Share with manager or dispatch
   const handleShareWhatsApp = () => {
-    const report = buildReportObject();
+    const report = savedReport || existingReport || buildReportObject();
+    if (!report.publicToken) {
+      alert('Salve a prestação de contas antes de compartilhar o documento validável.');
+      return;
+    }
     const balanceText = isDevolver 
-      ? `🟢 *Saldo a Devolver à Empresa:* R$ ${Math.abs(balance).toFixed(2)}`
-      : `🟡 *Reembolso a Receber pelo Motorista:* R$ ${Math.abs(balance).toFixed(2)}`;
+      ? `*Saldo a devolver à empresa:* R$ ${Math.abs(report.balanceAmount).toFixed(2)}`
+      : `*Reembolso a receber pelo motorista:* R$ ${Math.abs(report.balanceAmount).toFixed(2)}`;
 
     const appDomain = typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'https://gestor.atendo.log.br';
     const reportBrand = reportCompany?.name || config?.systemName || 'Sistema de gestão';
+    const documentUrl = `${appDomain}/prestacao/${report.publicToken}`;
 
-    const text = `📋 *PRESTAÇÃO DE CONTAS & DESPESAS • ${reportBrand}*\n` +
-      `-----------------------------------------\n` +
-      `👤 *Motorista:* ${report.driverName}\n` +
-      `🚚 *Placa:* ${report.vehiclePlate || 'N/D'} | *Frete:* ${report.freightCode || 'Avulso'}\n` +
-      `📅 *Período:* ${report.startDate} a ${report.endDate} (${report.tripDays} dias)\n` +
-      `🛣️ *Km Rodado:* ${report.totalKm} km (${report.initialKm} ➔ ${report.finalKm})\n` +
-      `⛽ *Média Combustível:* ${report.averageKmPerLiter > 0 ? `${report.averageKmPerLiter.toFixed(2)} km/L` : 'N/D'}\n` +
-      `-----------------------------------------\n` +
-      `💰 *Adiantamento Recebido:* R$ ${report.advanceAmount.toFixed(2)}\n` +
-      `🧾 *Total Despesas (${report.items.length} itens):* R$ ${report.totalExpenses.toFixed(2)}\n` +
+    const text = `*PRESTAÇÃO DE CONTAS E DESPESAS*\n` +
+      `*${reportBrand}*\n\n` +
+      `*Código de validação:* ${report.publicCode || '—'}\n` +
+      `*Motorista:* ${report.driverName}\n` +
+      `*Placa:* ${report.vehiclePlate || 'N/D'}\n` +
+      `*Referência:* ${report.freightCode || 'Avulso'}\n` +
+      `*Período:* ${report.startDate} a ${report.endDate} (${report.tripDays} dias)\n` +
+      `*Km rodado:* ${report.totalKm} km (${report.initialKm} -> ${report.finalKm})\n` +
+      `*Média de combustível:* ${report.averageKmPerLiter > 0 ? `${report.averageKmPerLiter.toFixed(2)} km/L` : 'N/D'}\n\n` +
+      `*Adiantamento recebido:* R$ ${report.advanceAmount.toFixed(2)}\n` +
+      `*Total de despesas:* R$ ${report.totalExpenses.toFixed(2)} (${report.items.length} ${report.items.length === 1 ? 'item' : 'itens'})\n` +
       `${balanceText}\n` +
-      `-----------------------------------------\n` +
-      `🌐 *Acesse o Documento / Portal:* ${appDomain}\n` +
+      `\n*Documento para consulta:*\n${documentUrl}\n\n` +
       `_Enviado por ${config?.systemName || 'Atendo One'} em ${new Date().toLocaleString('pt-BR')}_`;
 
     const encoded = encodeURIComponent(text);

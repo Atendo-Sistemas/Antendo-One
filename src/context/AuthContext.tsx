@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { User, Tenant, Driver, Vehicle, AppNotification, SupportSessionInfo } from '../types';
 import { api, setAuthToken, clearAuthToken } from '../services/api';
+import { unregisterPushNotifications } from '../services/pushClient';
 
 interface DemoAccount {
   id: string;
@@ -181,6 +182,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = useCallback(() => {
+    void unregisterPushNotifications().catch(() => undefined);
     void api.logout().catch(() => undefined);
     setUser(null);
     setTenant(null);

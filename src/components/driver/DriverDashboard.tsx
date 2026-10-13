@@ -183,6 +183,26 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
     return () => { disposed = true; navigator.geolocation.clearWatch(watchId); window.clearInterval(retry); window.removeEventListener('online', flushQueue); document.removeEventListener('visibilitychange', handleVisibility); releaseWakeLock(); };
   }, [driver?.id, freights]);
 
+  // Proximity alerts use a separate, explicit driver consent and do not expose
+  // the coordinate in administrative driver lists.
+  useEffect(() => {
+    if (!driver?.id || driver.proximityAlertsEnabled !== true || !navigator.geolocation) return;
+    let disposed = false;
+    let lastSentAt = 0;
+    const publishDriverLocation = (position: GeolocationPosition) => {
+      if (disposed || Date.now() - lastSentAt < 30000) return;
+      lastSentAt = Date.now();
+      void api.updateDriverLocation({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracyMeters: position.coords.accuracy,
+        recordedAt: new Date(position.timestamp).toISOString()
+      }).catch(() => undefined);
+    };
+    const watchId = navigator.geolocation.watchPosition(publishDriverLocation, () => undefined, { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 });
+    return () => { disposed = true; navigator.geolocation.clearWatch(watchId); };
+  }, [driver?.id, driver?.proximityAlertsEnabled]);
+
   // Handle atomic freight acceptance
   const handleAcceptFreight = async (freight: Freight) => {
     setIsAccepting(true);

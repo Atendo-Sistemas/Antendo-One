@@ -50,7 +50,9 @@ export const DriverManager: React.FC = () => {
       const result = await api.lookupDriver(phoneValue, cnhValue);
       setLookupResult(result.driver);
       setModal(null);
-      if (result.companyLink?.status === 'APROVADO') {
+      if (isSuperAdmin) {
+        setError('Cadastro global encontrado. Selecione “Vincular empresa” na lista para associá-lo a uma empresa.');
+      } else if (result.companyLink?.status === 'APROVADO') {
         setError('Este motorista já está aprovado nesta empresa.');
       } else {
         await api.linkDriverToCompany(result.driver.id);

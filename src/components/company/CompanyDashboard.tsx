@@ -125,7 +125,7 @@ export const CompanyDashboard: React.FC = () => {
               title="Configurar e testar API de WhatsApp / Canal"
             >
               <MessageCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>WhatsApp API</span>
+              <span>WhatsApp da empresa</span>
             </button>
           )}
           

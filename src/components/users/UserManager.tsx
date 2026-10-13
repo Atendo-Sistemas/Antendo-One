@@ -20,7 +20,8 @@ import {
   AlertCircle,
   Users,
   Key,
-  LifeBuoy
+  LifeBuoy,
+  GitMerge
 } from 'lucide-react';
 
 export const UserManager: React.FC = () => {
@@ -28,6 +29,8 @@ export const UserManager: React.FC = () => {
   const { user, tenant, startSupportSession } = useAuth();
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
   const canManageUsers = user?.role === 'SUPER_ADMIN' || user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN';
+  const canAssignCompanyAdmin = user?.role === 'SUPER_ADMIN';
+  const canAssignSaasAdmin = user?.role === 'SUPER_ADMIN';
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -84,6 +87,11 @@ export const UserManager: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [startingSupportFor, setStartingSupportFor] = useState<string | null>(null);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<any[]>([]);
+  const [isDuplicatesOpen, setIsDuplicatesOpen] = useState(false);
+  const [selectedDuplicate, setSelectedDuplicate] = useState<any | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState('');
+  const [isMerging, setIsMerging] = useState(false);
 
   const fName = getField('userForm', 'name') || { label: 'Nome Completo', placeholder: 'Ex: Carlos Oliveira', enabled: true, required: true };
   const fEmail = getField('userForm', 'email') || { label: 'E-mail Corporativo', placeholder: 'carlos@translog.com.br', enabled: true, required: true };
@@ -105,6 +113,37 @@ export const UserManager: React.FC = () => {
   useEffect(() => {
     loadUsers();
   }, []);
+
+  const handleFindDuplicates = async () => {
+    if (isDemo || !canManageUsers) return;
+    try {
+      const candidates = await api.getDuplicateUserCandidates(tenant?.id);
+      setDuplicateCandidates(candidates);
+      setSelectedDuplicate(null);
+      setIsDuplicatesOpen(true);
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Não foi possível verificar duplicidades.' });
+    }
+  };
+
+  const handleMergeUsers = async () => {
+    if (!selectedDuplicate || !mergeTargetId) return;
+    const firstId = selectedDuplicate.first.user.id;
+    const secondId = selectedDuplicate.second.user.id;
+    const sourceId = mergeTargetId === firstId ? secondId : firstId;
+    try {
+      setIsMerging(true);
+      await api.mergeUsers(sourceId, mergeTargetId);
+      await loadUsers();
+      setDuplicateCandidates(current => current.filter(item => item.id !== selectedDuplicate.id));
+      setSelectedDuplicate(null);
+      setFeedbackMessage({ type: 'success', text: 'Usuários unificados. O cadastro de origem foi preservado como bloqueado para auditoria.' });
+    } catch (err: any) {
+      setFeedbackMessage({ type: 'error', text: err?.message || 'Não foi possível unificar os usuários.' });
+    } finally {
+      setIsMerging(false);
+    }
+  };
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -254,6 +293,8 @@ export const UserManager: React.FC = () => {
           </p>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          {canManageUsers && !isDemo && <button type="button" onClick={() => void handleFindDuplicates()} className="px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300 font-bold text-xs sm:text-sm transition-all cursor-pointer flex items-center gap-2"><GitMerge className="w-4 h-4" /> Verificar duplicidades</button>}
         {(isDemo || canManageUsers) && <button
           onClick={() => setIsInviteOpen(true)}
           className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/20 active:scale-98 transition-all cursor-pointer flex items-center gap-2"
@@ -261,6 +302,7 @@ export const UserManager: React.FC = () => {
           <Plus className="w-4 h-4" />
           <span>{isDemo ? 'Simular usuário' : '+ Novo Usuário'}</span>
         </button>}
+        </div>
       </div>
 
       {!isDemo && !canManageUsers && (
@@ -282,6 +324,27 @@ export const UserManager: React.FC = () => {
             <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
           )}
           <span>{feedbackMessage.text}</span>
+        </div>
+      )}
+
+      {isDuplicatesOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-3xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 bg-indigo-700 text-white flex items-center justify-between"><div><h2 className="text-base font-black">Possíveis cadastros duplicados</h2><p className="text-xs text-indigo-100">A análise considera nome, telefone, e-mail, endereço, CPF e CNH normalizados.</p></div><button type="button" onClick={() => setIsDuplicatesOpen(false)} className="p-1 text-indigo-100 hover:text-white"><X className="w-5 h-5" /></button></div>
+            <div className="p-6 overflow-y-auto space-y-3">
+              {!duplicateCandidates.length && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">Nenhum candidato forte encontrado nesta empresa.</div>}
+              {duplicateCandidates.map(candidate => {
+                const first = candidate.first.comparison;
+                const second = candidate.second.comparison;
+                const selected = selectedDuplicate?.id === candidate.id;
+                return <div key={candidate.id} className={`rounded-2xl border p-4 ${selected ? 'border-indigo-400 bg-indigo-50/60 dark:border-indigo-700 dark:bg-indigo-950/30' : 'border-slate-200 dark:border-slate-700'}`}>
+                  <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Campos coincidentes: {candidate.matchedFields.join(', ')}</p><p className="mt-1 text-sm text-slate-600 dark:text-slate-300">A conta escolhida como destino permanece ativa; a origem será bloqueada e preservada no histórico.</p></div><button type="button" onClick={() => { setSelectedDuplicate(candidate); setMergeTargetId(candidate.recommendedTargetId); }} className="shrink-0 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700">Selecionar</button></div>
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3"><div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 text-xs"><p className="font-black text-slate-900 dark:text-white">{first.name}</p><p>{first.phone || 'Sem telefone'} · {first.email || 'Sem e-mail'}</p><p>{first.city || 'Cidade não informada'}/{first.state || '--'} · {first.role}</p></div><div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-3 text-xs"><p className="font-black text-slate-900 dark:text-white">{second.name}</p><p>{second.phone || 'Sem telefone'} · {second.email || 'Sem e-mail'}</p><p>{second.city || 'Cidade não informada'}/{second.state || '--'} · {second.role}</p></div></div>
+                  {selected && <div className="mt-3 rounded-xl border border-indigo-200 bg-white p-3 dark:border-indigo-800 dark:bg-slate-900"><label className="block text-xs font-bold text-slate-700 dark:text-slate-200">Manter como cadastro principal<select value={mergeTargetId} onChange={event => setMergeTargetId(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"><option value={candidate.first.user.id}>{candidate.first.comparison.name}</option><option value={candidate.second.user.id}>{candidate.second.comparison.name}</option></select></label><button type="button" onClick={() => void handleMergeUsers()} disabled={isMerging} className="mt-3 inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-amber-700 disabled:opacity-50">{isMerging ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <GitMerge className="h-4 w-4" />} Confirmar unificação</button></div>}
+                </div>;
+              })}
+            </div>
+          </div>
         </div>
       )}
 
@@ -526,11 +589,12 @@ export const UserManager: React.FC = () => {
                     onChange={e => setEditRole(e.target.value as UserRole)}
                     className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   >
+                    {canAssignCompanyAdmin && <option value="EMPRESA_SUPER_ADMIN">Administrador principal da empresa</option>}
                     <option value="ADMIN">Administrador da Transportadora</option>
                     <option value="SUPERVISOR">Supervisor Operacional</option>
                     <option value="USUARIO">Operador / Usuário Padrão</option>
                     <option value="MOTORISTA">Motorista</option>
-                    {!isDemo && <option value="SUPER_ADMIN">Super Administrador SaaS</option>}
+                    {!isDemo && canAssignSaasAdmin && <option value="SUPER_ADMIN">Super Administrador SaaS</option>}
                   </select>
                 </div>
 
@@ -665,10 +729,12 @@ export const UserManager: React.FC = () => {
                     onChange={e => setRole(e.target.value as UserRole)}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
                   >
+                    {canAssignCompanyAdmin && <option value="EMPRESA_SUPER_ADMIN">Administrador principal da empresa</option>}
                     <option value="ADMIN">Administrador da Transportadora</option>
                     <option value="SUPERVISOR">Supervisor Operacional</option>
                     <option value="USUARIO">Operador / Usuário Padrão</option>
-                    {!isDemo && <option value="SUPER_ADMIN">Super Administrador SaaS</option>}
+                    <option value="MOTORISTA">Motorista</option>
+                    {!isDemo && canAssignSaasAdmin && <option value="SUPER_ADMIN">Super Administrador SaaS</option>}
                   </select>
                 </div>
               )}

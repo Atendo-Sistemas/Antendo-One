@@ -22,6 +22,7 @@ import { PrivacyPolicy } from './components/common/PrivacyPolicy';
 import { PublicContentPage } from './components/common/PublicContentPage';
 import { PublicContentIndexPage } from './components/common/PublicContentIndexPage';
 import { FreightShowcasePage } from './components/common/FreightShowcasePage';
+import { PublicExpensePage } from './components/common/PublicExpensePage';
 const CompanyVehicleManager = lazy(() => import('./components/company/CompanyVehicleManager').then(m => ({ default: m.CompanyVehicleManager })));
 const CompanyBillingPanel = lazy(() => import('./components/company/CompanyBillingPanel').then(m => ({ default: m.CompanyBillingPanel })));
 const NotificationConsentPanel = lazy(() => import('./components/common/NotificationConsentPanel').then(m => ({ default: m.NotificationConsentPanel })));
@@ -83,10 +84,16 @@ const AppContent: React.FC = () => {
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('frete')) return;
+    setActiveTab(user?.role === 'MOTORISTA' ? 'driver-portal' : 'freights');
+  }, [user?.role]);
+
   // Automatically adjust active tab when switching demo roles
   useEffect(() => {
     if (isDemo) {
-      const validDemoTabs = ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'notification-preferences', 'help'];
+      const validDemoTabs = ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'notification-preferences', 'freight-alerts', 'help'];
       if (!validDemoTabs.includes(activeTab)) setActiveTab('freights');
       return;
     }
@@ -99,7 +106,7 @@ const AppContent: React.FC = () => {
         setActiveTab('driver-portal');
       }
     } else if (user?.role === 'SUPER_ADMIN') {
-      const validSuperAdminTabs = ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'help'];
+      const validSuperAdminTabs = ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'freight-alerts', 'help'];
       if (!validSuperAdminTabs.includes(activeTab)) {
         setActiveTab('saas-tenants');
       }
@@ -127,6 +134,8 @@ const AppContent: React.FC = () => {
   };
 
   const publicPath = typeof window !== 'undefined' ? window.location.pathname : '';
+  const publicExpenseMatch = publicPath.match(/^\/prestacao\/([a-f0-9]{32,64})$/i);
+  if (publicExpenseMatch) return <PublicExpensePage token={publicExpenseMatch[1]} />;
   if (publicPath === '/termos-de-uso' || publicPath === '/conteudo/termos-de-uso') return <main className="min-h-screen bg-slate-100 p-4 sm:p-8"><TermsOfUse /></main>;
   if (publicPath === '/politica-de-privacidade' || publicPath === '/conteudo/politica-de-privacidade') return <main className="min-h-screen bg-slate-100 p-4 sm:p-8"><PrivacyPolicy /></main>;
   const publicSlug = publicPath.startsWith('/conteudo/') || publicPath.startsWith('/elo-log/')
@@ -211,6 +220,7 @@ const AppContent: React.FC = () => {
             {activeTab === 'saas-config' && <SaaSConfigPanel onOpenContentManagement={() => setActiveTab('content-management')} />}
             {activeTab === 'content-management' && <ContentManagementPanel />}
             {activeTab === 'notification-preferences' && <NotificationConsentPanel />}
+            {activeTab === 'freight-alerts' && <NotificationConsentPanel />}
           </div>
         )}
       </main>

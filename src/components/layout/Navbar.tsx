@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { APP_VERSION } from '../../version';
 import { useSaaS } from '../../context/SaaSContext';
@@ -51,6 +51,17 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [pushStatus, setPushStatus] = useState<string | null>(null);
   const [pushLoading, setPushLoading] = useState(false);
   const [endingSupport, setEndingSupport] = useState(false);
+  const notificationMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && !notificationMenuRef.current?.contains(target)) setShowNotifications(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }, [showNotifications]);
 
   const handleEnablePush = async () => {
     setPushLoading(true);
@@ -89,7 +100,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const companyNavGroups = [
     { key: 'operacao', label: 'Operação', items: [['freights', 'Fretes'], ['operations', 'Central'], ['drivers', 'Motoristas'], ...(canManageBilling ? [['company-vehicles', 'Veículos próprios']] : []), ['expenses', 'Prestação de contas']] },
     { key: 'gestao', label: 'Gestão', items: [['budgets', 'Orçamentos'], ['clients', 'Clientes'], ['forms', 'Formulários'], ['users', 'Usuários'], ['audit', 'Auditoria']] },
-    { key: 'configuracoes', label: 'Configurações', items: [...(canManageBilling ? [['billing', 'Assinatura'], ['company-notification-templates', 'Mensagens'], ['company-email-config', 'SMTP da empresa']] : []), ...(canManageReportTemplates ? [['company-report-templates', 'Relatórios']] : []), ['notification-preferences', 'Preferências'], ['help', 'Ajuda']] }
+    { key: 'configuracoes', label: 'Configurações', items: [...(canManageBilling ? [['billing', 'Assinatura'], ['company-notification-templates', 'Mensagens'], ['company-email-config', 'E-mail da empresa'], ['freight-alerts', 'Alertas de frete']] : []), ...(canManageReportTemplates ? [['company-report-templates', 'Relatórios']] : []), ['notification-preferences', 'Preferências'], ['help', 'Ajuda']] }
   ];
   const renderMobileCompanyGroups = () => companyNavGroups.map((group) => (
     <div key={group.key} className="mt-3 first:mt-0">
@@ -158,12 +169,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             <ThemeToggle />
 
             {/* Notification Bell with Dropdown */}
-            <div className="relative">
+            <div ref={notificationMenuRef} className="relative">
               <button
                 id="btn-notification-bell"
                 onClick={() => setShowNotifications(!showNotifications)}
+                aria-expanded={showNotifications}
+                aria-controls="notification-popover"
                 className="relative p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center"
-                title="Notificações"
+                title={showNotifications ? 'Fechar notificações' : 'Abrir notificações'}
+                aria-label={showNotifications ? 'Fechar notificações' : 'Abrir notificações'}
               >
                 <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
                 {unreadCount > 0 && (
@@ -180,7 +194,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     className="fixed inset-0 z-40 bg-black/20 md:hidden"
                     onClick={() => setShowNotifications(false)}
                   />
-                  <div className="fixed inset-x-3 top-18 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 w-auto sm:w-80 md:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div id="notification-popover" role="dialog" aria-label="Notificações da conta" className="fixed inset-x-3 top-18 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 w-auto sm:w-80 md:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                     <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Bell className="w-4 h-4 text-slate-700 dark:text-slate-300" />

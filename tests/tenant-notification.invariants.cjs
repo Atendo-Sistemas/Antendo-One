@@ -23,7 +23,7 @@ assert.match(api, /const notificationTemplateForTenant/, 'resolução de templat
 assert.match(api, /db\.tenantNotificationTemplates\.get\(String\(tenantId\)\)/, 'resolução não está isolada por tenant');
 assert.match(api, /const notificationValuesForTenant/, 'variáveis comerciais da empresa ausentes');
 assert.match(api, /cnpjEmpresa|emailEmpresa|telefoneEmpresa/, 'variáveis de identificação da empresa ausentes');
-assert.match(api, /const template = notificationTemplateForTenant\(eventKey, user\.tenantId\)/, 'dispatcher não usa template do tenant do destinatário');
+assert.match(api, /const template = notificationTemplateForTenant\(eventKey, user\.tenantId \|\| sourceTenantId\)/, 'dispatcher não usa template do tenant do destinatário ou da empresa de origem');
 assert.match(api, /body: interpolateNotification\(template\.whatsappBody, recipientValues\)/, 'WhatsApp não usa valores interpolados por destinatário');
 assert.match(api, /apiRouter\.get\('\/tenant\/notification-templates'/, 'rota de leitura por tenant ausente');
 assert.match(api, /apiRouter\.put\('\/tenant\/notification-templates\/:id'/, 'rota de edição por tenant ausente');

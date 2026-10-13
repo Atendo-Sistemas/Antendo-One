@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Eye, EyeOff, KeyRound, ShieldCheck, Webhook } from 'lucide-react';
 import { AsaasConfig, SaaSGlobalConfig, Tenant } from '../../types';
-import { api } from '../../services/api';
+import { api, userFacingError } from '../../services/api';
 
 interface Props {
   config: SaaSGlobalConfig;
@@ -52,13 +52,13 @@ export const AsaasConfigPanel: React.FC<Props> = ({ config, onUpdateConfig, savi
         setSubscriptionView(result);
         setBillingMessage(result.subscription ? `Status atual: ${result.subscription.status}.` : 'Nenhuma assinatura encontrada para a empresa.');
       }
-    } catch (error: any) { setBillingMessage(error.message || 'Não foi possível concluir a operação Asaas.'); }
+    } catch (error: any) { setBillingMessage(userFacingError(error, 'Não foi possível concluir a operação de pagamentos.')); }
     finally { setBillingBusy(false); }
   };
   const testConnection = async () => {
     setTesting(true); setTestMessage('');
     try { const result = await api.testAsaasConnection(); setTestMessage(`Conexão confirmada: ${result.accountName} (${result.environment}).`); }
-    catch (error: any) { setTestMessage(error.message || 'Não foi possível validar a conexão Asaas.'); }
+    catch (error: any) { setTestMessage(userFacingError(error, 'Não foi possível validar a conexão de pagamentos.')); }
     finally { setTesting(false); }
   };
 

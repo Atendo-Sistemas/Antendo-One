@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SaaSGlobalConfig, MapboxConfig } from '../../types';
-import { api } from '../../services/api';
+import { api, userFacingError } from '../../services/api';
 import { 
   Compass, 
   MapPin, 
@@ -68,7 +68,7 @@ export const MapboxConfigPanel: React.FC<MapboxConfigPanelProps> = ({
       const result = await api.testMapboxConnection(tokenToTest);
       setTestResult({ success: true, message: result.message });
     } catch (e: any) {
-      setTestResult({ success: false, message: e.message || 'Falha ao testar a conexão com o Mapbox.' });
+      setTestResult({ success: false, message: userFacingError(e, 'Não foi possível validar o serviço de mapas.') });
     } finally {
       setTestingToken(false);
     }

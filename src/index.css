@@ -40,3 +40,4 @@ html, body, #root {
 .form-control:focus { border-color: #10b981; box-shadow: 0 0 0 2px rgb(16 185 129 / 0.2); }
 .dark .field-label { color: #cbd5e1; }
 .dark .form-control { border-color: #334155; background: #1e293b; color: #f8fafc; }
+.label { margin-bottom: 0.25rem; color: #64748b; font-size: 0.6875rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }

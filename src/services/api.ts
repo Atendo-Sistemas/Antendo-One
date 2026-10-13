@@ -20,6 +20,17 @@ export const clearAuthToken = () => {
   // Cookies are invalidated by the server logout endpoint.
 };
 
+export const userFacingError = (error: unknown, fallback = 'Não foi possível concluir a operação. Tente novamente.') => {
+  const raw = error instanceof Error ? error.message : String(error || '');
+  const message = raw.replace(/\s+/g, ' ').trim();
+  if (!message) return fallback;
+  if (/rota não encontrada|route not found|endpoint|cannot (get|post|put|delete)\s+\//i.test(message)) return fallback;
+  if (/cnpj\.?\s*ws|serviço de consulta cadastral|consulta cadastral indisponível/i.test(message)) return 'Não foi possível consultar os dados públicos do CNPJ no momento.';
+  if (/failed to fetch|network|fetch failed|econn|etimedout|enotfound|networkerror/i.test(message)) return 'Não foi possível conectar ao serviço. Verifique sua conexão e tente novamente.';
+  if (/\b(?:http|sql|postgres|docker|stack|token|secret|api key|apikey|internal server)\b|\/api\//i.test(message)) return fallback;
+  return message.length > 220 ? fallback : message;
+};
+
 export const setAuthSession = (token: string, refreshToken?: string) => {
   void token;
   void refreshToken;
@@ -99,10 +110,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}, allowRefr
       throw new Error('Limite de requisições excedido pelo servidor. Por favor, aguarde alguns segundos.');
     }
     if (res.status >= 500) {
-      throw new Error(`Servidor indisponível no momento (HTTP ${res.status}). A prestação não foi confirmada como salva; tente novamente em instantes.`);
+      throw new Error('Servidor indisponível no momento. A operação não foi confirmada como concluída; tente novamente em instantes.');
     }
     const plainText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-    throw new Error(plainText.slice(0, 300) || 'Ocorreu um erro inesperado no servidor');
+    throw new Error(userFacingError(plainText, 'Ocorreu um erro inesperado no servidor.'));
   }
 
   if (!res.ok) {
@@ -110,7 +121,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}, allowRefr
       if (await refreshAuthSession()) return request<T>(endpoint, options, false);
       clearAuthToken();
     } else if (res.status === 401) clearAuthToken();
-    const error = new Error(data.message || data.error || `Erro ${res.status}: Ocorreu um erro na requisição`) as Error & { status?: number };
+    const error = new Error(userFacingError(data.message || data.error)) as Error & { status?: number };
     error.status = res.status;
     throw error;
   }
@@ -122,7 +133,7 @@ async function publicRequest<T>(endpoint: string, options: RequestInit = {}): Pr
   const res = await fetch(`/api${endpoint}`, { ...options, credentials: 'omit', headers: { Accept: 'application/json', ...(options.headers || {}) } });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const error = new Error(data.message || data.error || `Erro ${res.status}: não foi possível carregar o rastreamento`) as Error & { status?: number };
+    const error = new Error(userFacingError(data.message || data.error, 'Não foi possível carregar o conteúdo solicitado.')) as Error & { status?: number };
     error.status = res.status;
     throw error;
   }
@@ -291,6 +302,8 @@ export const api = {
 
   // Users
   async getUsers() { return request<User[]>('/users'); },
+  async getDuplicateUserCandidates(tenantId?: string) { return request<any[]>(`/users/duplicate-candidates${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
+  async mergeUsers(sourceUserId: string, targetUserId: string) { return request<any>('/users/merge', { method: 'POST', body: JSON.stringify({ sourceUserId, targetUserId }) }); },
   async getUser(id: string) { return request<User>(`/users/${id}`); },
   async createUser(data: any) { return request<User>('/users', { method: 'POST', body: JSON.stringify(data) }); },
   async updateUser(id: string, data: any) { return request<User>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
@@ -305,6 +318,11 @@ export const api = {
   async getDriver(id: string) { return request<Driver>(`/drivers/${id}`); },
   async createDriver(data: any) { return request<Driver>('/drivers', { method: 'POST', body: JSON.stringify(data) }); },
   async updateDriver(id: string, data: any) { return request<Driver>(`/drivers/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async getFreightAlertConfig(tenantId?: string) { return request<any>(`/tenant/freight-alert-config${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
+  async updateFreightAlertConfig(data: any) { return request<any>('/tenant/freight-alert-config', { method: 'PUT', body: JSON.stringify(data) }); },
+  async getDriverProximitySettings() { return request<any>('/drivers/me/proximity-settings'); },
+  async updateDriverProximitySettings(enabled: boolean) { return request<any>('/drivers/me/proximity-settings', { method: 'PUT', body: JSON.stringify({ enabled }) }); },
+  async updateDriverLocation(data: { lat: number; lng: number; accuracyMeters: number; recordedAt: string }) { return request<any>('/drivers/me/location', { method: 'POST', body: JSON.stringify(data) }); },
   async deleteDriver(id: string) { return request<{ success: boolean }>(`/drivers/${id}`, { method: 'DELETE' }); },
   async inviteDriver(email: string) { return request<{ success: boolean }>('/drivers/invite', { method: 'POST', body: JSON.stringify({ email }) }); },
   async unlinkDriverFromCompany(linkId: string) { return request<{ success: boolean }>(`/driver-company-links/${linkId}`, { method: 'DELETE' }); },
@@ -315,6 +333,7 @@ export const api = {
   async registerCompany(data: any) { return request<any>('/auth/register-company', { method: 'POST', body: JSON.stringify(data) }); },
   async verifyRegistration(...args: any[]) { return request<any>('/auth/verify-registration', { method: 'POST', body: JSON.stringify({ email: args[0], code: args[1], ...(typeof args[0] === 'object' ? args[0] : {}) }) }); },
   async getPublicTracking(code: string) { return publicRequest<any>(`/public/tracking/${encodeURIComponent(code)}`); },
+  async getPublicExpense(token: string) { return publicRequest<any>(`/public/expenses/${encodeURIComponent(token)}`); },
   async getPublicFreightDetails(id: string) { return publicRequest<any>(`/public/freights/${encodeURIComponent(id)}`); },
   async getForms() { return request<any[]>('/forms'); },
   async createForm(data: any) { return request<any>('/forms', { method: 'POST', body: JSON.stringify(data) }); },
