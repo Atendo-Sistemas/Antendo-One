@@ -25,5 +25,64 @@ export const DriverCompanyLinkPanel: React.FC = () => {
     catch (err: any) { setError(err.message || 'Não foi possível atualizar o vínculo.'); }
     finally { setBusyId(null); }
   };
-  return <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4"><div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3"><div><h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2"><FileSearch className="w-5 h-5 text-emerald-600" /> Solicitações de motoristas</h2><p className="text-xs text-slate-500 mt-1">Aprove ou recuse vínculos individualmente. Uma decisão desta empresa não bloqueia o cadastro do motorista em outras empresas.</p></div><div className="flex items-center gap-2"><span className="rounded-full bg-amber-100 dark:bg-amber-950/50 px-2.5 py-1 text-[10px] font-extrabold text-amber-700 dark:text-amber-300">{pending.length} pendente(s)</span><button onClick={() => setShowAll(value => !value)} className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:underline cursor-pointer">{showAll ? 'Só pendentes' : 'Ver histórico'}</button></div></div>{error && <div className="rounded-xl border border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-950/20 p-3 text-xs text-red-700 dark:text-red-300">{error}</div>}{loading ? <p className="text-xs text-slate-500 py-4">Carregando solicitações...</p> : visible.length === 0 ? <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-6 text-center text-xs text-slate-500"><Clock3 className="w-5 h-5 mx-auto mb-2 text-slate-300" />Nenhuma solicitação pendente.</div> : <div className="space-y-3">{visible.map(link => { const driver = link.driver; const statusStyle = link.status === 'APROVADO' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' : link.status === 'RECUSADO' ? 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'; return <article key={link.id} className="rounded-xl border border-slate-100 dark:border-slate-800 p-4"><div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">{driver?.name || 'Motorista'}</h3><span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${statusStyle}`}>{link.status}</span></div><p className="text-xs text-slate-500 mt-1">{driver?.city || 'Cidade não informada'}/{driver?.state || '--'} • {driver?.phone || 'Telefone não informado'}</p><p className="text-xs text-slate-600 dark:text-slate-300 mt-2">{link.freightCode ? `Interesse no frete ${link.freightCode}: ${link.originCity || '--'} → ${link.destinationCity || '--'}` : 'Solicitação de vínculo com a empresa'}</p></div>{link.status === 'PENDENTE' && <div className="flex gap-2 shrink-0"><button disabled={busyId === link.id} onClick={() => void decide(link, 'APROVADO', 'FRETE')} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50 cursor-pointer"><CheckCircle2 className="w-3.5 h-3.5" /> Aprovar frete</button><button disabled={busyId === link.id} onClick={() => void decide(link, 'APROVADO', 'EMPRESA')} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"><CheckCircle2 className="w-3.5 h-3.5" /> Aprovar empresa</button><button disabled={busyId === link.id} onClick={() => void decide(link, 'RECUSADO')} className="inline-flex items-center gap-1 rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2 text-[11px] font-extrabold text-red-700 dark:text-red-300 hover:bg-red-100 disabled:opacity-50 cursor-pointer"><XCircle className="w-3.5 h-3.5" /> Recusar</button><button disabled={busyId === link.id} onClick={() => void decide(link, 'BLOQUEADO')} className="inline-flex items-center gap-1 rounded-lg bg-slate-700 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-slate-800 disabled:opacity-50 cursor-pointer"><ShieldAlert className="w-3.5 h-3.5" /> Bloquear</button></div>}</div>{driver && <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 p-3 text-[11px] text-slate-600 dark:text-slate-300"><span>CPF: <strong>{driver.cpf || '--'}</strong></span><span>CNH: <strong>{driver.cnh || '--'}</strong></span><span>Categoria: <strong>{driver.cnhCategory || '--'}</strong></span><span>Validade: <strong>{driver.cnhExpiresAt || '--'}</strong></span></div>}</article>; })}</div>}<div className="flex items-start gap-2 text-[10px] text-slate-400"><ShieldAlert className="w-3.5 h-3.5 shrink-0" />A empresa é responsável pela sua própria conferência. Uma aprovação ou recusa não altera os vínculos do motorista com outras empresas.</div></section>;
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="flex items-center gap-2 text-base font-black text-slate-900 dark:text-white"><FileSearch className="h-5 w-5 text-emerald-600" /> Solicitações de motoristas</h2>
+          <p className="mt-1 text-xs text-slate-500">Aprove ou recuse vínculos individualmente. Uma decisão desta empresa não bloqueia o cadastro do motorista em outras empresas.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-extrabold text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">{pending.length} pendente(s)</span>
+          <button onClick={() => setShowAll(value => !value)} className="cursor-pointer text-[11px] font-bold text-emerald-700 hover:underline dark:text-emerald-300">{showAll ? 'Só pendentes' : 'Ver histórico'}</button>
+        </div>
+      </div>
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{error}</div>}
+      {loading ? <p className="py-4 text-xs text-slate-500">Carregando solicitações...</p> : visible.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-xs text-slate-500 dark:border-slate-700"><Clock3 className="mx-auto mb-2 h-5 w-5 text-slate-300" />Nenhuma solicitação pendente.</div>
+      ) : (
+        <div className="space-y-3">
+          {visible.map(link => {
+            const driver = link.driver;
+            const statusStyle = link.status === 'APROVADO'
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+              : link.status === 'RECUSADO'
+                ? 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300'
+                : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300';
+            return (
+              <article key={link.id} className="rounded-xl border border-slate-100 p-4 dark:border-slate-800">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">{driver?.name || 'Motorista'}</h3>
+                      <span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${statusStyle}`}>{link.status}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{driver?.city || 'Cidade não informada'}/{driver?.state || '--'} • {driver?.phone || 'Telefone não informado'}</p>
+                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{link.freightCode ? `Interesse no frete ${link.freightCode}: ${link.originCity || '--'} → ${link.destinationCity || '--'}` : 'Solicitação de vínculo com a empresa'}</p>
+                  </div>
+                  {link.status === 'PENDENTE' && (
+                    <div className="flex flex-wrap gap-2">
+                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'APROVADO', 'FRETE')} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Aprovar frete</button>
+                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'APROVADO', 'EMPRESA')} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-blue-700 disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Aprovar empresa</button>
+                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'RECUSADO')} className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-[11px] font-extrabold text-red-700 hover:bg-red-100 disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300"><XCircle className="h-3.5 w-3.5" /> Recusar</button>
+                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'BLOQUEADO')} className="inline-flex items-center gap-1 rounded-lg bg-slate-700 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-slate-800 disabled:opacity-50"><ShieldAlert className="h-3.5 w-3.5" /> Bloquear</button>
+                    </div>
+                  )}
+                </div>
+                {driver && (
+                  <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-3 text-[11px] text-slate-600 dark:bg-slate-950/60 dark:text-slate-300 sm:grid-cols-4">
+                    <span>CPF: <strong>{driver.cpf || '--'}</strong></span>
+                    <span>CNH: <strong>{driver.cnh || '--'}</strong></span>
+                    <span>Categoria: <strong>{driver.cnhCategory || '--'}</strong></span>
+                    <span>Validade: <strong>{driver.cnhExpiresAt || '--'}</strong></span>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+      <div className="flex items-start gap-2 text-[10px] text-slate-400"><ShieldAlert className="h-3.5 w-3.5 shrink-0" />A empresa é responsável pela sua própria conferência. Uma aprovação ou recusa não altera os vínculos do motorista com outras empresas.</div>
+    </section>
+  );
 };

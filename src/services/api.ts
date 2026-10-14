@@ -362,7 +362,7 @@ export const api = {
   async selectFreeNotificationModule(data?: any) { return request<any>('/billing/asaas/notification-module/free', { method: 'POST', body: JSON.stringify(data || {}) }); },
   async createNotificationModuleSubscription(data: any) { return request<any>('/billing/asaas/notification-module/subscribe', { method: 'POST', body: JSON.stringify(data) }); },
   async cancelNotificationModule(data?: any) { return request<any>('/billing/asaas/notification-module/cancel', { method: 'POST', body: JSON.stringify(data || {}) }); },
-  async getAsaasFinancialSummary(...args: any[]) { return request<any>('/billing/asaas/financial-summary'); },
+  async getAsaasFinancialSummary(tenantId?: string) { return request<any>(`/billing/asaas/financial-summary${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
   async changeAsaasPlan(data: any) { return request<any>('/billing/asaas/subscription/change-plan', { method: 'POST', body: JSON.stringify(data) }); },
   async createAsaasSubscription(data: any) { return request<any>('/billing/asaas/subscribe', { method: 'POST', body: JSON.stringify(data) }); },
   async cancelAsaasSubscription(data: any) { return request<any>('/billing/asaas/subscription/cancel', { method: 'POST', body: JSON.stringify(data) }); },
