@@ -92,6 +92,8 @@ export const UserManager: React.FC = () => {
   const [selectedDuplicate, setSelectedDuplicate] = useState<any | null>(null);
   const [mergeTargetId, setMergeTargetId] = useState('');
   const [isMerging, setIsMerging] = useState(false);
+  const [availableTenants, setAvailableTenants] = useState<any[]>([]);
+  const [selectedDuplicateTenantId, setSelectedDuplicateTenantId] = useState(tenant?.id || '');
 
   const fName = getField('userForm', 'name') || { label: 'Nome Completo', placeholder: 'Ex: Carlos Oliveira', enabled: true, required: true };
   const fEmail = getField('userForm', 'email') || { label: 'E-mail Corporativo', placeholder: 'carlos@translog.com.br', enabled: true, required: true };
@@ -111,13 +113,24 @@ export const UserManager: React.FC = () => {
   };
 
   useEffect(() => {
-    loadUsers();
-  }, []);
+    void loadUsers();
+    if (user?.role === 'SUPER_ADMIN') {
+      api.getTenants().then(list => {
+        setAvailableTenants(list);
+        setSelectedDuplicateTenantId(current => current || list[0]?.id || '');
+      }).catch(() => setFeedbackMessage({ type: 'error', text: 'Não foi possível carregar a lista de empresas.' }));
+    }
+  }, [user?.role]);
 
   const handleFindDuplicates = async () => {
     if (isDemo || !canManageUsers) return;
+    const duplicateTenantId = user?.role === 'SUPER_ADMIN' ? selectedDuplicateTenantId : tenant?.id;
+    if (!duplicateTenantId) {
+      setFeedbackMessage({ type: 'error', text: 'Selecione uma empresa para verificar duplicidades.' });
+      return;
+    }
     try {
-      const candidates = await api.getDuplicateUserCandidates(tenant?.id);
+      const candidates = await api.getDuplicateUserCandidates(duplicateTenantId);
       setDuplicateCandidates(candidates);
       setSelectedDuplicate(null);
       setIsDuplicatesOpen(true);
@@ -294,6 +307,7 @@ export const UserManager: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {user?.role === 'SUPER_ADMIN' && <label className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 dark:border-indigo-900/60 dark:bg-indigo-950/30"><span className="text-[10px] font-black uppercase tracking-wide text-indigo-700 dark:text-indigo-300">Empresa para análise</span><select value={selectedDuplicateTenantId} onChange={event => setSelectedDuplicateTenantId(event.target.value)} className="max-w-[220px] bg-transparent text-xs font-bold text-indigo-900 outline-none dark:text-indigo-100"><option value="">Selecione uma empresa</option>{availableTenants.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
           {canManageUsers && !isDemo && <button type="button" onClick={() => void handleFindDuplicates()} className="px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300 font-bold text-xs sm:text-sm transition-all cursor-pointer flex items-center gap-2"><GitMerge className="w-4 h-4" /> Verificar duplicidades</button>}
         {(isDemo || canManageUsers) && <button
           onClick={() => setIsInviteOpen(true)}

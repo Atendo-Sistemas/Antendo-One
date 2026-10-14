@@ -15,7 +15,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-assert(version.includes("APP_VERSION = 'v1.8.72'"), 'version must be v1.8.72');
+assert(version.includes("APP_VERSION = 'v1.8.75'"), 'version must be v1.8.75');
 assert(api.includes('function normalizeFormFields'), 'server form normalization missing');
 assert(api.includes('validateFormAnswers'), 'server answer validation missing');
 assert(api.includes('await db.persistNow();'), 'persistence calls missing');
@@ -33,7 +33,7 @@ assert(!api.includes('body: `ELO LOG:'), 'legacy visible OTP branding remains');
 assert(!api.includes('body: `🚚 [ELO LOG]'), 'legacy visible registration branding remains');
 assert(!drivers.includes('window.prompt'), 'driver registration still uses native prompt');
 assert(drivers.includes("modal === 'create'") && drivers.includes("modal === 'lookup'"), 'driver registration modals missing');
-assert(drivers.includes('Vincular empresa') && drivers.includes('Criar vínculo aprovado'), 'super admin manual driver link UI missing');
+assert(drivers.includes('Vincular empresa') && drivers.includes('Criar ou reativar vínculo aprovado'), 'super admin manual driver link UI missing');
 assert(api.includes('tenantName:'), 'driver company link tenant name missing');
 assert(clientApi.includes("/driver-company-links/${encodeURIComponent(id)}/status"), 'driver link status client route missing');
 assert(!saasConfig.includes("prompt('Digite o ID interno"), 'SaaS form field still uses native prompt');

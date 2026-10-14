@@ -203,11 +203,14 @@ if (publicVapidKey && privateVapidKey) {
 }
 
 export async function sendPushNotificationToUsers(recipients: User[], payload: any): Promise<{ sent: number; removed: number }> {
-  if (!publicVapidKey || !privateVapidKey) return { sent: 0, removed: 0 };
   const allowedRecipients = new Set(
     recipients.filter(user => Boolean(user?.id)).map(user => `${user.id}:${user.tenantId || ''}`)
   );
   const subs = (db as any).pushSubscriptions || [];
+  if (!publicVapidKey || !privateVapidKey) {
+    const hasExpoToken = subs.some((item: any) => item?.kind === 'expo' && allowedRecipients.has(`${String(item?.userId || '')}:${String(item?.tenantId || '')}`));
+    if (!hasExpoToken) return { sent: 0, removed: 0 };
+  }
   let sent = 0;
   let removed = 0;
   for (let i = subs.length - 1; i >= 0; i--) {
@@ -215,7 +218,17 @@ export async function sendPushNotificationToUsers(recipients: User[], payload: a
     const subscriptionKey = `${String(sub?.userId || '')}:${String(sub?.tenantId || '')}`;
     if (!allowedRecipients.has(subscriptionKey)) continue;
     try {
-      await webpush.sendNotification(sub, JSON.stringify(payload));
+      if (sub?.kind === 'expo') {
+        const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ to: sub.token, title: payload.title, body: payload.body, data: { url: payload.url, freightId: payload.freightId }, sound: 'default', channelId: 'fretes' })
+        });
+        if (!expoResponse.ok) throw Object.assign(new Error('Expo Push delivery failed'), { statusCode: expoResponse.status });
+      } else {
+        if (!publicVapidKey || !privateVapidKey) continue;
+        await webpush.sendNotification(sub, JSON.stringify(payload));
+      }
       sent++;
     } catch (err: any) {
       if (err.statusCode === 404 || err.statusCode === 410) {
@@ -266,6 +279,14 @@ function setSessionCookies(res: Response, token: string, refreshToken?: string):
   const csrfSecure = secure ? '; Secure' : '';
   res.append('Set-Cookie', `${CSRF_COOKIE}=${encodeURIComponent(randomUUID())}; Max-Age=${Math.floor(REFRESH_TOKEN_TTL_MS / 1000)}; Path=/; SameSite=Lax${csrfSecure}`);
 }
+
+// Native beta clients cannot depend on browser cookie persistence. Tokens are
+// returned only for the explicitly identified Atendo One Motorista client.
+const isAtendoMotoristaMobileClient = (req: Request) => String(req.headers['x-atendo-client'] || '').trim() === 'atendo-one-motorista-beta';
+const sessionResponseForClient = (req: Request, user: User, token: string, refreshToken?: string) => ({
+  ...getSessionDataForUser(user),
+  ...(isAtendoMotoristaMobileClient(req) ? { accessToken: token, refreshToken } : {})
+});
 
 function clearSessionCookies(res: Response): void {
   res.append('Set-Cookie', `${ACCESS_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
@@ -410,7 +431,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
           }
           req.user = foundUser;
           req.authToken = token;
-          if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !isPublicRoute) {
+          if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !isPublicRoute && !isAtendoMotoristaMobileClient(req)) {
             const csrfCookie = cookies[CSRF_COOKIE] || '';
             const csrfHeader = String(req.headers['x-csrf-token'] || '');
             if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) return res.status(403).json({ error: 'Token CSRF ausente ou inválido.' });
@@ -2424,7 +2445,7 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
     details: `Login realizado com sucesso via perfil ${targetUser.role}`
   });
 
-  res.json(getSessionDataForUser(targetUser));
+  res.json(sessionResponseForClient(req, targetUser, token, refreshToken));
 });
 
 apiRouter.post('/auth/refresh', (req: AuthenticatedRequest, res: Response) => {
@@ -2444,7 +2465,7 @@ apiRouter.post('/auth/refresh', (req: AuthenticatedRequest, res: Response) => {
     const issued = issueUserSession(user);
     db.addAuditLog({ ip: requestIp(req), tenantId: user.tenantId || undefined, userId: user.id, userName: user.name, userRole: user.role, action: 'REFRESH_ROTATED', entity: 'UserSession', entityId: user.id, details: 'Refresh token consumido uma única vez e substituído por nova sessão.' });
     setSessionCookies(res, issued.token, issued.refreshToken);
-    return res.json({ user: sanitizeUser(user) });
+    return res.json({ user: sanitizeUser(user), ...(isAtendoMotoristaMobileClient(req) ? { accessToken: issued.token, refreshToken: issued.refreshToken } : {}) });
   } catch {
     auditAuthFailure(req, 'REFRESH_FAILED', undefined, 'Refresh token inválido ou expirado.');
     return res.status(401).json({ error: 'Refresh token inválido ou expirado.' });
@@ -2703,7 +2724,7 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
   });
 
   setSessionCookies(res, token, refreshToken);
-  res.json({ user: sanitizeUser(targetUser) });
+  res.json({ user: sanitizeUser(targetUser), ...(isAtendoMotoristaMobileClient(req) ? { accessToken: token, refreshToken } : {}) });
 });
 
 interface AtendoProvisionResult {
@@ -6075,6 +6096,31 @@ apiRouter.delete('/vehicles/:id', async (req: AuthenticatedRequest, res: Respons
 // Web Push Notifications endpoints
 apiRouter.get('/push/vapid-key', (req: AuthenticatedRequest, res: Response) => {
   res.json({ publicKey: publicVapidKey });
+});
+
+apiRouter.post('/mobile/push-token', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'MOTORISTA' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente motoristas reais podem registrar notificações.' });
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const platform = typeof req.body?.platform === 'string' ? req.body.platform.trim().slice(0, 20) : 'android';
+  if (!/^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/.test(token) || token.length > 256) return res.status(400).json({ error: 'Token de notificação inválido.' });
+  if (!(db as any).pushSubscriptions) (db as any).pushSubscriptions = [];
+  const subs = (db as any).pushSubscriptions;
+  const existing = subs.find((item: any) => item?.kind === 'expo' && item.token === token);
+  if (existing && existing.userId !== req.user.id) return res.status(409).json({ error: 'Este dispositivo já está vinculado a outra conta.' });
+  const record = { kind: 'expo', token, platform, userId: req.user.id, tenantId: req.user.tenantId || '', updatedAt: new Date().toISOString() };
+  if (existing) Object.assign(existing, record); else subs.push(record);
+  await db.persistNow();
+  return res.json({ success: true });
+});
+
+apiRouter.delete('/mobile/push-token', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Sessão necessária para remover a notificação.' });
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const subs = (db as any).pushSubscriptions || [];
+  const before = subs.length;
+  (db as any).pushSubscriptions = subs.filter((item: any) => !(item?.kind === 'expo' && item.userId === req.user!.id && (!token || item.token === token)));
+  if ((db as any).pushSubscriptions.length !== before) await db.persistNow();
+  return res.json({ success: true });
 });
 
 apiRouter.post('/push/subscribe', async (req: AuthenticatedRequest, res: Response) => {
