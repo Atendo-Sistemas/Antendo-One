@@ -29,7 +29,12 @@ export const CompanyBillingPanel: React.FC<CompanyBillingPanelProps> = ({ onOpen
   const canManage = hasSubscription && ['ACTIVE', 'PENDING', 'OVERDUE'].includes(String(summary?.subscription?.status || currentStatus).toUpperCase());
 
   const refresh = async () => {
-    if (!tenant?.id) return;
+    if (!tenant?.id) {
+      setSummary(null);
+      setMessage('Não foi possível identificar a empresa para carregar os dados financeiros.');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [financial, module] = await Promise.all([
