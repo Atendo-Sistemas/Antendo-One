@@ -29,6 +29,7 @@ const NotificationConsentPanel = lazy(() => import('./components/common/Notifica
 const NotificationTemplatesPanel = lazy(() => import('./components/superadmin/NotificationTemplatesPanel').then(m => ({ default: m.NotificationTemplatesPanel })));
 const CompanyEmailConfigPanel = lazy(() => import('./components/company/CompanyEmailConfigPanel').then(m => ({ default: m.CompanyEmailConfigPanel })));
 const ReportTemplatesPanel = lazy(() => import('./components/company/ReportTemplatesPanel').then(m => ({ default: m.ReportTemplatesPanel })));
+const DriverCompanyLinkPanel = lazy(() => import('./components/drivers/DriverCompanyLinkPanel').then(m => ({ default: m.DriverCompanyLinkPanel })));
 const CompanyStopsPanel = lazy(() => import('./components/company/CompanyStopsPanel').then(m => ({ default: m.CompanyStopsPanel })));
 const BudgetManager = lazy(() => import('./components/budgets/BudgetManager').then(m => ({ default: m.BudgetManager })));
 const ClientManager = lazy(() => import('./components/clients/ClientManager').then(m => ({ default: m.ClientManager })));
@@ -82,6 +83,7 @@ const AppContent: React.FC = () => {
 
   const isDriver = user?.role === 'MOTORISTA';
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isCompanyAdmin = user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN';
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
 
   useEffect(() => {
@@ -93,7 +95,7 @@ const AppContent: React.FC = () => {
   // Automatically adjust active tab when switching demo roles
   useEffect(() => {
     if (isDemo) {
-      const validDemoTabs = ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'notification-preferences', 'freight-alerts', 'help'];
+      const validDemoTabs = ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'notification-preferences', 'help'];
       if (!validDemoTabs.includes(activeTab)) setActiveTab('freights');
       return;
     }
@@ -106,7 +108,7 @@ const AppContent: React.FC = () => {
         setActiveTab('driver-portal');
       }
     } else if (user?.role === 'SUPER_ADMIN') {
-      const validSuperAdminTabs = ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'freight-alerts', 'help'];
+      const validSuperAdminTabs = ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'help'];
       if (!validSuperAdminTabs.includes(activeTab)) {
         setActiveTab('saas-tenants');
       }
@@ -210,6 +212,7 @@ const AppContent: React.FC = () => {
             {activeTab === 'company-email-config' && (isDemo ? <DemoRestrictedNotice title="SMTP indisponível no modo demo" description="A configuração de e-mail pertence à empresa contratante." /> : <CompanyEmailConfigPanel />)}
             {activeTab === 'company-report-templates' && (isDemo ? <DemoRestrictedNotice title="Modelos protegidos no modo demo" description="A demonstração permite visualizar relatórios fictícios, mas não permite editar ou salvar modelos de relatório." /> : <ReportTemplatesPanel />)}
             {activeTab === 'drivers' && <DriverManager />}
+            {activeTab === 'driver-approvals' && (isDemo ? <DemoRestrictedNotice title="Aprovação indisponível no modo demo" description="A demonstração não permite alterar aprovações ou vínculos de motoristas." /> : isCompanyAdmin ? <DriverCompanyLinkPanel /> : <DemoRestrictedNotice title="Acesso restrito" description="Somente administradores da empresa podem aprovar solicitações de motoristas." />)}
             {activeTab === 'company-vehicles' && <CompanyVehicleManager />}
             {activeTab === 'expenses' && <ExpenseManager currentUser={user} />}
             {activeTab === 'forms' && <FormBuilder />}
@@ -220,7 +223,7 @@ const AppContent: React.FC = () => {
             {activeTab === 'saas-config' && <SaaSConfigPanel onOpenContentManagement={() => setActiveTab('content-management')} />}
             {activeTab === 'content-management' && <ContentManagementPanel />}
             {activeTab === 'notification-preferences' && <NotificationConsentPanel />}
-            {activeTab === 'freight-alerts' && <NotificationConsentPanel />}
+            {activeTab === 'freight-alerts' && (isDemo ? <DemoRestrictedNotice title="Alertas indisponíveis no modo demo" description="A demonstração não permite alterar configurações de alertas da empresa." /> : isCompanyAdmin && tenant?.id ? <NotificationConsentPanel mode="freight-alerts" /> : <DemoRestrictedNotice title="Acesso restrito" description="Somente administradores da empresa podem configurar os alertas de frete." />)}
           </div>
         )}
       </main>

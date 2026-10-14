@@ -4,19 +4,28 @@ import { api } from '../../services/api';
 import { sanitizeRichHtml } from '../../utils/sanitizeHtml';
 import 'react-quill-new/dist/quill.snow.css';
 
+const helpRoleForUser = (role: string) => {
+  if (['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(role)) return 'ADMIN';
+  if (role === 'SUPERVISOR') return 'SUPERVISOR';
+  if (role === 'MOTORISTA') return 'DRIVER';
+  if (role === 'USUARIO') return 'USER';
+  return role;
+};
+
 export const HelpPanel: React.FC<{ role: string }> = ({ role }) => {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const helpRole = helpRoleForUser(role);
 
   useEffect(() => {
     loadContent();
-  }, [role]);
+  }, [helpRole]);
 
   const loadContent = async () => {
     try {
       setLoading(true);
       const data = await api.getHelp();
-      const manual = data.find((h: { role: string, content: string }) => h.role === role);
+      const manual = data.find((h: { role: string, content: string }) => h.role === helpRole);
       setContent(manual?.content || 'Conteúdo de ajuda não definido para este perfil.');
     } catch (err) {
       console.error('Erro ao carregar ajuda:', err);
