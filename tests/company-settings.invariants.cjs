@@ -9,6 +9,7 @@ const help = read('src/components/common/HelpPanel.tsx');
 const notifications = read('src/components/common/NotificationConsentPanel.tsx');
 const app = read('src/App.tsx');
 const navbar = read('src/components/layout/Navbar.tsx');
+const driverApprovals = read('src/components/drivers/DriverCompanyLinkPanel.tsx');
 const server = read('server/api.ts');
 
 assert.match(apiClient, /getAsaasFinancialSummary\(tenantId\?: string\).*encodeURIComponent\(tenantId\)/);
@@ -22,6 +23,7 @@ assert.match(notifications, /showPreferences && isDriver/);
 assert.match(navbar, /canManageBilling \? \[\['driver-approvals', 'Aprovação de motoristas'\]/);
 assert.match(app, /DriverCompanyLinkPanel/);
 assert.match(app, /isCompanyAdmin \? <DriverCompanyLinkPanel \/>/);
+assert.match(driverApprovals, /flex flex-wrap gap-2/);
 assert.match(server, /apiRouter\.get\('\/driver-company-links'[\s\S]*?SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'/);
 assert.match(server, /link\.tenantId !== req\.user\?\.tenantId/);
 
