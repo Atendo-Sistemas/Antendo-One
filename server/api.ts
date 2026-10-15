@@ -2738,7 +2738,14 @@ apiRouter.post('/auth/request-otp', async (req: AuthenticatedRequest, res: Respo
 });
 
 // Verify WhatsApp OTP for Login
-apiRouter.post('/auth/verify-otp', async (req: AuthenticatedRequest, res: Response) => {
+const publicDriverOtpVerificationLimiter = rateLimit({
+  windowMs: PUBLIC_INTEREST_RATE_WINDOW_MS,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de verificação. Aguarde alguns minutos antes de tentar novamente.' }
+});
+apiRouter.post('/auth/verify-otp', publicDriverOtpVerificationLimiter, async (req: AuthenticatedRequest, res: Response) => {
   const { phone, code } = req.body;
   if (!phone || !code) {
     return res.status(400).json({ error: 'Telefone e código são obrigatórios.' });
