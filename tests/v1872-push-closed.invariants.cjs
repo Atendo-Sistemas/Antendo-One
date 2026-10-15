@@ -8,8 +8,9 @@ const api = read('server/api.ts');
 const pushClient = read('src/services/pushClient.ts');
 const auth = read('src/context/AuthContext.tsx');
 const app = read('src/App.tsx');
+const appVersion = read('src/version.ts').match(/APP_VERSION = 'v([^']+)'/)?.[1];
 
-assert(/CACHE_NAME = 'atendo-one-v1\.8\.72'/.test(sw), 'SW_CACHE_VERSION_MISSING');
+assert(appVersion && sw.includes(`CACHE_NAME = 'atendo-one-v${appVersion}'`), 'SW_CACHE_VERSION_MISSING');
 assert(/addEventListener\('push'/.test(sw), 'SW_PUSH_HANDLER_MISSING');
 assert(/showNotification\(title, options\)/.test(sw), 'SW_SHOW_NOTIFICATION_MISSING');
 assert(/addEventListener\('notificationclick'/.test(sw), 'SW_CLICK_HANDLER_MISSING');

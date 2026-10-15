@@ -27,7 +27,7 @@ assert.match(db, /ensureHelpPages\(\)/, 'conteúdo padrão de ajuda deve ser gar
 for (const role of ['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'USER', 'DRIVER']) {
   assert.match(db, new RegExp(`${role}:`), `ajuda deve possuir conteúdo padrão para ${role}`);
 }
-assert.match(help, /role === 'SUPER_ADMIN'/, 'Super Admin deve ser normalizado na Ajuda');
+assert.match(help, /\['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'\]\.includes\(role\)/, 'Super Admin deve ser normalizado na Ajuda');
 assert.match(help, /role === 'MOTORISTA'/, 'Motorista deve ser normalizado para o manual DRIVER');
 assert.match(templates, /userFacingError\(error/, 'erros dos modelos não devem expor detalhes técnicos');
 assert.doesNotMatch(templates, /isolado neste tenant/, 'interface final não deve expor o termo técnico tenant');
