@@ -2738,7 +2738,7 @@ apiRouter.post('/auth/request-otp', async (req: AuthenticatedRequest, res: Respo
 });
 
 // Verify WhatsApp OTP for Login
-apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/auth/verify-otp', async (req: AuthenticatedRequest, res: Response) => {
   const { phone, code } = req.body;
   if (!phone || !code) {
     return res.status(400).json({ error: 'Telefone e código são obrigatórios.' });
