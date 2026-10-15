@@ -5093,7 +5093,7 @@
     "bearer": [
       {
         "key": "token",
-        "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZW5hbnRJZCI6MSwicHJvZmlsZSI6ImFkbWluIiwic2Vzc2lvbklkIjozNSwiaWF0IjoxNzQ0NjczNDU0LCJleHAiOjE4MDc3NDU0NTR9.HGM3Zx-Yx3sgm-G0TUoYGILFgUp2xr0_RTXbaAieItc",
+        "value": "user_token",
         "type": "string"
       }
     ]
