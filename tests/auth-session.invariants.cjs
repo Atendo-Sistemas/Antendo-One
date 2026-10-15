@@ -29,5 +29,5 @@ assert.match(api, /setAuthSession/);
 assert.match(api, /verifyOtp\(phone: string, code: string\)/);
 assert.match(api, /request<\{ token: string; refreshToken: string; user: User \}>\('\/auth\/verify-otp'/);
 assert.match(server, /apiRouter\.post\('\/auth\/verify-otp'/);
-assert.match(version, /APP_VERSION = 'v\d+\.\d+\.\d+'/);
+assert.match(version, /APP_VERSION = 'v\d+\.\d+\.\d+(?:\.\d+)?'/);
 console.log('AUTH_SESSION_INVARIANTS_OK');

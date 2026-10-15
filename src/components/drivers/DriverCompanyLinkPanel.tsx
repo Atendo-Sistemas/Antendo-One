@@ -19,9 +19,12 @@ export const DriverCompanyLinkPanel: React.FC = () => {
   const pending = useMemo(() => links.filter(item => item.status === 'PENDENTE'), [links]);
   const visible = showAll ? links : pending;
   const decide = async (link: LinkRow, status: 'APROVADO' | 'RECUSADO' | 'BLOQUEADO', scope?: 'FRETE' | 'EMPRESA') => {
-    const label = status === 'APROVADO' ? (scope === 'EMPRESA' ? 'aprovar como motorista da empresa' : 'aprovar para este frete') : status === 'BLOQUEADO' ? 'bloquear' : 'recusar';
+    const companyDecision = scope === 'EMPRESA' || (link.scope === 'EMPRESA' && !link.freightId);
+    const label = status === 'APROVADO' ? (companyDecision ? 'marcar como apto nesta empresa' : 'aprovar para este frete') : status === 'BLOQUEADO' ? 'bloquear nesta empresa' : companyDecision ? 'marcar como não apto nesta empresa' : 'recusar o interesse neste frete';
+    const reason = status === 'RECUSADO' && companyDecision ? window.prompt('Informe o motivo da avaliação “não apto” (opcional):') : undefined;
+    if (status === 'RECUSADO' && companyDecision && reason === null) return;
     if (!window.confirm(`Deseja ${label} o vínculo de ${link.driver?.name || 'motorista'}${link.freightCode ? ` para o frete ${link.freightCode}` : ''}? Essa decisão vale somente para sua empresa.`)) return;
-    try { setBusyId(link.id); setError(null); await api.updateDriverCompanyLinkStatus(link.id, status, undefined, scope); await load(); }
+    try { setBusyId(link.id); setError(null); await api.updateDriverCompanyLinkStatus(link.id, status, undefined, scope, reason); await load(); }
     catch (err: any) { setError(err.message || 'Não foi possível atualizar o vínculo.'); }
     finally { setBusyId(null); }
   };
@@ -55,16 +58,16 @@ export const DriverCompanyLinkPanel: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">{driver?.name || 'Motorista'}</h3>
-                      <span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${statusStyle}`}>{link.status}</span>
+                      <span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${statusStyle}`}>{link.scope === 'EMPRESA' ? link.status === 'APROVADO' ? 'APTO NESTA EMPRESA' : link.status === 'RECUSADO' ? 'NÃO APTO NESTA EMPRESA' : link.status : link.status}</span>
                     </div>
                     <p className="mt-1 text-xs text-slate-500">{driver?.city || 'Cidade não informada'}/{driver?.state || '--'} • {driver?.phone || 'Telefone não informado'}</p>
                     <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{link.freightCode ? `Interesse no frete ${link.freightCode}: ${link.originCity || '--'} → ${link.destinationCity || '--'}` : 'Solicitação de vínculo com a empresa'}</p>
                   </div>
                   {link.status === 'PENDENTE' && (
                     <div className="flex flex-wrap gap-2">
-                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'APROVADO', 'FRETE')} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Aprovar frete</button>
-                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'APROVADO', 'EMPRESA')} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-blue-700 disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Aprovar empresa</button>
-                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'RECUSADO')} className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-[11px] font-extrabold text-red-700 hover:bg-red-100 disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300"><XCircle className="h-3.5 w-3.5" /> Recusar</button>
+                      {link.scope === 'FRETE' && <button disabled={busyId === link.id} onClick={() => void decide(link, 'APROVADO', 'FRETE')} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Aprovar frete</button>}
+                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'APROVADO', 'EMPRESA')} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-blue-700 disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Apto nesta empresa</button>
+                      <button disabled={busyId === link.id} onClick={() => void decide(link, 'RECUSADO', link.scope === 'EMPRESA' ? 'EMPRESA' : undefined)} className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-3 py-2 text-[11px] font-extrabold text-red-700 hover:bg-red-100 disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300"><XCircle className="h-3.5 w-3.5" /> {link.scope === 'EMPRESA' ? 'Não apto nesta empresa' : 'Recusar frete'}</button>
                       <button disabled={busyId === link.id} onClick={() => void decide(link, 'BLOQUEADO')} className="inline-flex items-center gap-1 rounded-lg bg-slate-700 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-slate-800 disabled:opacity-50"><ShieldAlert className="h-3.5 w-3.5" /> Bloquear</button>
                     </div>
                   )}

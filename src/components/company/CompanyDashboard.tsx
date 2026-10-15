@@ -26,7 +26,7 @@ import {
   Pencil
 } from 'lucide-react';
 
-export const CompanyDashboard: React.FC = () => {
+export const CompanyDashboard: React.FC<{ onOpenDriverRegistration?: () => void }> = ({ onOpenDriverRegistration }) => {
   const { user, tenant } = useAuth();
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
   const canApproveFreight = ['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
@@ -256,7 +256,7 @@ export const CompanyDashboard: React.FC = () => {
               {filteredFreights.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
-                    Nenhum frete encontrado com os filtros selecionados.
+                    {totalFreights === 0 ? <div className="space-y-3"><p>Nenhum frete cadastrado. Você pode incluir motoristas sem publicar fretes.</p>{onOpenDriverRegistration && <button type="button" onClick={onOpenDriverRegistration} className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700">Cadastrar motorista</button>}</div> : 'Nenhum frete encontrado com os filtros selecionados.'}
                   </td>
                 </tr>
               ) : (

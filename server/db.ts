@@ -532,6 +532,10 @@ class DatabaseStore {
       privacy.content += '<h2>Compartilhamento básico com empresas</h2><p>Quando o motorista demonstra interesse em um frete ou solicita vínculo empresarial, dados básicos necessários à análise podem ser apresentados à empresa responsável, como nome, telefone, e-mail, cidade, documentos de habilitação e dados do veículo informados no cadastro. O compartilhamento é limitado à finalidade de avaliar a solicitação e operar o frete. A empresa que recebe os dados assume a responsabilidade pela validação específica de sua operação; uma validação anterior não substitui essa responsabilidade.</p><p>Dados de preço permanecem protegidos e só são retornados em área autenticada quando a regra do frete permitir. Registros históricos de vínculos, veículos próprios e decisões administrativas são preservados para rastreabilidade, inclusive quando um vínculo é desativado.</p>';
       privacy.updatedAt = new Date().toISOString();
     }
+    if (privacy && !privacy.content.includes('Catálogo de motoristas com autorização')) {
+      privacy.content += '<h2>Catálogo de motoristas com autorização</h2><p>O motorista pode escolher, por autorização específica e revogável, se deseja exibir seu nome, cidade, estado e categoria da CNH no catálogo de empresas. Telefone, CPF e documentos não são exibidos na busca e só são compartilhados com a empresa que solicita a avaliação do vínculo. Cada empresa registra sua própria avaliação de aptidão, sem alterar a avaliação ou os vínculos do motorista com outras empresas.</p>';
+      privacy.updatedAt = new Date().toISOString();
+    }
   }
   private ensureDriverCompanyLinks(): void {
     const now = new Date().toISOString();
