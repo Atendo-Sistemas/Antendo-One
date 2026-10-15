@@ -1675,7 +1675,7 @@ apiRouter.put('/driver-company-links/:id/status', (req: AuthenticatedRequest, re
   }
   db.addAuditLog({ ip: requestIp(req), tenantId: link.tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'ATUALIZAR_VINCULO_MOTORISTA', entity: 'DriverCompanyLink', entityId: companyLink?.id || link.id, details: `Vínculo do motorista atualizado para ${status} no escopo ${isCompanyDecision ? 'EMPRESA' : 'FRETE'}. A decisão é exclusiva desta empresa.` });
   const linkedFreight = link.freightId ? db.freights.find(item => item.id === link.freightId) : undefined;
-  if (driverUser) void dispatchConfiguredNotification('INTERESSE_FRETE', [driverUser], { nome: driverUser.name, empresa: req.tenant?.name || 'empresa responsável', status, codigoFrete: linkedFreight?.code || '', link: process.env.APP_URL || '' });
+  if (driverUser && !isCompanyDecision) void dispatchConfiguredNotification('INTERESSE_FRETE', [driverUser], { nome: driverUser.name, empresa: req.tenant?.name || 'empresa responsável', status, codigoFrete: linkedFreight?.code || '', link: process.env.APP_URL || '' });
   return res.json({ success: true, link, companyLink });
 });
 // Persist every successful write after the route has completed. This protects

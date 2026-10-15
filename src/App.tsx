@@ -221,7 +221,7 @@ const AppContent: React.FC = () => {
           )
         ) : (
           <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
-            {safeActiveTab === 'freights' && <CompanyDashboard onOpenDriverRegistration={() => setActiveTab('drivers')} />}
+            {safeActiveTab === 'freights' && <CompanyDashboard onOpenDriverRegistration={!isDemo && isCompanyAdmin ? () => setActiveTab('drivers') : undefined} />}
             {safeActiveTab === 'budgets' && <BudgetManager />}
             {safeActiveTab === 'clients' && <ClientManager />}
             {safeActiveTab === 'operations' && <OperationsCenter />}

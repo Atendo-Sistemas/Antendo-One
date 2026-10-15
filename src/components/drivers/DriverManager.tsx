@@ -29,6 +29,7 @@ export const DriverManager: React.FC = () => {
   const [cnh, setCnh] = useState('');
   const [companyNotes, setCompanyNotes] = useState('');
   const [companyFiles, setCompanyFiles] = useState<any[]>([]);
+  const [companyFileError, setCompanyFileError] = useState('');
   
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -147,6 +148,7 @@ export const DriverManager: React.FC = () => {
     setCnh(driver.cnh || '');
     setCompanyNotes('');
     setCompanyFiles([]);
+    setCompanyFileError('');
     void api.getDriverCompanyProfile(driver.id).then(profile => {
       setCompanyNotes(profile.notes || '');
       setCompanyFiles(Array.isArray(profile.files) ? profile.files : []);
@@ -167,6 +169,7 @@ export const DriverManager: React.FC = () => {
     setCnh('');
     setCompanyNotes('');
     setCompanyFiles([]);
+    setCompanyFileError('');
     setError('');
   };
 
@@ -193,9 +196,10 @@ export const DriverManager: React.FC = () => {
     const file = event.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
-      setError('O arquivo deve ter no máximo 5 MB.');
+      setCompanyFileError('O arquivo deve ter no máximo 5 MB.');
       return;
     }
+    setCompanyFileError('');
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') setCompanyFiles(prev => [...prev, { name: file.name, mimeType: file.type, dataUrl: reader.result }].slice(-20));
@@ -347,10 +351,15 @@ export const DriverManager: React.FC = () => {
                     <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 block">Anotações internas desta empresa</span>
                     <textarea value={companyNotes} onChange={e => setCompanyNotes(e.target.value)} rows={4} placeholder="Registre observações que não serão compartilhadas com outras empresas." className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs" />
                   </label>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Arquivos desta empresa (até 5 MB cada)
-                    <input type="file" onChange={handleCompanyFile} className="mt-1 block w-full text-xs" />
-                  </label>
+                  <div className="space-y-2">
+                    <span className="block text-xs font-semibold text-slate-700 dark:text-slate-300">Arquivos desta empresa (até 5 MB cada)</span>
+                    <input id="driver-company-file-input" type="file" onChange={handleCompanyFile} className="sr-only" />
+                    <label htmlFor="driver-company-file-input" className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 focus-within:ring-2 focus-within:ring-emerald-500 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/60">
+                      <UploadCloud className="h-4 w-4" /> Selecionar arquivo
+                    </label>
+                    <p className="text-[11px] text-slate-500">Máximo de 5 MB por arquivo.</p>
+                    {companyFileError && <p role="alert" className="text-[11px] font-semibold text-red-700 dark:text-red-300">{companyFileError}</p>}
+                  </div>
                   {companyFiles.length > 0 && <ul className="space-y-1 text-[11px] text-slate-500">{companyFiles.map((file, index) => <li key={file.id || `${file.name}-${index}`} className="flex items-center justify-between gap-2"><span className="truncate">{file.name}</span><button type="button" onClick={() => setCompanyFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))} className="text-red-600 hover:underline">Remover</button></li>)}</ul>}
                 </div>
               </div>
