@@ -5,6 +5,7 @@ const driver = fs.readFileSync('src/components/driver/DriverDashboard.tsx', 'utf
 const manager = fs.readFileSync('src/components/drivers/DriverManager.tsx', 'utf8');
 const camera = fs.readFileSync('src/components/common/CameraCaptureModal.tsx', 'utf8');
 const sw = fs.readFileSync('public/sw.js', 'utf8');
+const appVersion = fs.readFileSync('src/version.ts', 'utf8').match(/APP_VERSION = 'v([^']+)'/)?.[1];
 
 if (!api.includes("apiRouter.get('/drivers/lookup'")) throw new Error('DRIVER_LOOKUP_ENDPOINT_MISSING');
 if (!api.includes("apiRouter.post('/drivers/:id/company-link'")) throw new Error('DRIVER_COMPANY_LINK_ENDPOINT_MISSING');
@@ -17,5 +18,5 @@ if (!manager.includes('api.lookupDriver') || !manager.includes('api.linkDriverTo
 if (!manager.includes('api.getDriverCompanyProfile') || !manager.includes('api.updateDriverCompanyProfile')) throw new Error('TENANT_DRIVER_PROFILE_UI_MISSING');
 if (!camera.includes('streamRef') || !camera.includes('navigator.mediaDevices.getUserMedia')) throw new Error('CAMERA_STREAM_LIFECYCLE_FIX_MISSING');
 if (!camera.includes('capture="environment"')) throw new Error('NATIVE_CAMERA_FALLBACK_MISSING');
-if (!sw.includes("CACHE_NAME = 'atendo-one-v1.8.45'")) throw new Error('PWA_CACHE_VERSION_MISSING');
+if (!appVersion || !sw.includes(`CACHE_NAME = 'atendo-one-v${appVersion}'`)) throw new Error('PWA_CACHE_VERSION_MISSING');
 console.log('MULTICOMPANY_DRIVER_CAMERA_INVARIANTS_OK');

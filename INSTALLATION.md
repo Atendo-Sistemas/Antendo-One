@@ -24,66 +24,15 @@ Após o primeiro start, a ordem operacional recomendada é: confirmar o backup d
 
 ## 🐳 Método 2: Instalação Visual via Portainer (Stack)
 
-Antes de criar a stack, gere uma senha aleatória (`openssl rand -base64 32`) e cadastre-a como `DB_PASSWORD` em um Secret do Portainer ou em um arquivo `.env` fora do Git. Nunca coloque a senha diretamente neste documento, no Compose ou em uma imagem Docker.
+Antes de criar a stack, gere valores fortes para `DB_PASSWORD` (`openssl rand -base64 32`), `JWT_SECRET` e `CONFIG_ENCRYPTION_KEY` (`openssl rand -hex 32`). Cadastre-os nas variáveis de ambiente da Stack do Portainer ou em um arquivo `.env` fora do Git. Mantenha `CONFIG_ENCRYPTION_KEY` estável: sem a chave original, configurações protegidas já salvas não poderão ser descriptografadas. Nunca coloque esses valores neste documento, no Compose ou em uma imagem Docker.
 
 Se você gerencia sua VPS utilizando o painel **Portainer**:
 
 1. Acesse seu painel Portainer e clique em **Stacks** > **Add stack**.
 2. Defina o nome da stack como `atendo-one`.
-3. Selecione a aba **Web editor** e cole o seguinte conteúdo (`docker-compose.portainer.yml`):
-
-```yaml
-version: '3.8'
-
-networks:
-  elolog-net:
-    driver: bridge
-
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: atendo-one-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: elolog
-      POSTGRES_USER: elolog_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks:
-      - elolog-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U elolog_user -d elolog"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  app:
-    build: .
-    container_name: atendo-one-app
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - PORT=3000
-      - NODE_ENV=production
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=elolog
-      - DB_USER=elolog_user
-      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
-    networks:
-      - elolog-net
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-volumes:
-  postgres_data:
-```
-
-4. Clique no botão inferior **Deploy the stack**.
+3. Selecione **Web editor** e cole o conteúdo atual do arquivo `docker-compose.portainer.yml` (também disponível para copiar ou baixar no painel **Super Admin > SQL & Instalação VPS**). Use essa stack como fonte única; não utilize exemplos antigos de Compose.
+4. Configure `DB_PASSWORD`, `JWT_SECRET` e `CONFIG_ENCRYPTION_KEY` nas variáveis da stack.
+5. Clique em **Deploy the stack**.
 
 ---
 

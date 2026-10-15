@@ -6358,7 +6358,7 @@ apiRouter.get('/tenant/report-templates', (req: AuthenticatedRequest, res: Respo
 
 apiRouter.put('/tenant/report-templates/:type', async (req: AuthenticatedRequest, res: Response) => {
   const tenant = getEditableTenantReportOwner(req);
-  if (!tenant) return res.status(403).json({ error: 'A edi��ão dos modelos exige perfil administrador da empresa.' });
+  if (!tenant) return res.status(403).json({ error: 'A edição dos modelos exige perfil administrador da empresa.' });
   if (isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Contas de teste não podem alterar modelos de relatório.' });
 
   const type = String(req.params.type || '').toUpperCase() as ReportTemplateType;

@@ -42,6 +42,8 @@ assert.match(api, /isTestOrDemoUser\(req\.user\)/);
 assert.match(api, /db\.getTenantReportTemplates\(tenant\.id\)/);
 assert.match(api, /db\.saveTenantReportTemplate\(tenant\.id/);
 assert.match(api, /TENANT_REPORT_TEMPLATE_UPDATED/);
+assert.match(api, /A edição dos modelos exige perfil administrador da empresa/);
+assert.doesNotMatch(api, /�/);
 assert.match(api, /'\/tenant\/report-templates'/, 'demo não possui bloqueio server-side da edição');
 
 assert.match(clientApi, /getTenantReportTemplates/);
