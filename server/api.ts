@@ -501,7 +501,7 @@ export function sanitizeUser(user?: User | null): any {
 
 function sanitizeDriver(driver?: Driver | null): any {
   if (!driver) return driver;
-  const { bankName, bankAgency, bankAccount, pixKeyType, pixKey, notes, currentLocation, ...safeDriver } = driver as any;
+  const { bankName, bankAgency, bankAccount, pixKeyType, pixKey, notes, currentLocation, registrationPendingVerification, directoryConsentPending, ...safeDriver } = driver as any;
   return safeDriver;
 }
 
@@ -1292,12 +1292,20 @@ apiRouter.post('/public/drivers/register', async (req: AuthenticatedRequest, res
   const category = String(req.body?.cnhCategory || '').trim().toUpperCase();
   const cnhExpiresAt = String(req.body?.cnhExpiresAt || '').trim();
   const cleanPhone = normalizePhoneForLookup(phone);
+  const registrationIp = String(req.socket.remoteAddress || 'unknown').slice(0, 64);
   if (name.length < 5 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !isValidBrazilianLoginPhone(cleanPhone) || cpf.length !== 11 || cnh.length < 9 || city.length < 2 || !BRAZILIAN_UFS.has(state) || !['B', 'C', 'D', 'E'].includes(category) || !cnhExpiresAt) return res.status(400).json({ error: 'Preencha corretamente nome, e-mail, telefone, CPF, CNH, categoria, validade, cidade e UF.' });
   if (req.body?.termsAccepted !== true || req.body?.privacyAccepted !== true) return res.status(400).json({ error: 'É necessário aceitar os Termos de Uso e a Política de Privacidade.' });
   const lastAttempt = publicDriverRegistrationAttempts.get(cleanPhone);
   if (lastAttempt && Date.now() - lastAttempt < PUBLIC_INTEREST_RATE_WINDOW_MS) return res.status(429).json({ error: 'Já recebemos um cadastro para este telefone. Aguarde alguns minutos antes de tentar novamente.' });
   if (db.users.some(user => user.email?.trim().toLowerCase() === email || normalizePhoneForLookup(user.phone) === cleanPhone)) return res.status(409).json({ error: 'Este e-mail ou telefone já possui cadastro. Acesse sua conta.' });
   if (db.drivers.some(driver => normalizePublicIdentity(driver.cpf) === cpf || normalizePublicIdentity(driver.cnh) === cnh)) return res.status(409).json({ error: 'Este CPF ou CNH já possui cadastro. Acesse sua conta.' });
+  let ipAttempts = publicDriverRegistrationIpAttempts.get(registrationIp);
+  if (!ipAttempts || Date.now() - ipAttempts.startedAt >= PUBLIC_INTEREST_RATE_WINDOW_MS) {
+    ipAttempts = { startedAt: Date.now(), count: 0 };
+    publicDriverRegistrationIpAttempts.set(registrationIp, ipAttempts);
+  }
+  if (ipAttempts.count >= 5) return res.status(429).json({ error: 'Muitos cadastros iniciados nesta conexão. Aguarde alguns minutos antes de tentar novamente.' });
+  ipAttempts.count += 1;
   publicDriverRegistrationAttempts.set(cleanPhone, Date.now());
   const now = new Date().toISOString();
   const userId = `user-driver-directory-${randomUUID()}`;
@@ -1306,7 +1314,8 @@ apiRouter.post('/public/drivers/register', async (req: AuthenticatedRequest, res
   const newDriver: Driver = { id: driverId, userId, tenantId: null, name, cpf, rg: '', birthDate: '', phone, email, zipCode: '', address: '', city, state, cnh, cnhCategory: category as Driver['cnhCategory'], cnhExpiresAt, status: 'PENDENTE', rating: 0, completedTrips: 0, vehiclesCount: 0, directoryVisible: false, createdAt: now };
   db.users.push(newUser);
   db.drivers.push(newDriver);
-  pendingPublicDriverDirectoryConsent.set(userId, req.body?.directoryConsent === true);
+  newDriver.registrationPendingVerification = true;
+  newDriver.directoryConsentPending = req.body?.directoryConsent === true;
   const code = randomInt(100000, 1000000).toString();
   const expiresAt = Date.now() + 5 * 60 * 1000;
   activeOTPs.set(cleanPhone, { code, expiresAt, failedAttempts: 0 });
@@ -1317,8 +1326,8 @@ apiRouter.post('/public/drivers/register', async (req: AuthenticatedRequest, res
     db.drivers = db.drivers.filter(item => item.id !== driverId);
     activeOTPs.delete(cleanPhone);
     activeOTPs.delete(userId);
-    pendingPublicDriverDirectoryConsent.delete(userId);
     publicDriverRegistrationAttempts.delete(cleanPhone);
+    ipAttempts.count = Math.max(0, ipAttempts.count - 1);
     await db.persistNow();
     return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Tente novamente em alguns instantes.' });
   }
@@ -2605,7 +2614,7 @@ const activeOTPs = new Map<string, { code: string; expiresAt: number; failedAtte
 const otpLastSentAt = new Map<string, number>();
 const publicInterestAttempts = new Map<string, number>();
 const publicDriverRegistrationAttempts = new Map<string, number>();
-const pendingPublicDriverDirectoryConsent = new Map<string, boolean>();
+const publicDriverRegistrationIpAttempts = new Map<string, { startedAt: number; count: number }>();
 const PUBLIC_INTEREST_RATE_WINDOW_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 
@@ -2765,7 +2774,6 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
     activeOTPs.delete(cleanPhone);
     activeOTPs.delete(cleanUserPhone);
     activeOTPs.delete(targetUser.id);
-    pendingPublicDriverDirectoryConsent.delete(targetUser.id);
     return res.status(400).json({ error: 'Código de verificação expirou (validade de 5 minutos).' });
   }
 
@@ -2779,7 +2787,6 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
       activeOTPs.delete(cleanPhone);
       activeOTPs.delete(cleanUserPhone);
       activeOTPs.delete(targetUser.id);
-      pendingPublicDriverDirectoryConsent.delete(targetUser.id);
       return res.status(429).json({ error: 'Muitas tentativas incorretas. Código bloqueado. Solicite um novo código.' });
     }
     return res.status(400).json({ error: `Código de verificação inválido. Tentativa ${activeOtp.failedAttempts}/5.` });
@@ -2789,19 +2796,21 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
   activeOTPs.delete(cleanPhone);
   activeOTPs.delete(cleanUserPhone);
   activeOTPs.delete(targetUser.id);
-  if (pendingPublicDriverDirectoryConsent.has(targetUser.id)) {
-    const driver = db.drivers.find(item => item.userId === targetUser.id);
-    const directoryConsent = pendingPublicDriverDirectoryConsent.get(targetUser.id) === true;
+  const registeredDriver = db.drivers.find(item => item.userId === targetUser.id);
+  if (registeredDriver?.registrationPendingVerification) {
+    const driver = registeredDriver;
+    const directoryConsent = driver.directoryConsentPending === true;
     targetUser.status = 'ATIVO';
     targetUser.updatedAt = new Date().toISOString();
     if (driver) {
       driver.status = 'DISPONIVEL';
       driver.directoryVisible = directoryConsent;
       driver.updatedAt = targetUser.updatedAt;
+      delete driver.registrationPendingVerification;
+      delete driver.directoryConsentPending;
     }
     await db.recordLegalConsent({ userId: targetUser.id, tenantId: null, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy, acceptedAt: targetUser.updatedAt, ipAddress: requestIp(req), userAgent: req.get('user-agent') || '' });
     if (directoryConsent && driver) db.addAuditLog({ ip: requestIp(req), userId: targetUser.id, userName: targetUser.name, userRole: 'MOTORISTA', action: 'CONSENTIMENTO_CATALOGO_MOTORISTA', entity: 'Driver', entityId: driver.id, details: 'Motorista autorizou a exibição do perfil básico no catálogo para empresas.' });
-    pendingPublicDriverDirectoryConsent.delete(targetUser.id);
     await db.persistNow();
   }
 

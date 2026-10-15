@@ -15,7 +15,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-assert(/APP_VERSION = 'v\d+\.\d+\.\d+'/.test(version), 'version must follow semantic versioning');
+assert(/APP_VERSION = 'v\d+\.\d+\.\d+(?:\.\d+)?'/.test(version), 'version must follow the release version format');
 assert(api.includes('function normalizeFormFields'), 'server form normalization missing');
 assert(api.includes('validateFormAnswers'), 'server answer validation missing');
 assert(api.includes('await db.persistNow();'), 'persistence calls missing');
