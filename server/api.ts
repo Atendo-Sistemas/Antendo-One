@@ -1282,6 +1282,14 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
   if (!waResult.success) return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Solicite novamente em alguns instantes.' });
   res.status(201).json({ success: true, userId: user.id, message: 'Código enviado pelo WhatsApp. Valide o telefone para continuar.' });
 });
+const PUBLIC_INTEREST_RATE_WINDOW_MS = 10 * 60 * 1000;
+const publicDriverRegistrationLimiter = rateLimit({
+  windowMs: PUBLIC_INTEREST_RATE_WINDOW_MS,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Muitos cadastros iniciados nesta conexão. Aguarde alguns minutos antes de tentar novamente.' }
+});
 apiRouter.post('/public/drivers/register', publicDriverRegistrationLimiter, async (req: AuthenticatedRequest, res: Response) => {
   const name = String(req.body?.name || '').trim();
   const email = String(req.body?.email || '').trim().toLowerCase();
@@ -2609,15 +2617,7 @@ const activeOTPs = new Map<string, { code: string; expiresAt: number; failedAtte
 const otpLastSentAt = new Map<string, number>();
 const publicInterestAttempts = new Map<string, number>();
 const publicDriverRegistrationAttempts = new Map<string, number>();
-const PUBLIC_INTEREST_RATE_WINDOW_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
-const publicDriverRegistrationLimiter = rateLimit({
-  windowMs: PUBLIC_INTEREST_RATE_WINDOW_MS,
-  limit: 5,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: 'Muitos cadastros iniciados nesta conexão. Aguarde alguns minutos antes de tentar novamente.' }
-});
 
 // Pending registration OTPs Map
 const pendingRegistrations = new Map<string, {

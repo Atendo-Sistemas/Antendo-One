@@ -13,7 +13,9 @@ const companyDashboard = fs.readFileSync('src/components/company/CompanyDashboar
 
 assert.match(api, /publicPaths = \[[\s\S]*?'\/public\/drivers\/register'/, 'no-freight registration must be an intentional public OTP route');
 assert.match(api, /apiRouter\.post\('\/public\/drivers\/register'[\s\S]*?termsAccepted[\s\S]*?privacyAccepted[\s\S]*?registrationPendingVerification = true[\s\S]*?directoryConsentPending/, 'registration must validate legal consent and defer directory visibility until phone verification');
-assert.match(api, /publicDriverRegistrationIpAttempts[\s\S]*?ipAttempts\.count >= 5/, 'public registration must throttle repeated requests from one connection');
+assert.match(api, /const publicDriverRegistrationLimiter = rateLimit\(\{[\s\S]*?windowMs: PUBLIC_INTEREST_RATE_WINDOW_MS[\s\S]*?limit: 5/, 'public registration must throttle repeated requests from one connection');
+assert.match(api, /apiRouter\.post\('\/public\/drivers\/register', publicDriverRegistrationLimiter,/, 'the registration route must apply the IP rate limiter');
+assert.match(api, /const emailAtIndex = email\.indexOf\('@'\);[\s\S]*?email\.length <= 254[\s\S]*?emailAtIndex === email\.lastIndexOf\('@'\)/, 'public registration must validate email with bounded non-backtracking checks');
 assert.match(api, /apiRouter\.get\('\/drivers\/directory'[\s\S]*?canManageTenantDirectory\(req\.user\)[\s\S]*?driver\.directoryVisible !== true[\s\S]*?companyLinkStatus/, 'directory must require company admins and return only opted-in profiles');
 assert.match(api, /apiRouter\.post\('\/drivers\/directory\/:id\/request'[\s\S]*?req\.user\.tenantId[\s\S]*?scope: 'EMPRESA'/, 'company evaluation requests must be tenant-scoped');
 assert.match(api, /if \(registeredDriver\?\.registrationPendingVerification\)[\s\S]*?driver\.directoryVisible = directoryConsent/, 'directory consent must be applied only after OTP verification');
