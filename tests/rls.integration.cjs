@@ -72,10 +72,12 @@ async function inContext(client, tenantId, isSuperAdmin, callback) {
 
     await assert.rejects(() => app.query('INSERT INTO vehicles (id, tenant_id, plate, model, type, body_type, capacity_kg, assigned_driver_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)', [`vehicle-${suffix}`, tenantA, `ABC-${suffix}`, 'Test', 'VUC', 'BAU', 1000, driverB]), /violates|permission|policy/i);
     await app.end();
+    await admin.query(`DROP OWNED BY ${quoteIdent(role)}`);
     await admin.query(`DROP ROLE ${quoteIdent(role)}`);
     console.log('RLS_INTEGRATION_PASS');
   } catch (error) {
     console.error('RLS_INTEGRATION_FAIL', error.message);
+    try { await admin.query(`DROP OWNED BY ${quoteIdent(role)}`); } catch {}
     try { await admin.query(`DROP ROLE IF EXISTS ${quoteIdent(role)}`); } catch {}
     process.exitCode = 1;
   } finally {
