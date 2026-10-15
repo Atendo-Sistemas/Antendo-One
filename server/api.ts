@@ -205,13 +205,32 @@ if (publicVapidKey && privateVapidKey) {
   console.warn('VAPID keys are not configured; push notifications are disabled.');
 }
 
+let fcmAccessCache: { token: string; expiresAt: number } | null = null;
+function fcmServiceAccount(): { project_id: string; client_email: string; private_key: string } | null {
+  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.project_id && parsed?.client_email && parsed?.private_key ? parsed : null;
+  } catch { return null; }
+}
+async function fcmAccessToken(account: { client_email: string; private_key: string }): Promise<string> {
+  if (fcmAccessCache && fcmAccessCache.expiresAt > Date.now() + 60_000) return fcmAccessCache.token;
+  const assertion = jwt.sign({ scope: 'https://www.googleapis.com/auth/firebase.messaging' }, account.private_key, { algorithm: 'RS256', issuer: account.client_email, audience: 'https://oauth2.googleapis.com/token', expiresIn: 3600 });
+  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }) });
+  if (!response.ok) throw Object.assign(new Error('FCM auth failed'), { statusCode: response.status });
+  const data: any = await response.json();
+  fcmAccessCache = { token: String(data.access_token), expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000 };
+  return fcmAccessCache.token;
+}
+
 export async function sendPushNotificationToUsers(recipients: User[], payload: any): Promise<{ sent: number; removed: number }> {
   const allowedRecipients = new Set(
     recipients.filter(user => Boolean(user?.id)).map(user => `${user.id}:${user.tenantId || ''}`)
   );
   const subs = (db as any).pushSubscriptions || [];
   if (!publicVapidKey || !privateVapidKey) {
-    const hasExpoToken = subs.some((item: any) => item?.kind === 'expo' && allowedRecipients.has(`${String(item?.userId || '')}:${String(item?.tenantId || '')}`));
+    const hasExpoToken = subs.some((item: any) => (item?.kind === 'expo' || item?.kind === 'fcm') && allowedRecipients.has(`${String(item?.userId || '')}:${String(item?.tenantId || '')}`));
     if (!hasExpoToken) return { sent: 0, removed: 0 };
   }
   let sent = 0;
@@ -228,6 +247,16 @@ export async function sendPushNotificationToUsers(recipients: User[], payload: a
           body: JSON.stringify({ to: sub.token, title: payload.title, body: payload.body, data: { url: payload.url, freightId: payload.freightId }, sound: 'default', channelId: 'fretes' })
         });
         if (!expoResponse.ok) throw Object.assign(new Error('Expo Push delivery failed'), { statusCode: expoResponse.status });
+      } else if (sub?.kind === 'fcm') {
+        const account = fcmServiceAccount();
+        if (!account) continue;
+        const accessToken = await fcmAccessToken(account);
+        const fcmResponse = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
+          body: JSON.stringify({ message: { token: sub.token, notification: { title: String(payload.title || ''), body: String(payload.body || '') }, data: { url: String(payload.url || ''), freightId: String(payload.freightId || '') }, android: { priority: 'HIGH', notification: { channel_id: 'fretes' } } } })
+        });
+        if (!fcmResponse.ok) throw Object.assign(new Error('FCM delivery failed'), { statusCode: fcmResponse.status === 400 || fcmResponse.status === 404 ? 404 : fcmResponse.status });
       } else {
         if (!publicVapidKey || !privateVapidKey) continue;
         await webpush.sendNotification(sub, JSON.stringify(payload));
@@ -3865,6 +3894,7 @@ apiRouter.put('/drivers/me/proximity-settings', async (req: AuthenticatedRequest
   return res.json({ enabled, config: freightAlertConfigFor(db.tenants.find(tenant => tenant.id === req.user!.tenantId)) });
 });
 
+const DRIVER_LOCATION_MIN_INTERVAL_MS = 5000;
 apiRouter.post('/drivers/me/location', async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user || req.user.role !== 'MOTORISTA' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente motoristas reais podem compartilhar localização.' });
   const driver = db.drivers.find(item => item.id === req.user?.driverId || item.userId === req.user?.id);
@@ -3876,6 +3906,8 @@ apiRouter.post('/drivers/me/location', async (req: AuthenticatedRequest, res: Re
   const recordedAt = typeof req.body?.recordedAt === 'string' ? new Date(req.body.recordedAt) : new Date();
   if (!validGeoCoordinate(lat, lng) || !Number.isFinite(accuracyMeters) || accuracyMeters < 0 || accuracyMeters > 50000 || Number.isNaN(recordedAt.getTime())) return res.status(400).json({ error: 'Localização GPS inválida.' });
   if (recordedAt.getTime() > Date.now() + 5 * 60 * 1000 || recordedAt.getTime() < Date.now() - 24 * 60 * 60 * 1000) return res.status(400).json({ error: 'Data da localização fora do intervalo permitido.' });
+  const previousRecordedAt = driver.currentLocation?.recordedAt ? new Date(driver.currentLocation.recordedAt).getTime() : 0;
+  if (previousRecordedAt && Date.now() - previousRecordedAt < DRIVER_LOCATION_MIN_INTERVAL_MS && recordedAt.getTime() <= previousRecordedAt + DRIVER_LOCATION_MIN_INTERVAL_MS) return res.status(429).json({ error: 'Envio de localização muito frequente.' });
   driver.currentLocation = { lat, lng, accuracyMeters, recordedAt: recordedAt.toISOString() };
   driver.updatedAt = new Date().toISOString();
   await db.persistNow();
@@ -4031,6 +4063,7 @@ apiRouter.put('/drivers/:id', async (req: AuthenticatedRequest, res: Response) =
 apiRouter.get('/vehicles', (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role === 'SUPER_ADMIN') return res.json(db.vehicles);
   const tenantId = req.user?.tenantId;
+  if (!tenantId && req.user?.role === 'MOTORISTA' && req.user.driverId) return res.json(db.vehicles.filter(vehicle => vehicle.driverId === req.user!.driverId));
   if (!tenantId) return res.json([]);
   const vehicles = db.vehicles.filter(vehicle => vehicle.tenantId === tenantId || (vehicle.tenantId === null && db.hasDriverCompanyAccess(vehicle.driverId, tenantId, true)));
   res.json(vehicles);
@@ -6132,12 +6165,15 @@ apiRouter.post('/mobile/push-token', async (req: AuthenticatedRequest, res: Resp
   if (!req.user || req.user.role !== 'MOTORISTA' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente motoristas reais podem registrar notificações.' });
   const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
   const platform = typeof req.body?.platform === 'string' ? req.body.platform.trim().slice(0, 20) : 'android';
-  if (!/^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/.test(token) || token.length > 256) return res.status(400).json({ error: 'Token de notificação inválido.' });
+  const isExpoToken = /^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/.test(token);
+  const isFcmToken = /^[A-Za-z0-9_:.-]{50,4096}$/.test(token) && !isExpoToken;
+  if ((!isExpoToken && !isFcmToken) || (isExpoToken && token.length > 256)) return res.status(400).json({ error: 'Token de notificação inválido.' });
+  const tokenKind = isExpoToken ? 'expo' : 'fcm';
   if (!(db as any).pushSubscriptions) (db as any).pushSubscriptions = [];
   const subs = (db as any).pushSubscriptions;
-  const existing = subs.find((item: any) => item?.kind === 'expo' && item.token === token);
+  const existing = subs.find((item: any) => item?.kind === tokenKind && item.token === token);
   if (existing && existing.userId !== req.user.id) return res.status(409).json({ error: 'Este dispositivo já está vinculado a outra conta.' });
-  const record = { kind: 'expo', token, platform, userId: req.user.id, tenantId: req.user.tenantId || '', updatedAt: new Date().toISOString() };
+  const record = { kind: tokenKind, token, platform, userId: req.user.id, tenantId: req.user.tenantId || '', updatedAt: new Date().toISOString() };
   if (existing) Object.assign(existing, record); else subs.push(record);
   await db.persistNow();
   return res.json({ success: true });
@@ -6148,7 +6184,7 @@ apiRouter.delete('/mobile/push-token', async (req: AuthenticatedRequest, res: Re
   const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
   const subs = (db as any).pushSubscriptions || [];
   const before = subs.length;
-  (db as any).pushSubscriptions = subs.filter((item: any) => !(item?.kind === 'expo' && item.userId === req.user!.id && (!token || item.token === token)));
+  (db as any).pushSubscriptions = subs.filter((item: any) => !((item?.kind === 'expo' || item?.kind === 'fcm') && item.userId === req.user!.id && (!token || item.token === token)));
   if ((db as any).pushSubscriptions.length !== before) await db.persistNow();
   return res.json({ success: true });
 });

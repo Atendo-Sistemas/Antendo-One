@@ -32,7 +32,7 @@ async function startServer() {
   });
 
   const allowedOrigins = new Set(
-    (process.env.CORS_ALLOWED_ORIGINS || process.env.APP_URL || 'https://gestor.atendo.log.br')
+    [process.env.CORS_ALLOWED_ORIGINS || process.env.APP_URL || 'https://gestor.atendo.log.br', process.env.MOBILE_APP_ORIGINS || ''].join(',')
       .split(',')
       .map(origin => origin.trim().replace(/\/$/, ''))
       .filter(Boolean)
@@ -43,7 +43,7 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID, X-CSRF-Token, asaas-access-token');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID, X-CSRF-Token, X-Atendo-Client, asaas-access-token');
       res.setHeader('Vary', 'Origin');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(origin && allowedOrigins.has(origin) ? 204 : 403);
