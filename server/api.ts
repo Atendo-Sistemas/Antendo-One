@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { db, PUBLIC_DEMO_TENANT_ID, PUBLIC_DEMO_PRIMARY_USER_ID } from './db';
 import { sqlAdapter } from './db/sqlAdapter';
 import { runWithTenantDbContext } from './db/sqlAdapter';
@@ -1281,7 +1282,7 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
   if (!waResult.success) return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Solicite novamente em alguns instantes.' });
   res.status(201).json({ success: true, userId: user.id, message: 'Código enviado pelo WhatsApp. Valide o telefone para continuar.' });
 });
-apiRouter.post('/public/drivers/register', async (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/public/drivers/register', publicDriverRegistrationLimiter, async (req: AuthenticatedRequest, res: Response) => {
   const name = String(req.body?.name || '').trim();
   const email = String(req.body?.email || '').trim().toLowerCase();
   const phone = String(req.body?.phone || '').trim();
@@ -1292,20 +1293,15 @@ apiRouter.post('/public/drivers/register', async (req: AuthenticatedRequest, res
   const category = String(req.body?.cnhCategory || '').trim().toUpperCase();
   const cnhExpiresAt = String(req.body?.cnhExpiresAt || '').trim();
   const cleanPhone = normalizePhoneForLookup(phone);
-  const registrationIp = String(req.socket.remoteAddress || 'unknown').slice(0, 64);
-  if (name.length < 5 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !isValidBrazilianLoginPhone(cleanPhone) || cpf.length !== 11 || cnh.length < 9 || city.length < 2 || !BRAZILIAN_UFS.has(state) || !['B', 'C', 'D', 'E'].includes(category) || !cnhExpiresAt) return res.status(400).json({ error: 'Preencha corretamente nome, e-mail, telefone, CPF, CNH, categoria, validade, cidade e UF.' });
+  const emailAtIndex = email.indexOf('@');
+  const emailDomainDot = email.indexOf('.', emailAtIndex + 1);
+  const emailLooksValid = email.length <= 254 && emailAtIndex > 0 && emailAtIndex === email.lastIndexOf('@') && emailDomainDot > emailAtIndex + 1 && emailDomainDot < email.length - 1 && !email.includes(' ');
+  if (name.length < 5 || name.length > 160 || !emailLooksValid || !isValidBrazilianLoginPhone(cleanPhone) || cpf.length !== 11 || cnh.length < 9 || cnh.length > 20 || city.length < 2 || city.length > 120 || !BRAZILIAN_UFS.has(state) || !['B', 'C', 'D', 'E'].includes(category) || !cnhExpiresAt) return res.status(400).json({ error: 'Preencha corretamente nome, e-mail, telefone, CPF, CNH, categoria, validade, cidade e UF.' });
   if (req.body?.termsAccepted !== true || req.body?.privacyAccepted !== true) return res.status(400).json({ error: 'É necessário aceitar os Termos de Uso e a Política de Privacidade.' });
   const lastAttempt = publicDriverRegistrationAttempts.get(cleanPhone);
   if (lastAttempt && Date.now() - lastAttempt < PUBLIC_INTEREST_RATE_WINDOW_MS) return res.status(429).json({ error: 'Já recebemos um cadastro para este telefone. Aguarde alguns minutos antes de tentar novamente.' });
   if (db.users.some(user => user.email?.trim().toLowerCase() === email || normalizePhoneForLookup(user.phone) === cleanPhone)) return res.status(409).json({ error: 'Este e-mail ou telefone já possui cadastro. Acesse sua conta.' });
   if (db.drivers.some(driver => normalizePublicIdentity(driver.cpf) === cpf || normalizePublicIdentity(driver.cnh) === cnh)) return res.status(409).json({ error: 'Este CPF ou CNH já possui cadastro. Acesse sua conta.' });
-  let ipAttempts = publicDriverRegistrationIpAttempts.get(registrationIp);
-  if (!ipAttempts || Date.now() - ipAttempts.startedAt >= PUBLIC_INTEREST_RATE_WINDOW_MS) {
-    ipAttempts = { startedAt: Date.now(), count: 0 };
-    publicDriverRegistrationIpAttempts.set(registrationIp, ipAttempts);
-  }
-  if (ipAttempts.count >= 5) return res.status(429).json({ error: 'Muitos cadastros iniciados nesta conexão. Aguarde alguns minutos antes de tentar novamente.' });
-  ipAttempts.count += 1;
   publicDriverRegistrationAttempts.set(cleanPhone, Date.now());
   const now = new Date().toISOString();
   const userId = `user-driver-directory-${randomUUID()}`;
@@ -1327,7 +1323,6 @@ apiRouter.post('/public/drivers/register', async (req: AuthenticatedRequest, res
     activeOTPs.delete(cleanPhone);
     activeOTPs.delete(userId);
     publicDriverRegistrationAttempts.delete(cleanPhone);
-    ipAttempts.count = Math.max(0, ipAttempts.count - 1);
     await db.persistNow();
     return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Tente novamente em alguns instantes.' });
   }
@@ -2614,9 +2609,15 @@ const activeOTPs = new Map<string, { code: string; expiresAt: number; failedAtte
 const otpLastSentAt = new Map<string, number>();
 const publicInterestAttempts = new Map<string, number>();
 const publicDriverRegistrationAttempts = new Map<string, number>();
-const publicDriverRegistrationIpAttempts = new Map<string, { startedAt: number; count: number }>();
 const PUBLIC_INTEREST_RATE_WINDOW_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
+const publicDriverRegistrationLimiter = rateLimit({
+  windowMs: PUBLIC_INTEREST_RATE_WINDOW_MS,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Muitos cadastros iniciados nesta conexão. Aguarde alguns minutos antes de tentar novamente.' }
+});
 
 // Pending registration OTPs Map
 const pendingRegistrations = new Map<string, {
