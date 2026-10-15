@@ -90,6 +90,7 @@ const AppContent: React.FC = () => {
     if (isDemo) return ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'notification-preferences', 'help'].includes(tab);
     if (isDriver) return ['driver-portal', 'driver-profile', 'expenses', 'notification-preferences', 'help'].includes(tab);
     if (isSuperAdmin) return ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'freight-alerts', 'help'].includes(tab);
+    if (tab === 'driver-approvals') return isCompanyAdmin;
     if (['billing', 'company-notification-templates', 'company-email-config', 'freight-alerts', 'company-report-templates'].includes(tab)) return ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role);
     if (tab === 'users') return ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role);
     if (tab === 'audit') return ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user.role);
