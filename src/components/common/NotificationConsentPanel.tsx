@@ -27,7 +27,6 @@ export const NotificationConsentPanel: React.FC<NotificationConsentPanelProps> =
   const [savingGeo, setSavingGeo] = useState(false);
   const [message, setMessage] = useState('');
 
-  // A linha duplicada 'showPreferences' foi removida daqui:
   const showFreightAlerts = mode === 'freight-alerts';
   const canConfigureCompany = showFreightAlerts && isTenantAdmin(user?.role) && user?.role !== 'SUPER_ADMIN' && user?.accountType !== 'TEST' && Boolean(user?.tenantId);
   const isDriver = showPreferences && user?.role === 'MOTORISTA' && Boolean(driver);
