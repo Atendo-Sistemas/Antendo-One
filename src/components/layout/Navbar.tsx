@@ -94,12 +94,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isDriver = user?.role === 'MOTORISTA';
   const isCompanyStaff = !isDriver && !isSuperAdmin;
-  const canManageBilling = user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN';
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
+  const canManageBilling = !isDemo && (user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN');
+  const canManageDirectory = !isDemo && (user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN');
+  const canViewAudit = ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user?.role || '');
   const canManageReportTemplates = !isDemo && canManageBilling;
   const companyNavGroups = [
     { key: 'operacao', label: 'Operação', items: [['freights', 'Fretes'], ['operations', 'Central'], ['drivers', 'Motoristas'], ...(canManageBilling ? [['company-vehicles', 'Veículos próprios']] : []), ['expenses', 'Prestação de contas']] },
-    { key: 'gestao', label: 'Gestão', items: [['budgets', 'Orçamentos'], ['clients', 'Clientes'], ['forms', 'Formulários'], ['users', 'Usuários'], ['audit', 'Auditoria']] },
+    { key: 'gestao', label: 'Gestão', items: [['budgets', 'Orçamentos'], ['clients', 'Clientes'], ['forms', 'Formulários'], ...(canManageDirectory ? [['users', 'Usuários']] : []), ...(canViewAudit ? [['audit', 'Auditoria']] : [])] },
     { key: 'configuracoes', label: 'Configurações', items: [...(canManageBilling ? [['billing', 'Assinatura'], ['company-notification-templates', 'Mensagens'], ['company-email-config', 'E-mail da empresa'], ['freight-alerts', 'Alertas de frete']] : []), ...(canManageReportTemplates ? [['company-report-templates', 'Relatórios']] : []), ['notification-preferences', 'Preferências'], ['help', 'Ajuda']] }
   ];
   const renderMobileCompanyGroups = () => companyNavGroups.map((group) => (
@@ -601,6 +603,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 📖 Ajuda
               </button>
             </>
+          ) : isDemo ? (
+            <div className="space-y-1">
+              {[
+                ['freights', 'Fretes'], ['operations', 'Central'], ['budgets', 'Orçamentos'],
+                ['clients', 'Clientes'], ['drivers', 'Motoristas'], ['company-vehicles', 'Veículos próprios'],
+                ['expenses', 'Prestação de contas'], ['forms', 'Formulários'], ['users', 'Usuários'],
+                ['audit', 'Auditoria'], ['notification-preferences', 'Preferências'], ['help', 'Ajuda']
+              ].map(([tab, label]) => <button key={tab} type="button" onClick={() => { setActiveTab(tab); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">{label}</button>)}
+            </div>
           ) : (
             <div className="space-y-1">
               {renderMobileCompanyGroups()}

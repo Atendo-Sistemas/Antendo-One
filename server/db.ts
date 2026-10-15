@@ -312,6 +312,7 @@ class DatabaseStore {
       allowIndexing: true
     },
     notificationTemplates: defaultNotificationTemplates.map(template => ({ ...template, variables: [...template.variables] })),
+    adBanners: [],
     asaasConfig: {
       enabled: false,
       environment: 'sandbox',
@@ -447,6 +448,22 @@ class DatabaseStore {
     this.ensureDriverDataDisclosure();
     this.ensureLegalCompleteness();
     this.ensureDriverCompanyLinks();
+    this.ensureHelpPages();
+  }
+
+  private ensureHelpPages(): void {
+    const defaults: Record<string, string> = {
+      SUPER_ADMIN: '<h1>Manual do Super Admin</h1><p>Administre empresas, usuários, permissões, integrações, mensagens e conteúdo global do Atendo One.</p><h2>Segurança</h2><p>Use o princípio do menor privilégio, selecione a empresa correta em sessões assistidas e nunca compartilhe tokens ou credenciais.</p><h2>Empresas</h2><p>Cadastre e acompanhe empresas clientes. As configurações de cada empresa permanecem isoladas e alterações importantes ficam registradas na auditoria.</p>',
+      ADMIN: '<h1>Manual do administrador da empresa</h1><p>Gerencie a operação da sua empresa, incluindo usuários autorizados, motoristas, veículos, fretes, documentos e notificações.</p><h2>Permissões</h2><p>Conceda somente os acessos necessários. O Super Admin SaaS é reservado à administração global e não deve ser criado pela empresa cliente.</p><h2>Notificações</h2><p>Em Mensagens da empresa, personalize os textos operacionais. Os canais e tokens são controlados pelo Atendo One e os envios respeitam o consentimento e o vínculo empresarial.</p><h2>Alertas de frete</h2><p>Configure o raio e o fallback regional em Alertas de frete para direcionar avisos apenas aos motoristas elegíveis da sua empresa.</p>',
+      SUPERVISOR: '<h1>Manual do supervisor</h1><p>Acompanhe fretes, motoristas, ocorrências, formulários e documentos conforme as permissões concedidas pelo administrador da empresa.</p><h2>Operação</h2><p>Confirme os dados antes de salvar etapas e comunique divergências pelo fluxo interno da empresa. Configurações financeiras, integrações e permissões administrativas permanecem protegidas.</p>',
+      USER: '<h1>Manual do usuário</h1><p>Consulte os módulos liberados pela empresa, preencha os formulários com dados corretos e mantenha seu contato atualizado.</p><h2>Notificações</h2><p>Em Preferências de notificações, escolha os canais operacionais autorizados. Mensagens essenciais de segurança podem continuar sendo enviadas para proteger a conta.</p>',
+      DRIVER: '<h1>Manual do motorista</h1><p>Consulte seus fretes, acompanhe as etapas da viagem e mantenha seus dados cadastrais e documentos atualizados.</p><h2>Alertas por proximidade</h2><p>Você pode autorizar notificações Push e localização para receber oportunidades próximas. A localização é usada somente dentro das regras da empresa vinculada e pode ser desativada a qualquer momento.</p>'
+    };
+    for (const [role, content] of Object.entries(defaults)) {
+      const page = this.helpPages.find(item => item.role === role);
+      if (!page) this.helpPages.push({ role, content });
+      else if (!String(page.content || '').replace(/<[^>]+>/g, '').trim()) page.content = content;
+    }
   }
   private ensureLegalCompleteness(): void {
     const now = new Date().toISOString();

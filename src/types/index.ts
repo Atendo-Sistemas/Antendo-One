@@ -37,6 +37,28 @@ export interface BlogPost {
   publishedAt?: string;
 }
 
+export type AdBannerFormat = 'STRIP' | 'CARD' | 'SIDEBAR' | 'MODAL';
+export type AdBannerPlacement = 'HOME' | 'FREIGHTS' | 'OPERATIONS' | 'DRIVER_PORTAL' | 'DASHBOARD';
+
+export interface AdBanner {
+  id: string;
+  title: string;
+  imageUrl: string;
+  linkUrl?: string;
+  openInNewTab: boolean;
+  format: AdBannerFormat;
+  placements: AdBannerPlacement[];
+  targetRoles: UserRole[];
+  targetTenantIds: string[];
+  targetUserIds: string[];
+  isActive: boolean;
+  startsAt?: string;
+  endsAt?: string;
+  priority: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type UserRole = 
   | 'SUPER_ADMIN' 
   | 'EMPRESA_SUPER_ADMIN' 
@@ -1008,6 +1030,7 @@ export interface SaaSGlobalConfig {
   backupNotifications?: BackupNotificationConfig;
   seo?: SeoConfig;
   notificationTemplates?: NotificationTemplate[];
+  adBanners?: AdBanner[];
 }
 
 export type ExpenseCategory = 

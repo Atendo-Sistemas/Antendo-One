@@ -83,6 +83,18 @@ const AppContent: React.FC = () => {
   const isDriver = user?.role === 'MOTORISTA';
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
+  const canAccessTab = (tab: string): boolean => {
+    if (!user) return false;
+    if (isDemo) return ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'notification-preferences', 'help'].includes(tab);
+    if (isDriver) return ['driver-portal', 'driver-profile', 'expenses', 'notification-preferences', 'help'].includes(tab);
+    if (isSuperAdmin) return ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'freight-alerts', 'help'].includes(tab);
+    if (['billing', 'company-notification-templates', 'company-email-config', 'freight-alerts', 'company-report-templates'].includes(tab)) return ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role);
+    if (tab === 'users') return ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role);
+    if (tab === 'audit') return ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user.role);
+    return ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'notification-preferences', 'help'].includes(tab);
+  };
+  const defaultTab = isDriver ? 'driver-portal' : isSuperAdmin ? 'saas-tenants' : 'freights';
+  const safeActiveTab = canAccessTab(activeTab) ? activeTab : defaultTab;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -117,6 +129,10 @@ const AppContent: React.FC = () => {
       }
     }
   }, [user?.role, user?.id, tenant?.isDemo, isDemo, activeTab, supportSession?.id, supportSession?.targetUser.id]);
+
+  useEffect(() => {
+    if (user && !canAccessTab(activeTab)) setActiveTab(defaultTab);
+  }, [user?.role, user?.accountType, tenant?.isDemo, activeTab, defaultTab]);
 
   const handleOpenFormModal = async (formId: string, freightId?: string) => {
     try {
@@ -181,17 +197,17 @@ const AppContent: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 w-full max-w-full pb-16">
         {isDriver ? (
-          activeTab === 'driver-profile' ? (
+          safeActiveTab === 'driver-profile' ? (
             <DriverProfileView />
-          ) : activeTab === 'expenses' ? (
+          ) : safeActiveTab === 'expenses' ? (
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
               <ExpenseManager currentUser={user} />
             </div>
-          ) : activeTab === 'notification-preferences' ? (
+          ) : safeActiveTab === 'notification-preferences' ? (
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
               <NotificationConsentPanel />
             </div>
-          ) : activeTab === 'help' ? (
+          ) : safeActiveTab === 'help' ? (
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
               <HelpPanel role={user.role} />
             </div>
@@ -200,27 +216,27 @@ const AppContent: React.FC = () => {
           )
         ) : (
           <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
-            {activeTab === 'freights' && <CompanyDashboard />}
-            {activeTab === 'budgets' && <BudgetManager />}
-            {activeTab === 'clients' && <ClientManager />}
-            {activeTab === 'operations' && <OperationsCenter />}
-            {activeTab === 'company-stops' && <CompanyStopsPanel />}
-            {activeTab === 'billing' && (isDemo ? <DemoRestrictedNotice title="Assinatura e pagamentos indisponíveis" description="A demonstração não acessa cobrança, Asaas, faturas ou dados financeiros. Essas operações pertencem à empresa contratante e ficam protegidas no ambiente SaaS." /> : <CompanyBillingPanel onOpenNotificationTemplates={() => setActiveTab('company-notification-templates')} />)}
-            {activeTab === 'company-notification-templates' && (isDemo ? <DemoRestrictedNotice title="Mensagens protegidas no modo demo" description="A demonstração utiliza a operação SaaS configurada, mas não permite consultar ou alterar tokens, URLs ou modelos de comunicação." /> : <NotificationTemplatesPanel scope="tenant" />)}
-            {activeTab === 'company-email-config' && (isDemo ? <DemoRestrictedNotice title="SMTP indisponível no modo demo" description="A configuração de e-mail pertence à empresa contratante." /> : <CompanyEmailConfigPanel />)}
-            {activeTab === 'company-report-templates' && (isDemo ? <DemoRestrictedNotice title="Modelos protegidos no modo demo" description="A demonstração permite visualizar relatórios fictícios, mas não permite editar ou salvar modelos de relatório." /> : <ReportTemplatesPanel />)}
-            {activeTab === 'drivers' && <DriverManager />}
-            {activeTab === 'company-vehicles' && <CompanyVehicleManager />}
-            {activeTab === 'expenses' && <ExpenseManager currentUser={user} />}
-            {activeTab === 'forms' && <FormBuilder />}
-            {activeTab === 'users' && <UserManager />}
-            {activeTab === 'audit' && <AuditLogViewer />}
-            {activeTab === 'help' && <HelpPanel role={user.role} />}
-            {activeTab === 'saas-tenants' && <SuperAdminDashboard />}
-            {activeTab === 'saas-config' && <SaaSConfigPanel onOpenContentManagement={() => setActiveTab('content-management')} />}
-            {activeTab === 'content-management' && <ContentManagementPanel />}
-            {activeTab === 'notification-preferences' && <NotificationConsentPanel />}
-            {activeTab === 'freight-alerts' && <NotificationConsentPanel />}
+            {safeActiveTab === 'freights' && <CompanyDashboard />}
+            {safeActiveTab === 'budgets' && <BudgetManager />}
+            {safeActiveTab === 'clients' && <ClientManager />}
+            {safeActiveTab === 'operations' && <OperationsCenter />}
+            {safeActiveTab === 'company-stops' && <CompanyStopsPanel />}
+            {safeActiveTab === 'billing' && (isDemo ? <DemoRestrictedNotice title="Assinatura e pagamentos indisponíveis" description="A demonstração não acessa cobrança, Asaas, faturas ou dados financeiros. Essas operações pertencem à empresa contratante e ficam protegidas no ambiente SaaS." /> : <CompanyBillingPanel onOpenNotificationTemplates={() => setActiveTab('company-notification-templates')} />)}
+            {safeActiveTab === 'company-notification-templates' && (isDemo ? <DemoRestrictedNotice title="Mensagens protegidas no modo demo" description="A demonstração utiliza a operação SaaS configurada, mas não permite consultar ou alterar tokens, URLs ou modelos de comunicação." /> : <NotificationTemplatesPanel scope="tenant" />)}
+            {safeActiveTab === 'company-email-config' && (isDemo ? <DemoRestrictedNotice title="SMTP indisponível no modo demo" description="A configuração de e-mail pertence à empresa contratante." /> : <CompanyEmailConfigPanel />)}
+            {safeActiveTab === 'company-report-templates' && (isDemo ? <DemoRestrictedNotice title="Modelos protegidos no modo demo" description="A demonstração permite visualizar relatórios fictícios, mas não permite editar ou salvar modelos de relatório." /> : <ReportTemplatesPanel />)}
+            {safeActiveTab === 'drivers' && <DriverManager />}
+            {safeActiveTab === 'company-vehicles' && <CompanyVehicleManager />}
+            {safeActiveTab === 'expenses' && <ExpenseManager currentUser={user} />}
+            {safeActiveTab === 'forms' && <FormBuilder />}
+            {safeActiveTab === 'users' && <UserManager />}
+            {safeActiveTab === 'audit' && <AuditLogViewer />}
+            {safeActiveTab === 'help' && <HelpPanel role={user.role} />}
+            {safeActiveTab === 'saas-tenants' && <SuperAdminDashboard />}
+            {safeActiveTab === 'saas-config' && <SaaSConfigPanel onOpenContentManagement={() => setActiveTab('content-management')} />}
+            {safeActiveTab === 'content-management' && <ContentManagementPanel />}
+            {safeActiveTab === 'notification-preferences' && <NotificationConsentPanel mode="preferences" />}
+            {safeActiveTab === 'freight-alerts' && <NotificationConsentPanel mode="freight-alerts" />}
           </div>
         )}
       </main>

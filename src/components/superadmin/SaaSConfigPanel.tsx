@@ -26,7 +26,8 @@ import {
   Compass,
   BookOpen,
   Search,
-  BarChart3
+  BarChart3,
+  Megaphone
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -40,6 +41,7 @@ import { WhatsAppConfigModal } from '../common/WhatsAppConfigModal';
 import { AdminSeoOverviewPanel } from './AdminSeoOverviewPanel';
 import { VisitAnalyticsPanel } from './VisitAnalyticsPanel';
 import { BackupMonitorPanel } from './BackupMonitorPanel';
+import AdBannersPanel from './AdBannersPanel';
 
 type SaaSConfigPanelProps = { onOpenContentManagement?: () => void };
 
@@ -71,7 +73,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'analytics' | 'branding' | 'plans' | 'rules' | 'gateway' | 'layout' | 'fields' | 'email' | 'sql-installation' | 'mapbox' | 'help' | 'seo' | 'notifications' | 'backups' | 'error-logs' | 'asaas'>('overview');
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'analytics' | 'branding' | 'plans' | 'rules' | 'gateway' | 'layout' | 'fields' | 'email' | 'sql-installation' | 'mapbox' | 'help' | 'seo' | 'notifications' | 'backups' | 'error-logs' | 'asaas' | 'ad-banners'>('overview');
   const [selectedForm, setSelectedForm] = useState<'userForm' | 'freightForm' | 'driverForm' | 'expenseForm'>('freightForm');
   const [newFieldModalOpen, setNewFieldModalOpen] = useState(false);
   const [newFieldId, setNewFieldId] = useState('');
@@ -82,8 +84,9 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
   const [config, setConfig] = useState<SaaSGlobalConfig | null>(null);
 
   // Help state
-  const [helpRole, setHelpRole] = useState<'ADMIN' | 'SUPERVISOR' | 'USER' | 'DRIVER'>('ADMIN');
+  const [helpRole, setHelpRole] = useState<'SUPER_ADMIN' | 'ADMIN' | 'SUPERVISOR' | 'USER' | 'DRIVER'>('ADMIN');
   const [helpContent, setHelpContent] = useState<Record<string, string>>({
+    SUPER_ADMIN: '',
     ADMIN: '',
     SUPERVISOR: '',
     USER: '',
@@ -564,6 +567,10 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
               activeSubTab === 'notifications' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'
             }`}
           ><MessageSquare className="w-4 h-4 shrink-0" /> Mensagens e Notificações</button>
+          <button
+            onClick={() => setActiveSubTab('ad-banners')}
+            className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2.5 cursor-pointer ${activeSubTab === 'ad-banners' ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+          ><Megaphone className="w-4 h-4 shrink-0" /> Propagandas e Banners</button>
 
           <p className="px-3 pt-3 pb-1 text-[9px] font-black uppercase tracking-widest text-slate-500">Comunicação e manutenção</p>
           <button
@@ -619,6 +626,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
           {/* Placeholder for content - The actual content would be here */}
           {activeSubTab === 'overview' && <AdminSeoOverviewPanel onOpenContentManagement={onOpenContentManagement} onOpenSeoConfig={() => setActiveSubTab('seo')} />}
           {activeSubTab === 'analytics' && <VisitAnalyticsPanel />}
+          {activeSubTab === 'ad-banners' && <AdBannersPanel />}
 
 {activeSubTab === 'plans' && config && (
             <form onSubmit={handleSaveSaaSConfig} className="space-y-6">
@@ -1327,7 +1335,7 @@ export const SaaSConfigPanel: React.FC<SaaSConfigPanelProps> = ({ onOpenContentM
                 </p>
               </div>
               <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-                {(['ADMIN', 'SUPERVISOR', 'USER', 'DRIVER'] as const).map(role => (
+                {(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'USER', 'DRIVER'] as const).map(role => (
                   <button
                     key={role}
                     onClick={() => setHelpRole(role)}

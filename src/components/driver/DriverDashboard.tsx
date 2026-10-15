@@ -5,6 +5,7 @@ import { api } from '../../services/api';
 import { StatusBadge, VehicleBadge } from '../common/Badge';
 import { LiveRouteTrackingModal } from '../tracking/LiveRouteTrackingModal';
 import { TripExpenseModal } from '../expenses/TripExpenseModal';
+import { AdBannerSlot } from '../superadmin/AdBannersPanel';
 import confetti from 'canvas-confetti';
 import { 
   Truck, 
@@ -298,6 +299,8 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onOpenFormModa
           </div>
         </div>
       </div>
+
+      <AdBannerSlot placement="DRIVER_PORTAL" />
 
       {/* PWA Offline-First Status Controller */}
       <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">

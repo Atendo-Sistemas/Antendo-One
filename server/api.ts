@@ -47,7 +47,10 @@ import {
   CompanyStop,
   LodgingPartner,
   Client,
-  FreightAlertConfig
+  FreightAlertConfig,
+  AdBanner,
+  AdBannerFormat,
+  AdBannerPlacement
 } from '../src/types';
 
 
@@ -605,7 +608,7 @@ const tenantOwnNumberActive = (tenantId?: string | null): boolean => {
 
 const notificationTemplateForTenant = (eventKey: string, tenantId?: string | null): NotificationTemplate | undefined => {
   const globalTemplate = notificationTemplateFor(eventKey) as NotificationTemplate | undefined;
-  if (!globalTemplate || !tenantOwnNumberActive(tenantId)) return globalTemplate;
+  if (!globalTemplate || !tenantId) return globalTemplate;
   const tenantTemplate = db.tenantNotificationTemplates.get(String(tenantId))?.find(template => template.eventKey === eventKey);
   if (!tenantTemplate) return globalTemplate;
   return {
@@ -1401,7 +1404,7 @@ apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => 
 // Demo accounts may operate only on the fictional tenant; sensitive platform controls stay server-side blocked.
 apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   if (req.user && isPublicDemoUser(req.user)) {
-    const restrictedPrefixes = ['/billing/asaas', '/admin/backups', '/integrations/whatsapp', '/saas/config', '/saas/notification-templates', '/tenant/notification-templates', '/tenant/report-templates', '/error-logs'];
+    const restrictedPrefixes = ['/billing/asaas', '/admin/backups', '/integrations/whatsapp', '/saas/config', '/saas/notification-templates', '/saas/ad-banners', '/tenant/notification-templates', '/tenant/report-templates', '/error-logs'];
     if (restrictedPrefixes.some(prefix => req.path === prefix || req.path.startsWith(`${prefix}/`))) {
       return res.status(403).json({ code: 'DEMO_FEATURE_RESTRICTED', error: 'Esta função não está disponível no ambiente de demonstração.' });
     }
@@ -3882,7 +3885,7 @@ apiRouter.post('/drivers/me/location', async (req: AuthenticatedRequest, res: Re
 // Register a global driver from any real authenticated company user.
 // The identity is global; only the company relationship is tenant-scoped.
 apiRouter.post('/drivers/register', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || isTestOrDemoUser(req.user) || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Usuário autenticado e empresa válida são obrigatórios para cadastrar motorista.' });
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Somente administradores reais podem cadastrar motorista.' });
   const targetTenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : String(req.user.tenantId || '');
   if (!targetTenantId || !db.tenants.some(tenant => tenant.id === targetTenantId)) return res.status(400).json({ error: 'Empresa de vínculo não identificada.' });
   const name = String(req.body?.name || '').trim();
@@ -3945,7 +3948,7 @@ apiRouter.get('/drivers/lookup', (req: AuthenticatedRequest, res: Response) => {
 });
 
 apiRouter.post('/drivers/:id/company-link', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Empresa não identificada.' });
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Somente administradores reais podem criar vínculos de motorista.' });
   const driver = db.drivers.find(item => item.id === req.params.id);
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
   const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user.tenantId!;
@@ -3965,7 +3968,7 @@ apiRouter.get('/drivers/:id/company-profile', (req: AuthenticatedRequest, res: R
 });
 
 apiRouter.put('/drivers/:id/company-profile', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user?.tenantId && req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Empresa não identificada.' });
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || (!req.user.tenantId && req.user.role !== 'SUPER_ADMIN')) return res.status(403).json({ error: 'Somente administradores reais podem editar o perfil empresarial do motorista.' });
   const driver = db.drivers.find(item => item.id === req.params.id);
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
   const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user.tenantId!;
@@ -3987,9 +3990,9 @@ apiRouter.put('/drivers/:id/company-profile', async (req: AuthenticatedRequest, 
 apiRouter.put('/drivers/:id', async (req: AuthenticatedRequest, res: Response) => {
   const driver = db.drivers.find(d => d.id === req.params.id);
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
-
-  const isSelfDriver = req.user?.role === 'MOTORISTA' && (driver.userId === req.user.id || driver.id === req.user.driverId);
-  const isCompanyAdmin = req.user?.role === 'SUPER_ADMIN' || (Boolean(req.user?.tenantId) && TENANT_ADMIN_ROLES.includes(req.user!.role) && db.hasDriverCompanyAccess(driver.id, req.user!.tenantId!, true));
+  const isRealAccount = Boolean(req.user && !isTestOrDemoUser(req.user));
+  const isSelfDriver = isRealAccount && req.user?.role === 'MOTORISTA' && (driver.userId === req.user.id || driver.id === req.user.driverId);
+  const isCompanyAdmin = isRealAccount && (req.user?.role === 'SUPER_ADMIN' || (Boolean(req.user?.tenantId) && TENANT_ADMIN_ROLES.includes(req.user!.role) && db.hasDriverCompanyAccess(driver.id, req.user!.tenantId!, true)));
   if (!isSelfDriver && !isCompanyAdmin) return res.status(403).json({ error: 'Apenas o próprio motorista ou um administrador da empresa pode editar este cadastro.' });
 
   const body = req.body || {};
@@ -4166,6 +4169,9 @@ apiRouter.get('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
 
 // Create new Freight
 apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || isTestOrDemoUser(req.user)) {
+    return res.status(403).json({ error: 'Contas de teste e demonstração não podem gravar fretes.' });
+  }
   if (req.user?.role === 'MOTORISTA') {
     return res.status(403).json({ error: 'Motoristas não possuem permissão para cadastrar fretes' });
   }
@@ -4371,6 +4377,9 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
 
 // Update freight details (only while in draft or available)
 apiRouter.put('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || isTestOrDemoUser(req.user) || req.user.role === 'MOTORISTA' || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Somente administradores reais podem editar fretes.' });
+  }
   const freight = db.freights.find(f => f.id === req.params.id);
   if (!freight) return res.status(404).json({ error: 'Frete não encontrado' });
 
@@ -4603,12 +4612,14 @@ apiRouter.post('/freights/:id/accept', async (req: AuthenticatedRequest, res: Re
   });
 });
 
-// Internal acceptance/driver assignment. This is intentionally available to
-// every authenticated company user; tenant isolation and the atomic lock still
-// prevent cross-company access and double reservation.
+// Internal acceptance/driver assignment. Only administrators can make a manual
+// assignment; the driver self-service flow uses /accept instead.
 apiRouter.post('/freights/:id/assign-driver', async (req: AuthenticatedRequest, res: Response) => {
   const user = req.user;
   if (!user) return res.status(401).json({ error: 'Não autenticado.' });
+  if (isTestOrDemoUser(user) || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
+    return res.status(403).json({ error: 'Somente administradores reais podem direcionar um frete.' });
+  }
   const freight = db.freights.find(item => item.id === req.params.id);
   if (!freight) return res.status(404).json({ error: 'Frete não encontrado.' });
   if (user.role !== 'SUPER_ADMIN' && freight.tenantId !== user.tenantId) return res.status(403).json({ error: 'Este frete pertence a outra empresa.' });
@@ -4694,15 +4705,22 @@ apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response
     return res.status(404).json({ error: 'Frete não encontrado' });
   }
 
-  // Security check: ensure authorized to update status (driver assigned or same company tenant)
-  if (req.user?.role !== 'SUPER_ADMIN') {
-    if (req.user?.role === 'MOTORISTA') {
+  if (!req.user || isTestOrDemoUser(req.user)) {
+    return res.status(403).json({ error: 'Contas de teste e demonstração não podem alterar o status do frete.' });
+  }
+
+  // A driver can update only their assigned freight. Company status changes
+  // are reserved for the two administrative roles and the SaaS administrator.
+  const isAssignedDriver = req.user.role === 'MOTORISTA' && freight.assignedDriverId === req.user.driverId;
+  const isCompanyAdmin = ['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)
+    && (req.user.role === 'SUPER_ADMIN' || freight.tenantId === req.user.tenantId);
+  if (!isAssignedDriver && !isCompanyAdmin) {
+    if (req.user.role === 'MOTORISTA') {
       if (freight.assignedDriverId !== req.user.driverId) {
         return res.status(403).json({ error: 'Acesso não autorizado. Este frete não está atribuído a você.' });
       }
-    } else if (freight.tenantId !== req.user?.tenantId) {
-      return res.status(403).json({ error: 'Acesso não autorizado a este frete.' });
     }
+    return res.status(403).json({ error: 'Somente o motorista atribuído ou um administrador da empresa pode alterar este frete.' });
   }
 
   const currentStatus = freight.status;
@@ -4790,8 +4808,15 @@ apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response
    8. DYNAMIC FORM BUILDER & FORM RESPONSES
    ========================================================================= */
 
-const canManageLocalResources = (user: User | undefined) => Boolean(user && DIRECTORY_ADMIN_ROLES.includes(user.role));
-const resourceTenantId = (req: AuthenticatedRequest) => req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || req.query?.tenantId || '') : req.user?.tenantId || '';
+const canManageLocalResources = (user: User | undefined) => Boolean(user && DIRECTORY_ADMIN_ROLES.includes(user.role) && !isTestOrDemoUser(user));
+const resourceTenantId = (req: AuthenticatedRequest) => {
+  const requestedTenantId = req.user?.role === 'SUPER_ADMIN'
+    ? String(req.body?.tenantId || req.query?.tenantId || '').trim()
+    : String(req.user?.tenantId || '').trim();
+  if (!requestedTenantId || !db.tenants.some(tenant => tenant.id === requestedTenantId)) return '';
+  if (req.user?.role !== 'SUPER_ADMIN' && requestedTenantId !== req.user?.tenantId) return '';
+  return requestedTenantId;
+};
 const FORM_FIELD_TYPES = new Set<FormFieldType>(['text', 'textarea', 'number', 'cpf', 'cnpj', 'phone', 'email', 'date', 'time', 'select', 'radio', 'checkbox', 'file', 'photo', 'signature']);
 const FORM_OPTION_TYPES = new Set<FormFieldType>(['select', 'radio', 'checkbox']);
 
@@ -5924,6 +5949,7 @@ apiRouter.delete('/error-logs', (req: AuthenticatedRequest, res: Response) => {
 });
 
 apiRouter.get('/audit-logs', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role === 'MOTORISTA') return res.status(403).json({ error: 'O histórico de auditoria não está disponível para este perfil.' });
   if (req.user?.role === 'SUPER_ADMIN') {
     return res.json(db.auditLogs);
   }
@@ -5950,6 +5976,7 @@ apiRouter.get('/admin/metrics', (req: AuthenticatedRequest, res: Response) => {
 });
 
 apiRouter.get('/stats', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role === 'MOTORISTA') return res.status(403).json({ error: 'As métricas operacionais não estão disponíveis para este perfil.' });
   let freights = db.freights;
   let drivers = db.drivers;
   let vehicles = db.vehicles;
@@ -5957,7 +5984,7 @@ apiRouter.get('/stats', (req: AuthenticatedRequest, res: Response) => {
 
   if (req.user?.role !== 'SUPER_ADMIN') {
     freights = freights.filter(f => f.tenantId === req.user?.tenantId);
-    drivers = drivers.filter(d => d.tenantId === req.user?.tenantId);
+    drivers = drivers.filter(d => d.tenantId === req.user?.tenantId || (req.user?.tenantId ? db.hasDriverCompanyAccess(d.id, req.user.tenantId, true) : false));
     vehicles = vehicles.filter(v => v.tenantId === req.user?.tenantId);
     users = users.filter(u => u.tenantId === req.user?.tenantId);
   }
@@ -5993,6 +6020,9 @@ apiRouter.get('/stats', (req: AuthenticatedRequest, res: Response) => {
    ========================================================================= */
 
 apiRouter.delete('/freights/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || isTestOrDemoUser(req.user) || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Somente administradores reais podem cancelar fretes.' });
+  }
   const freight = db.freights.find(f => f.id === req.params.id);
   if (!freight) return res.status(404).json({ error: 'Frete não encontrado' });
   if (req.user?.role !== 'SUPER_ADMIN' && freight.tenantId !== req.user?.tenantId) {
@@ -6020,7 +6050,7 @@ apiRouter.delete('/freights/:id', async (req: AuthenticatedRequest, res: Respons
 });
 
 apiRouter.delete('/drivers/:id', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || !['SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente Super Admin ou Admin podem desativar motoristas.' });
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem desativar motoristas.' });
   const driver = db.drivers.find(d => d.id === req.params.id);
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
   if (req.user?.role !== 'SUPER_ADMIN' && (!req.user?.tenantId || !db.hasDriverCompanyAccess(driver.id, req.user.tenantId, true))) {
@@ -6600,6 +6630,143 @@ const exposePublicSaaSConfig = (config: any) => ({
   seo: safeSeoConfig(config.seo)
 });
 
+const AD_BANNER_FORMATS = new Set<AdBannerFormat>(['STRIP', 'CARD', 'SIDEBAR', 'MODAL']);
+const AD_BANNER_PLACEMENTS = new Set<AdBannerPlacement>(['HOME', 'FREIGHTS', 'OPERATIONS', 'DRIVER_PORTAL', 'DASHBOARD']);
+const AD_BANNER_ROLES = new Set<UserRole>(['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'USUARIO', 'MOTORISTA']);
+
+function safeBannerUrl(value: unknown, required = false): string | undefined {
+  const raw = String(value ?? '').trim().slice(0, 2000);
+  if (!raw) return required ? undefined : undefined;
+  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+  try {
+    const parsed = new URL(raw);
+    return ['https:', 'http:'].includes(parsed.protocol) ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function bannerDate(value: unknown): string | undefined {
+  const raw = String(value ?? '').trim();
+  if (!raw) return undefined;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function normalizeBannerInput(input: any, current?: AdBanner): AdBanner | null {
+  const title = String(input?.title ?? current?.title ?? '').trim().slice(0, 120);
+  const imageUrl = safeBannerUrl(input?.imageUrl ?? current?.imageUrl, true);
+  const linkUrl = safeBannerUrl(input?.linkUrl ?? current?.linkUrl);
+  const format = String(input?.format ?? current?.format ?? 'CARD').trim() as AdBannerFormat;
+  const rawPlacements: string[] = (Array.isArray(input?.placements) ? input.placements : current?.placements || []).map((item: unknown) => String(item).trim());
+  const rawRoles: string[] = (Array.isArray(input?.targetRoles) ? input.targetRoles : current?.targetRoles || []).map((item: unknown) => String(item).trim());
+  const placements: AdBannerPlacement[] = Array.from(new Set(rawPlacements)).filter((item): item is AdBannerPlacement => AD_BANNER_PLACEMENTS.has(item as AdBannerPlacement));
+  const targetRoles: UserRole[] = Array.from(new Set(rawRoles)).filter((item): item is UserRole => AD_BANNER_ROLES.has(item as UserRole));
+  const targetTenantIds: string[] = Array.from(new Set((Array.isArray(input?.targetTenantIds) ? input.targetTenantIds : current?.targetTenantIds || []).map((item: unknown) => String(item).trim()).filter(Boolean) as string[])).slice(0, 200);
+  const targetUserIds: string[] = Array.from(new Set((Array.isArray(input?.targetUserIds) ? input.targetUserIds : current?.targetUserIds || []).map((item: unknown) => String(item).trim()).filter(Boolean) as string[])).slice(0, 500);
+  const startsAt = bannerDate(input?.startsAt ?? current?.startsAt);
+  const endsAt = bannerDate(input?.endsAt ?? current?.endsAt);
+  const priority = Number(input?.priority ?? current?.priority ?? 0);
+  if (!title || !imageUrl || !AD_BANNER_FORMATS.has(format) || placements.length === 0 || !Number.isInteger(priority) || priority < 0 || priority > 999) return null;
+  if (endsAt && startsAt && new Date(endsAt).getTime() < new Date(startsAt).getTime()) return null;
+  return {
+    id: current?.id || randomUUID(),
+    title,
+    imageUrl,
+    ...(linkUrl ? { linkUrl } : {}),
+    openInNewTab: input?.openInNewTab === undefined ? Boolean(current?.openInNewTab) : input.openInNewTab === true,
+    format,
+    placements,
+    targetRoles,
+    targetTenantIds,
+    targetUserIds,
+    isActive: input?.isActive === undefined ? current?.isActive !== false : input.isActive === true,
+    ...(startsAt ? { startsAt } : {}),
+    ...(endsAt ? { endsAt } : {}),
+    priority,
+    createdAt: current?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function bannerIsVisibleToUser(banner: AdBanner, user: User, placement?: AdBannerPlacement): boolean {
+  const now = Date.now();
+  if (!banner.isActive || (placement && !banner.placements.includes(placement))) return false;
+  if (banner.startsAt && new Date(banner.startsAt).getTime() > now) return false;
+  if (banner.endsAt && new Date(banner.endsAt).getTime() < now) return false;
+  if (banner.targetRoles.length > 0 && !banner.targetRoles.includes(user.role)) return false;
+  if (banner.targetTenantIds.length > 0 && (!user.tenantId || !banner.targetTenantIds.includes(user.tenantId))) return false;
+  if (banner.targetUserIds.length > 0 && !banner.targetUserIds.includes(user.id)) return false;
+  return true;
+}
+
+function publicBanner(banner: AdBanner) {
+  return {
+    id: banner.id,
+    title: banner.title,
+    imageUrl: banner.imageUrl,
+    linkUrl: banner.linkUrl,
+    openInNewTab: banner.openInNewTab,
+    format: banner.format,
+    placements: banner.placements,
+    priority: banner.priority
+  };
+}
+
+apiRouter.get('/ad-banners/visible', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Não autenticado.' });
+  const placement = String(req.query.placement || '').trim() as AdBannerPlacement;
+  const banners = (db.saasGlobalConfig.adBanners || [])
+    .filter(banner => bannerIsVisibleToUser(banner, req.user!, AD_BANNER_PLACEMENTS.has(placement) ? placement : undefined))
+    .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))
+    .map(publicBanner);
+  return res.json(banners);
+});
+
+apiRouter.get('/saas/ad-banners', (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  return res.json(db.saasGlobalConfig.adBanners || []);
+});
+
+apiRouter.post('/saas/ad-banners', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const banner = normalizeBannerInput(req.body);
+  if (!banner) return res.status(400).json({ error: 'Preencha título, imagem, formato e pelo menos um local de exibição válidos.' });
+  if (banner.targetTenantIds.some(id => !db.tenants.some(tenant => tenant.id === id)) || banner.targetUserIds.some(id => !db.users.some(user => user.id === id))) {
+    return res.status(400).json({ error: 'A segmentação selecionada contém uma empresa ou usuário inválido.' });
+  }
+  db.saasGlobalConfig.adBanners = [...(db.saasGlobalConfig.adBanners || []), banner];
+  db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'AD_BANNER_CREATED', entity: 'AdBanner', entityId: banner.id, details: `Banner ${banner.title} criado.` });
+  await db.persistNow();
+  return res.status(201).json(banner);
+});
+
+apiRouter.put('/saas/ad-banners/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const current = (db.saasGlobalConfig.adBanners || []).find(item => item.id === req.params.id);
+  if (!current) return res.status(404).json({ error: 'Banner não encontrado.' });
+  const banner = normalizeBannerInput(req.body, current);
+  if (!banner) return res.status(400).json({ error: 'Os dados do banner são inválidos.' });
+  if (banner.targetTenantIds.some(id => !db.tenants.some(tenant => tenant.id === id)) || banner.targetUserIds.some(id => !db.users.some(user => user.id === id))) {
+    return res.status(400).json({ error: 'A segmentação selecionada contém uma empresa ou usuário inválido.' });
+  }
+  db.saasGlobalConfig.adBanners = (db.saasGlobalConfig.adBanners || []).map(item => item.id === current.id ? banner : item);
+  db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'AD_BANNER_UPDATED', entity: 'AdBanner', entityId: banner.id, details: `Banner ${banner.title} atualizado.` });
+  await db.persistNow();
+  return res.json(banner);
+});
+
+apiRouter.delete('/saas/ad-banners/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const before = db.saasGlobalConfig.adBanners || [];
+  const found = before.find(item => item.id === req.params.id);
+  if (!found) return res.status(404).json({ error: 'Banner não encontrado.' });
+  db.saasGlobalConfig.adBanners = before.filter(item => item.id !== found.id);
+  db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'AD_BANNER_DELETED', entity: 'AdBanner', entityId: found.id, details: `Banner ${found.title} removido.` });
+  await db.persistNow();
+  return res.json({ success: true });
+});
+
 apiRouter.get('/saas/config', (req: AuthenticatedRequest, res: Response) => {
   res.setHeader('Cache-Control', req.user?.role === 'SUPER_ADMIN' ? 'no-store' : 'public, max-age=300');
   res.json(req.user?.role === 'SUPER_ADMIN' ? exposeSafeSaaSConfig(db.saasGlobalConfig) : exposePublicSaaSConfig(db.saasGlobalConfig));
@@ -7168,7 +7335,7 @@ apiRouter.post('/help', async (req: AuthenticatedRequest, res: Response) => {
     return res.status(403).json({ error: 'Apenas Super Administradores podem editar a ajuda.' });
   }
   const role = String(req.body?.role || '').trim().toUpperCase();
-  const allowedRoles = new Set(['ADMIN', 'SUPERVISOR', 'USER', 'DRIVER']);
+  const allowedRoles = new Set(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'USER', 'DRIVER']);
   if (!allowedRoles.has(role)) return res.status(400).json({ error: 'Perfil de ajuda inválido.' });
   const content = sanitizeServerHtml(String(req.body?.content || '').slice(0, 20000));
   const index = db.helpPages.findIndex(h => h.role === role);

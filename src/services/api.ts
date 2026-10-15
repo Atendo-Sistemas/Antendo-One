@@ -1,4 +1,4 @@
-import { User, Tenant, Driver, Vehicle, Freight, Tenant as TenantType, Metrics, Invoice } from '../types';
+import { User, Tenant, Driver, Vehicle, Freight, Tenant as TenantType, Metrics, Invoice, AdBanner, AdBannerPlacement } from '../types';
 
 type OfflineResponse = { formId: string; freightId?: string; responseId: string; stage: string; isDraft: boolean; answers: Record<string, any> };
 
@@ -208,6 +208,11 @@ export const api = {
   async getNotificationTemplates() { return request<any[]>('/saas/notification-templates'); },
   async updateNotificationTemplate(id: string, data: any) { return request<any>(`/saas/notification-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
   async getTenantNotificationTemplates() { return request<any[]>('/tenant/notification-templates'); },
+  async getVisibleAdBanners(placement?: AdBannerPlacement) { return request<AdBanner[]>(`/ad-banners/visible${placement ? `?placement=${encodeURIComponent(placement)}` : ''}`); },
+  async getAdBanners() { return request<AdBanner[]>('/saas/ad-banners'); },
+  async createAdBanner(data: Partial<AdBanner>) { return request<AdBanner>('/saas/ad-banners', { method: 'POST', body: JSON.stringify(data) }); },
+  async updateAdBanner(id: string, data: Partial<AdBanner>) { return request<AdBanner>(`/saas/ad-banners/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  async deleteAdBanner(id: string) { return request<{ success: boolean }>(`/saas/ad-banners/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
   async updateTenantNotificationTemplate(id: string, data: any) { return request<any>(`/tenant/notification-templates/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }); },
   async getTenantEmailConfig() { return request<any>('/tenant/email-config'); },
   async updateTenantEmailConfig(data: any) { return request<any>('/tenant/email-config', { method: 'PUT', body: JSON.stringify(data) }); },
@@ -358,15 +363,15 @@ export const api = {
   async startDemoSession(userId?: string) { return request<any>('/auth/demo-session', { method: 'POST', body: JSON.stringify(userId ? { userId } : {}) }); },
   async startSupportSession(targetUserId: string) { return request<any>('/support/sessions', { method: 'POST', body: JSON.stringify({ targetUserId }) }); },
   async endSupportSession() { return request<any>('/support/sessions/end', { method: 'POST' }); },
-  async getNotificationModuleStatus(...args: any[]) { return request<any>('/billing/asaas/notification-module'); },
+  async getNotificationModuleStatus(tenantId?: string) { return request<any>(`/billing/asaas/notification-module${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
   async selectFreeNotificationModule(data?: any) { return request<any>('/billing/asaas/notification-module/free', { method: 'POST', body: JSON.stringify(data || {}) }); },
   async createNotificationModuleSubscription(data: any) { return request<any>('/billing/asaas/notification-module/subscribe', { method: 'POST', body: JSON.stringify(data) }); },
   async cancelNotificationModule(data?: any) { return request<any>('/billing/asaas/notification-module/cancel', { method: 'POST', body: JSON.stringify(data || {}) }); },
-  async getAsaasFinancialSummary(...args: any[]) { return request<any>('/billing/asaas/financial-summary'); },
+  async getAsaasFinancialSummary(tenantId?: string) { return request<any>(`/billing/asaas/financial-summary${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
   async changeAsaasPlan(data: any) { return request<any>('/billing/asaas/subscription/change-plan', { method: 'POST', body: JSON.stringify(data) }); },
   async createAsaasSubscription(data: any) { return request<any>('/billing/asaas/subscribe', { method: 'POST', body: JSON.stringify(data) }); },
-  async cancelAsaasSubscription(data: any) { return request<any>('/billing/asaas/subscription/cancel', { method: 'POST', body: JSON.stringify(data) }); },
-  async getAsaasSubscription(...args: any[]) { return request<any>('/billing/asaas/subscription'); },
+  async cancelAsaasSubscription(data: any) { return request<any>('/billing/asaas/subscription/cancel', { method: 'POST', body: JSON.stringify(typeof data === 'string' ? { tenantId: data } : (data || {})) }); },
+  async getAsaasSubscription(tenantId?: string) { return request<any>(`/billing/asaas/subscription${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`); },
   async testAsaasConnection(data?: any) { return request<any>('/billing/asaas/test', { method: 'POST', body: JSON.stringify(data || {}) }); },
   async getCompanyStops(...args: any[]) { return request<any[]>('/company-stops'); },
   async createCompanyStop(data: any) { return request<any>('/company-stops', { method: 'POST', body: JSON.stringify(data) }); },
