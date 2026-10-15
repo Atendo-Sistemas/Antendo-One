@@ -1,0 +1,26 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+
+const api = fs.readFileSync('server/api.ts', 'utf8');
+const app = fs.readFileSync('src/App.tsx', 'utf8');
+const profile = fs.readFileSync('src/components/driver/DriverProfileView.tsx', 'utf8');
+const directory = fs.readFileSync('src/components/drivers/DriverDirectoryPanel.tsx', 'utf8');
+const registration = fs.readFileSync('src/components/common/PublicDriverRegistrationModal.tsx', 'utf8');
+const showcase = fs.readFileSync('src/components/common/FreightShowcasePage.tsx', 'utf8');
+const approvals = fs.readFileSync('src/components/drivers/DriverCompanyLinkPanel.tsx', 'utf8');
+
+assert.match(api, /publicPaths = \[[\s\S]*?'\/public\/drivers\/register'/, 'no-freight registration must be an intentional public OTP route');
+assert.match(api, /apiRouter\.post\('\/public\/drivers\/register'[\s\S]*?termsAccepted[\s\S]*?privacyAccepted[\s\S]*?pendingPublicDriverDirectoryConsent\.set/, 'registration must validate legal consent and defer directory visibility until phone verification');
+assert.match(api, /apiRouter\.get\('\/drivers\/directory'[\s\S]*?canManageTenantDirectory\(req\.user\)[\s\S]*?driver\.directoryVisible !== true[\s\S]*?companyLinkStatus/, 'directory must require company admins and return only opted-in profiles');
+assert.match(api, /apiRouter\.post\('\/drivers\/directory\/:id\/request'[\s\S]*?req\.user\.tenantId[\s\S]*?scope: 'EMPRESA'/, 'company evaluation requests must be tenant-scoped');
+assert.match(api, /if \(pendingPublicDriverDirectoryConsent\.has\(targetUser\.id\)\)[\s\S]*?driver\.directoryVisible = directoryConsent/, 'directory consent must be applied only after OTP verification');
+assert.match(api, /if \(isSelfDriver && typeof body\.directoryVisible === 'boolean'/, 'only the driver may change directory visibility');
+assert.match(api, /if \(driver && status === 'APROVADO' && !isCompanyDecision\)/, 'company decisions must not modify global driver status');
+assert.match(app, /safeActiveTab === 'driver-directory'/, 'company app must render the directory tab');
+assert.match(profile, /Permitir que empresas encontrem meu perfil/, 'drivers must be able to revoke directory visibility');
+assert.match(directory, /Solicitar avaliação/, 'company directory must provide an evaluation request action');
+assert.match(registration, /Cadastrar perfil de motorista/, 'public registration must not require freight');
+assert.match(showcase, /Cadastrar como motorista/, 'public freight page must keep registration available without listings');
+assert.match(approvals, /Não apto nesta empresa/, 'company decisions must be explicitly company-specific');
+
+console.log('DRIVER_DIRECTORY_INVARIANTS_OK');

@@ -20,7 +20,7 @@ assert.match(help, /role === 'USUARIO'\) return 'USER'/);
 assert.match(notifications, /mode\?: 'preferences' \| 'freight-alerts'/);
 assert.match(notifications, /showFreightAlerts && canConfigureCompany \? api\.getFreightAlertConfig/);
 assert.match(notifications, /showPreferences && isDriver/);
-assert.match(navbar, /canManageBilling \? \[\['driver-approvals', 'Aprovação de motoristas'\]/);
+assert.match(navbar, /canManageBilling \? \[\['driver-directory', 'Banco de motoristas'\], \['driver-approvals', 'Aprovação de motoristas'\]/);
 assert.match(app, /if \(tab === 'driver-approvals'\) return isCompanyAdmin;/);
 assert.match(app, /DriverCompanyLinkPanel/);
 assert.match(app, /isCompanyAdmin \? <DriverCompanyLinkPanel \/>/);

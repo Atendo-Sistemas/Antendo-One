@@ -1312,8 +1312,17 @@ apiRouter.post('/public/drivers/register', async (req: AuthenticatedRequest, res
   activeOTPs.set(cleanPhone, { code, expiresAt, failedAttempts: 0 });
   activeOTPs.set(userId, { code, expiresAt, failedAttempts: 0 });
   const waResult = await sendToWhatsAppGateway(resolveWhatsAppConfig(), { number: cleanPhone, body: `Atendo One: seu código para concluir o cadastro de motorista é ${code}. Válido por 5 minutos.`, externalKey: `driver-directory-${randomUUID()}` });
+  if (!waResult.success) {
+    db.users = db.users.filter(item => item.id !== userId);
+    db.drivers = db.drivers.filter(item => item.id !== driverId);
+    activeOTPs.delete(cleanPhone);
+    activeOTPs.delete(userId);
+    pendingPublicDriverDirectoryConsent.delete(userId);
+    publicDriverRegistrationAttempts.delete(cleanPhone);
+    await db.persistNow();
+    return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Tente novamente em alguns instantes.' });
+  }
   await db.persistNow();
-  if (!waResult.success) return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Solicite novamente em alguns instantes.' });
   return res.status(201).json({ success: true, message: 'Código enviado pelo WhatsApp. Valide o telefone para concluir o cadastro.' });
 });
 // Apply auth middleware to all authenticated /api routes.
