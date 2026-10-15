@@ -18,7 +18,7 @@ assert.match(help, /SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'\]\.includes\(ro
 assert.match(help, /role === 'MOTORISTA'\) return 'DRIVER'/);
 assert.match(help, /role === 'USUARIO'\) return 'USER'/);
 assert.match(notifications, /mode\?: 'preferences' \| 'freight-alerts'/);
-assert.match(notifications, /mode === 'freight-alerts' && canConfigureCompany \? api\.getFreightAlertConfig/);
+assert.match(notifications, /showFreightAlerts && canConfigureCompany \? api\.getFreightAlertConfig/);
 assert.match(notifications, /showPreferences && isDriver/);
 assert.match(navbar, /canManageBilling \? \[\['driver-approvals', 'Aprovação de motoristas'\]/);
 assert.match(app, /DriverCompanyLinkPanel/);
