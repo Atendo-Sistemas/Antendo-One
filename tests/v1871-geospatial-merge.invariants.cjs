@@ -29,7 +29,7 @@ match(api, /fallbackRegion === 'CITY'/, 'CITY_FALLBACK_MISSING');
 match(api, /requireCurrentLocation/, 'REQUIRE_CURRENT_LOCATION_MISSING');
 match(api, /eligibleDriverIds/, 'GLOBAL_DRIVER_ELIGIBILITY_DISPATCH_MISSING');
 match(api, /notificationTemplateForTenant\(eventKey, user\.tenantId \|\| sourceTenantId\)/, 'TENANT_TEMPLATE_FOR_GLOBAL_DRIVER_MISSING');
-match(api, /currentLocation, \.\.\.safeDriver/, 'DRIVER_LOCATION_EXPOSURE_GUARD_MISSING');
+match(api, /currentLocation, registrationPendingVerification, directoryConsentPending, \.\.\.safeDriver/, 'DRIVER_LOCATION_EXPOSURE_GUARD_MISSING');
 match(api, /apiRouter\.get\('\/users\/duplicate-candidates'/, 'DUPLICATE_CANDIDATE_ROUTE_MISSING');
 match(api, /apiRouter\.post\('\/users\/merge'/, 'USER_MERGE_ROUTE_MISSING');
 match(api, /target\.role !== source\.role/, 'MERGE_ROLE_GUARD_MISSING');
