@@ -392,6 +392,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     '/auth/register-company',
     '/auth/verify-registration',
     '/auth/register-driver',
+    '/public/drivers/register',
     '/auth/switch-demo',
     '/auth/demo-session',
     '/analytics/visit',
@@ -1280,6 +1281,41 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
   if (!waResult.success) return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Solicite novamente em alguns instantes.' });
   res.status(201).json({ success: true, userId: user.id, message: 'Código enviado pelo WhatsApp. Valide o telefone para continuar.' });
 });
+apiRouter.post('/public/drivers/register', async (req: AuthenticatedRequest, res: Response) => {
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const phone = String(req.body?.phone || '').trim();
+  const cpf = normalizePublicIdentity(req.body?.cpf);
+  const cnh = normalizePublicIdentity(req.body?.cnh);
+  const city = String(req.body?.city || '').trim();
+  const state = String(req.body?.state || '').trim().toUpperCase();
+  const category = String(req.body?.cnhCategory || '').trim().toUpperCase();
+  const cnhExpiresAt = String(req.body?.cnhExpiresAt || '').trim();
+  const cleanPhone = normalizePhoneForLookup(phone);
+  if (name.length < 5 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !isValidBrazilianLoginPhone(cleanPhone) || cpf.length !== 11 || cnh.length < 9 || city.length < 2 || !BRAZILIAN_UFS.has(state) || !['B', 'C', 'D', 'E'].includes(category) || !cnhExpiresAt) return res.status(400).json({ error: 'Preencha corretamente nome, e-mail, telefone, CPF, CNH, categoria, validade, cidade e UF.' });
+  if (req.body?.termsAccepted !== true || req.body?.privacyAccepted !== true) return res.status(400).json({ error: 'É necessário aceitar os Termos de Uso e a Política de Privacidade.' });
+  const lastAttempt = publicDriverRegistrationAttempts.get(cleanPhone);
+  if (lastAttempt && Date.now() - lastAttempt < PUBLIC_INTEREST_RATE_WINDOW_MS) return res.status(429).json({ error: 'Já recebemos um cadastro para este telefone. Aguarde alguns minutos antes de tentar novamente.' });
+  if (db.users.some(user => user.email?.trim().toLowerCase() === email || normalizePhoneForLookup(user.phone) === cleanPhone)) return res.status(409).json({ error: 'Este e-mail ou telefone já possui cadastro. Acesse sua conta.' });
+  if (db.drivers.some(driver => normalizePublicIdentity(driver.cpf) === cpf || normalizePublicIdentity(driver.cnh) === cnh)) return res.status(409).json({ error: 'Este CPF ou CNH já possui cadastro. Acesse sua conta.' });
+  publicDriverRegistrationAttempts.set(cleanPhone, Date.now());
+  const now = new Date().toISOString();
+  const userId = `user-driver-directory-${randomUUID()}`;
+  const driverId = `driver-directory-${randomUUID()}`;
+  const newUser: User = { id: userId, tenantId: null, name, email, phone, role: 'MOTORISTA', status: 'PENDENTE', accountType: 'REAL', readOnly: false, driverId, lastLoginAt: null, createdAt: now, termsAcceptedAt: now, privacyAcceptedAt: now, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy };
+  const newDriver: Driver = { id: driverId, userId, tenantId: null, name, cpf, rg: '', birthDate: '', phone, email, zipCode: '', address: '', city, state, cnh, cnhCategory: category as Driver['cnhCategory'], cnhExpiresAt, status: 'PENDENTE', rating: 0, completedTrips: 0, vehiclesCount: 0, directoryVisible: false, createdAt: now };
+  db.users.push(newUser);
+  db.drivers.push(newDriver);
+  pendingPublicDriverDirectoryConsent.set(userId, req.body?.directoryConsent === true);
+  const code = randomInt(100000, 1000000).toString();
+  const expiresAt = Date.now() + 5 * 60 * 1000;
+  activeOTPs.set(cleanPhone, { code, expiresAt, failedAttempts: 0 });
+  activeOTPs.set(userId, { code, expiresAt, failedAttempts: 0 });
+  const waResult = await sendToWhatsAppGateway(resolveWhatsAppConfig(), { number: cleanPhone, body: `Atendo One: seu código para concluir o cadastro de motorista é ${code}. Válido por 5 minutos.`, externalKey: `driver-directory-${randomUUID()}` });
+  await db.persistNow();
+  if (!waResult.success) return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Solicite novamente em alguns instantes.' });
+  return res.status(201).json({ success: true, message: 'Código enviado pelo WhatsApp. Valide o telefone para concluir o cadastro.' });
+});
 // Apply auth middleware to all authenticated /api routes.
 apiRouter.use(authMiddleware);
 // Every PostgreSQL query started by a request receives a server-derived tenant context.
@@ -1615,7 +1651,7 @@ apiRouter.put('/driver-company-links/:id/status', (req: AuthenticatedRequest, re
     interest.reviewedAt = now;
     interest.reviewedByUserId = req.user?.id;
   }
-  if (driver && status === 'APROVADO') {
+  if (driver && status === 'APROVADO' && !isCompanyDecision) {
     driver.status = 'DISPONIVEL';
     if (driverUser) driverUser.status = 'ATIVO';
   }
@@ -2559,6 +2595,8 @@ apiRouter.post('/auth/switch-demo', (req: AuthenticatedRequest, res: Response) =
 const activeOTPs = new Map<string, { code: string; expiresAt: number; failedAttempts?: number }>();
 const otpLastSentAt = new Map<string, number>();
 const publicInterestAttempts = new Map<string, number>();
+const publicDriverRegistrationAttempts = new Map<string, number>();
+const pendingPublicDriverDirectoryConsent = new Map<string, boolean>();
 const PUBLIC_INTEREST_RATE_WINDOW_MS = 10 * 60 * 1000;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 
@@ -2718,6 +2756,7 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
     activeOTPs.delete(cleanPhone);
     activeOTPs.delete(cleanUserPhone);
     activeOTPs.delete(targetUser.id);
+    pendingPublicDriverDirectoryConsent.delete(targetUser.id);
     return res.status(400).json({ error: 'Código de verificação expirou (validade de 5 minutos).' });
   }
 
@@ -2731,6 +2770,7 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
       activeOTPs.delete(cleanPhone);
       activeOTPs.delete(cleanUserPhone);
       activeOTPs.delete(targetUser.id);
+      pendingPublicDriverDirectoryConsent.delete(targetUser.id);
       return res.status(429).json({ error: 'Muitas tentativas incorretas. Código bloqueado. Solicite um novo código.' });
     }
     return res.status(400).json({ error: `Código de verificação inválido. Tentativa ${activeOtp.failedAttempts}/5.` });
@@ -2740,6 +2780,21 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
   activeOTPs.delete(cleanPhone);
   activeOTPs.delete(cleanUserPhone);
   activeOTPs.delete(targetUser.id);
+  if (pendingPublicDriverDirectoryConsent.has(targetUser.id)) {
+    const driver = db.drivers.find(item => item.userId === targetUser.id);
+    const directoryConsent = pendingPublicDriverDirectoryConsent.get(targetUser.id) === true;
+    targetUser.status = 'ATIVO';
+    targetUser.updatedAt = new Date().toISOString();
+    if (driver) {
+      driver.status = 'DISPONIVEL';
+      driver.directoryVisible = directoryConsent;
+      driver.updatedAt = targetUser.updatedAt;
+    }
+    await db.recordLegalConsent({ userId: targetUser.id, tenantId: null, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy, acceptedAt: targetUser.updatedAt, ipAddress: requestIp(req), userAgent: req.get('user-agent') || '' });
+    if (directoryConsent && driver) db.addAuditLog({ ip: requestIp(req), userId: targetUser.id, userName: targetUser.name, userRole: 'MOTORISTA', action: 'CONSENTIMENTO_CATALOGO_MOTORISTA', entity: 'Driver', entityId: driver.id, details: 'Motorista autorizou a exibição do perfil básico no catálogo para empresas.' });
+    pendingPublicDriverDirectoryConsent.delete(targetUser.id);
+    await db.persistNow();
+  }
 
   targetUser.lastLoginAt = new Date().toISOString();
   const { token, refreshToken } = issueUserSession(targetUser);
@@ -3979,6 +4034,39 @@ apiRouter.get('/drivers/lookup', (req: AuthenticatedRequest, res: Response) => {
   return res.json({ driver: sanitizeDriverLookup(driver), companyLink: link || null });
 });
 
+apiRouter.get('/drivers/directory', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || !req.user.tenantId) return res.status(403).json({ error: 'Somente administradores reais de uma empresa podem consultar o catálogo de motoristas.' });
+  const search = String(req.query.search || '').trim().toLocaleLowerCase('pt-BR').slice(0, 100);
+  const category = String(req.query.category || '').trim().toUpperCase();
+  const items = db.drivers.filter(driver => {
+    if (driver.directoryVisible !== true || driver.status === 'INATIVO') return false;
+    if (category && driver.cnhCategory !== category) return false;
+    if (!search) return true;
+    return [driver.name, driver.city, driver.state].some(value => String(value || '').toLocaleLowerCase('pt-BR').includes(search));
+  }).slice(0, 100).map(driver => ({
+    id: driver.id,
+    name: driver.name,
+    city: driver.city,
+    state: driver.state,
+    cnhCategory: driver.cnhCategory,
+    companyLinkStatus: db.getDriverCompanyLink(driver.id, req.user!.tenantId!)?.status || null
+  }));
+  return res.json(items);
+});
+
+apiRouter.post('/drivers/directory/:id/request', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || !req.user.tenantId) return res.status(403).json({ error: 'Somente administradores reais de uma empresa podem solicitar avaliação.' });
+  const driver = db.drivers.find(item => item.id === req.params.id && item.directoryVisible === true);
+  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado no catálogo.' });
+  const existing = db.getDriverCompanyLink(driver.id, req.user.tenantId);
+  if (existing?.status === 'BLOQUEADO') return res.status(409).json({ error: 'Este motorista está bloqueado para sua empresa.' });
+  if (existing?.status === 'APROVADO' || existing?.status === 'PENDENTE') return res.json({ success: true, companyLink: existing });
+  const link = db.upsertDriverCompanyLink({ driverId: driver.id, tenantId: req.user.tenantId, status: 'PENDENTE', scope: 'EMPRESA', source: 'CONVITE' });
+  db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'SOLICITAR_AVALIACAO_MOTORISTA', entity: 'DriverCompanyLink', entityId: link.id, details: `Solicitada avaliação do motorista ${driver.id} para esta empresa.` });
+  await db.persistNow();
+  return res.status(201).json({ success: true, companyLink: link });
+});
+
 apiRouter.post('/drivers/:id/company-link', async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Somente administradores reais podem criar vínculos de motorista.' });
   const driver = db.drivers.find(item => item.id === req.params.id);
@@ -4035,6 +4123,10 @@ apiRouter.put('/drivers/:id', async (req: AuthenticatedRequest, res: Response) =
   if (body.address !== undefined) driver.address = text(body.address, driver.address, 300);
   if (body.city !== undefined) driver.city = text(body.city, driver.city, 120);
   if (body.state !== undefined) driver.state = text(body.state, driver.state, 2).toUpperCase();
+  if (isSelfDriver && typeof body.directoryVisible === 'boolean' && driver.directoryVisible !== body.directoryVisible) {
+    driver.directoryVisible = body.directoryVisible;
+    db.addAuditLog({ ip: requestIp(req), userId: req.user!.id, userName: req.user!.name, userRole: 'MOTORISTA', action: 'CONSENTIMENTO_CATALOGO_MOTORISTA', entity: 'Driver', entityId: driver.id, details: body.directoryVisible ? 'Motorista autorizou a exibição do perfil básico no catálogo para empresas.' : 'Motorista retirou a autorização de exibição do perfil no catálogo para empresas.' });
+  }
   if (isCompanyAdmin) {
     if (body.cpf !== undefined) driver.cpf = text(body.cpf, driver.cpf, 30);
     if (body.rg !== undefined) driver.rg = text(body.rg, driver.rg, 30);

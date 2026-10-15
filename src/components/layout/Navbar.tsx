@@ -100,7 +100,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const canViewAudit = ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user?.role || '');
   const canManageReportTemplates = !isDemo && canManageBilling;
   const companyNavGroups = [
-    { key: 'operacao', label: 'Operação', items: [['freights', 'Fretes'], ['operations', 'Central'], ['drivers', 'Motoristas'], ...(canManageBilling ? [['driver-approvals', 'Aprovação de motoristas'], ['company-vehicles', 'Veículos próprios']] : []), ['expenses', 'Prestação de contas']] },
+    { key: 'operacao', label: 'Operação', items: [['freights', 'Fretes'], ['operations', 'Central'], ['drivers', 'Motoristas'], ...(canManageBilling ? [['driver-directory', 'Banco de motoristas'], ['driver-approvals', 'Aprovação de motoristas'], ['company-vehicles', 'Veículos próprios']] : []), ['expenses', 'Prestação de contas']] },
     { key: 'gestao', label: 'Gestão', items: [['budgets', 'Orçamentos'], ['clients', 'Clientes'], ['forms', 'Formulários'], ...(canManageDirectory ? [['users', 'Usuários']] : []), ...(canViewAudit ? [['audit', 'Auditoria']] : [])] },
     { key: 'configuracoes', label: 'Configurações', items: [...(canManageBilling ? [['billing', 'Assinatura'], ['company-notification-templates', 'Mensagens'], ['company-email-config', 'E-mail da empresa'], ['freight-alerts', 'Alertas de frete']] : []), ...(canManageReportTemplates ? [['company-report-templates', 'Relatórios']] : []), ['notification-preferences', 'Preferências'], ['help', 'Ajuda']] }
   ];

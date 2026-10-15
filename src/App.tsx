@@ -30,6 +30,7 @@ const NotificationTemplatesPanel = lazy(() => import('./components/superadmin/No
 const CompanyEmailConfigPanel = lazy(() => import('./components/company/CompanyEmailConfigPanel').then(m => ({ default: m.CompanyEmailConfigPanel })));
 const ReportTemplatesPanel = lazy(() => import('./components/company/ReportTemplatesPanel').then(m => ({ default: m.ReportTemplatesPanel })));
 const DriverCompanyLinkPanel = lazy(() => import('./components/drivers/DriverCompanyLinkPanel').then(m => ({ default: m.DriverCompanyLinkPanel })));
+const DriverDirectoryPanel = lazy(() => import('./components/drivers/DriverDirectoryPanel').then(m => ({ default: m.DriverDirectoryPanel })));
 const CompanyStopsPanel = lazy(() => import('./components/company/CompanyStopsPanel').then(m => ({ default: m.CompanyStopsPanel })));
 const BudgetManager = lazy(() => import('./components/budgets/BudgetManager').then(m => ({ default: m.BudgetManager })));
 const ClientManager = lazy(() => import('./components/clients/ClientManager').then(m => ({ default: m.ClientManager })));
@@ -91,6 +92,7 @@ const AppContent: React.FC = () => {
     if (isDriver) return ['driver-portal', 'driver-profile', 'expenses', 'notification-preferences', 'help'].includes(tab);
     if (isSuperAdmin) return ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'freight-alerts', 'help'].includes(tab);
     if (tab === 'driver-approvals') return isCompanyAdmin;
+    if (tab === 'driver-directory') return isCompanyAdmin;
     if (['billing', 'company-notification-templates', 'company-email-config', 'freight-alerts', 'company-report-templates'].includes(tab)) return ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role);
     if (tab === 'users') return ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role);
     if (tab === 'audit') return ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user.role);
@@ -219,7 +221,7 @@ const AppContent: React.FC = () => {
           )
         ) : (
           <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
-            {safeActiveTab === 'freights' && <CompanyDashboard />}
+            {safeActiveTab === 'freights' && <CompanyDashboard onOpenDriverRegistration={() => setActiveTab('drivers')} />}
             {safeActiveTab === 'budgets' && <BudgetManager />}
             {safeActiveTab === 'clients' && <ClientManager />}
             {safeActiveTab === 'operations' && <OperationsCenter />}
@@ -230,6 +232,7 @@ const AppContent: React.FC = () => {
             {safeActiveTab === 'company-report-templates' && (isDemo ? <DemoRestrictedNotice title="Modelos protegidos no modo demo" description="A demonstração permite visualizar relatórios fictícios, mas não permite editar ou salvar modelos de relatório." /> : <ReportTemplatesPanel />)}
             {safeActiveTab === 'drivers' && <DriverManager />}
             {safeActiveTab === 'driver-approvals' && (isDemo ? <DemoRestrictedNotice title="Aprovação indisponível no modo demo" description="A demonstração não permite alterar aprovações ou vínculos de motoristas." /> : isCompanyAdmin ? <DriverCompanyLinkPanel /> : <DemoRestrictedNotice title="Acesso restrito" description="Somente administradores da empresa podem aprovar solicitações de motoristas." />)}
+            {safeActiveTab === 'driver-directory' && isCompanyAdmin && <DriverDirectoryPanel onOpenApprovals={() => setActiveTab('driver-approvals')} />}
             {safeActiveTab === 'company-vehicles' && <CompanyVehicleManager />}
             {safeActiveTab === 'expenses' && <ExpenseManager currentUser={user} />}
             {safeActiveTab === 'forms' && <FormBuilder />}

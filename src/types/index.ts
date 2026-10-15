@@ -291,6 +291,7 @@ export interface Driver {
   pixKeyType?: string;
   pixKey?: string;
   proximityAlertsEnabled?: boolean;
+  directoryVisible?: boolean;
   currentLocation?: {
     lat: number;
     lng: number;
