@@ -398,7 +398,7 @@ export const SqlAndInstallationConfig: React.FC<SqlAndInstallationConfigProps> =
               <li>Acesse seu painel Portainer e clique no menu lateral em <strong>Stacks</strong> &gt; <strong>Add stack</strong>.</li>
               <li>Defina o nome da stack como <code className="bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded font-mono text-emerald-600">atendo-one</code>.</li>
               <li>Selecione o método <strong>Web editor</strong> e cole o conteúdo YAML abaixo.</li>
-              <li>(Opcional) Altere a senha padrão do banco na variável <code className="font-mono text-blue-500">DB_PASSWORD</code>.</li>
+              <li>Configure <code className="font-mono text-blue-500">DB_PASSWORD</code>, <code className="font-mono text-blue-500">JWT_SECRET</code> e <code className="font-mono text-blue-500">CONFIG_ENCRYPTION_KEY</code> nas variáveis da stack; mantenha a chave de criptografia estável.</li>
               <li>Clique no botão inferior <strong>Deploy the stack</strong>. O banco e as tabelas serão provisionados automaticamente!</li>
             </ol>
           </div>

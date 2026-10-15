@@ -7,7 +7,8 @@ version: '3.8'
 # 1. No painel do Portainer, vá em: Stacks -> Add stack
 # 2. Nome da Stack: "atendo-one"
 # 3. No campo "Web editor", cole todo o conteúdo deste arquivo.
-# 4. Ajuste as variáveis em "Environment variables" se desejar personalizar senhas.
+# 4. Defina DB_PASSWORD, JWT_SECRET e CONFIG_ENCRYPTION_KEY em "Environment variables".
+#    Mantenha CONFIG_ENCRYPTION_KEY estável para continuar lendo configurações protegidas.
 # 5. Clique em "Deploy the stack". O banco e as tabelas serão criados sozinhos!
 # ==============================================================================
 
@@ -62,6 +63,7 @@ services:
       - DB_USER=${DB_USER:-elolog_user}
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - DATABASE_URL=postgresql://${DB_USER:-elolog_user}:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/${DB_NAME:-elolog}
+      - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY must be set}
       # app_state permanece em transição; só ativar após migração relacional validada.
       - RLS_DOMAIN_MODE=${RLS_DOMAIN_MODE:-snapshot}
       - NORMALIZED_DOMAIN_RLS=${NORMALIZED_DOMAIN_RLS:-false}

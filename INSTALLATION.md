@@ -24,13 +24,14 @@ Após o primeiro start, a ordem operacional recomendada é: confirmar o backup d
 
 ## 🐳 Método 2: Instalação Visual via Portainer (Stack)
 
-Antes de criar a stack, gere uma senha aleatória (`openssl rand -base64 32`) e cadastre-a como `DB_PASSWORD` em um Secret do Portainer ou em um arquivo `.env` fora do Git. Nunca coloque a senha diretamente neste documento, no Compose ou em uma imagem Docker.
+Antes de criar a stack, gere valores fortes para `DB_PASSWORD` (`openssl rand -base64 32`), `JWT_SECRET` e `CONFIG_ENCRYPTION_KEY` (`openssl rand -hex 32`). Cadastre-os nas variáveis de ambiente da Stack do Portainer ou em um arquivo `.env` fora do Git. Mantenha `CONFIG_ENCRYPTION_KEY` estável: sem a chave original, configurações protegidas já salvas não poderão ser descriptografadas. Nunca coloque esses valores neste documento, no Compose ou em uma imagem Docker.
 
 Se você gerencia sua VPS utilizando o painel **Portainer**:
 
 1. Acesse seu painel Portainer e clique em **Stacks** > **Add stack**.
 2. Defina o nome da stack como `atendo-one`.
 3. Selecione a aba **Web editor** e cole o seguinte conteúdo (`docker-compose.portainer.yml`):
+4. Configure `DB_PASSWORD`, `JWT_SECRET` e `CONFIG_ENCRYPTION_KEY` nas variáveis da stack antes de implantá-la.
 
 ```yaml
 version: '3.8'
