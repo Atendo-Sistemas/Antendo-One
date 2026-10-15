@@ -17,6 +17,7 @@ interface NotificationConsentPanelProps {
 
 export const NotificationConsentPanel: React.FC<NotificationConsentPanelProps> = ({ mode = 'preferences' }) => {
   const { user, driver, refreshProfile } = useAuth();
+  const showPreferences = mode === 'preferences';
   const [email, setEmail] = useState(true);
   const [whatsapp, setWhatsapp] = useState(false);
   const [proximityEnabled, setProximityEnabled] = useState(false);
@@ -33,24 +34,19 @@ export const NotificationConsentPanel: React.FC<NotificationConsentPanelProps> =
 
   useEffect(() => {
     let cancelled = false;
-    const requests: Promise<any>[] = [];
-    if (showPreferences) requests.push(api.getNotificationConsent());
-    if (isDriver) requests.push(api.getDriverProximitySettings());
-    if (canConfigureCompany) requests.push(api.getFreightAlertConfig());
-    Promise.all(requests)
-      .then(results => {
+    Promise.all([
+      showPreferences ? api.getNotificationConsent() : Promise.resolve(null),
+      showPreferences && isDriver ? api.getDriverProximitySettings() : Promise.resolve(null),
+      showFreightAlerts && canConfigureCompany ? api.getFreightAlertConfig() : Promise.resolve(null)
+    ])
+      .then(([consent, proximity, freightConfig]) => {
         if (cancelled) return;
-        let index = 0;
-        if (showPreferences) {
-          const consent = results[index++];
-          setEmail(consent?.email !== false);
-          setWhatsapp(consent?.whatsapp === true);
+        if (consent) {
+          setEmail(consent.email !== false);
+          setWhatsapp(consent.whatsapp === true);
         }
-        if (isDriver && results[index]) {
-          setProximityEnabled(results[index].enabled === true);
-          index += 1;
-        }
-        if (canConfigureCompany && results[index]) setGeoConfig(results[index]);
+        if (proximity) setProximityEnabled(proximity.enabled === true);
+        if (freightConfig) setGeoConfig(freightConfig);
       })
       .catch(error => { if (!cancelled) setMessage(userFacingError(error, showFreightAlerts ? 'Não foi possível carregar os alertas de frete.' : 'Não foi possível carregar suas preferências.')); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -114,12 +110,12 @@ export const NotificationConsentPanel: React.FC<NotificationConsentPanelProps> =
     } finally { setSavingGeo(false); }
   };
 
-  if (loading) return <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 flex items-center justify-center gap-3 text-sm text-slate-500"><RefreshCw className="w-5 h-5 animate-spin" /> Carregando preferências...</div>;
+  if (loading) return <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 flex items-center justify-center gap-3 text-sm text-slate-500"><RefreshCw className="w-5 h-5 animate-spin" /> Carregando {showPreferences ? 'preferências' : 'alertas de frete'}...</div>;
 
   return (
-    <section className="max-w-3xl mx-auto space-y-5" aria-labelledby="notification-consent-title">
+    <section className="max-w-3xl mx-auto space-y-5" aria-labelledby={showPreferences ? 'notification-consent-title' : 'freight-alerts-title'}>
       <div className="rounded-2xl bg-gradient-to-r from-indigo-700 to-violet-700 p-6 text-white shadow-lg">
-        <div className="flex items-start gap-3"><div className="rounded-xl bg-white/15 p-2">{showFreightAlerts ? <MapPin className="w-6 h-6" /> : <Bell className="w-6 h-6" />}</div><div><h1 id="notification-consent-title" className="text-xl font-black">{showFreightAlerts ? 'Alertas de frete' : 'Preferências de notificações'}</h1><p className="mt-1 text-sm text-indigo-100">{showFreightAlerts ? 'Configure o raio usado para direcionar alertas aos motoristas desta empresa.' : 'Escolha como deseja receber comunicações operacionais da plataforma.'}</p></div></div>
+        <div className="flex items-start gap-3"><div className="rounded-xl bg-white/15 p-2">{showFreightAlerts ? <MapPin className="w-6 h-6" /> : <Bell className="w-6 h-6" />}</div><div><h1 id={showPreferences ? 'notification-consent-title' : 'freight-alerts-title'} className="text-xl font-black">{showFreightAlerts ? 'Alertas de frete' : 'Preferências de notificações'}</h1><p className="mt-1 text-sm text-indigo-100">{showFreightAlerts ? 'Configure o raio usado para direcionar alertas aos motoristas desta empresa.' : 'Escolha como deseja receber comunicações operacionais da plataforma.'}</p></div></div>
       </div>
       {showPreferences && <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
         <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 w-5 h-5 text-emerald-600 shrink-0" /><p className="text-sm text-slate-600 dark:text-slate-300">Códigos de acesso, confirmações de segurança e avisos indispensáveis à conta podem continuar sendo enviados como mensagens transacionais. Esta tela controla comunicações operacionais e não armazena token de canal.</p></div>
@@ -128,7 +124,7 @@ export const NotificationConsentPanel: React.FC<NotificationConsentPanelProps> =
         <div className="flex items-center justify-between gap-3 pt-2"><span className="text-[11px] text-slate-500">Você pode alterar esta decisão a qualquer momento.</span><button type="button" onClick={() => void save()} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50">{saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Salvar preferências</button></div>
       </div>}
 
-      {isDriver && (
+      {showPreferences && isDriver && (
         <div className="rounded-2xl border border-sky-200 bg-sky-50/70 dark:border-sky-900/60 dark:bg-sky-950/20 p-5 space-y-4">
           <div className="flex items-start gap-3"><MapPin className="mt-0.5 w-5 h-5 text-sky-600 shrink-0" /><div><h2 className="font-black text-slate-900 dark:text-white">Alertas por proximidade</h2><p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">Quando ativado, o PWA atualiza sua posição enquanto o painel estiver aberto e você poderá receber alertas de fretes próximos da coleta. A localização não é exibida na lista administrativa nem compartilhada com outras empresas.</p></div></div>
           <label className="flex items-start gap-3 rounded-xl border border-sky-200 dark:border-sky-900/60 bg-white/70 dark:bg-slate-900/60 p-4 cursor-pointer"><input type="checkbox" checked={proximityEnabled} onChange={event => void saveDriverProximity(event.target.checked)} disabled={savingGeo} className="mt-1 h-4 w-4 accent-sky-600" /><span><span className="font-bold text-sm text-slate-800 dark:text-slate-100">Permitir alertas por proximidade</span><span className="block mt-1 text-xs text-slate-500">É necessário permitir a localização no navegador. Você pode revogar esta permissão a qualquer momento.</span></span></label>

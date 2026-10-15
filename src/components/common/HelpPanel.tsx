@@ -4,18 +4,18 @@ import { api } from '../../services/api';
 import { sanitizeRichHtml } from '../../utils/sanitizeHtml';
 import 'react-quill-new/dist/quill.snow.css';
 
+const helpRoleForUser = (role: string) => {
+  if (['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(role)) return 'ADMIN';
+  if (role === 'SUPERVISOR') return 'SUPERVISOR';
+  if (role === 'MOTORISTA') return 'DRIVER';
+  if (role === 'USUARIO') return 'USER';
+  return role;
+};
+
 export const HelpPanel: React.FC<{ role: string }> = ({ role }) => {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const helpRole = role === 'SUPER_ADMIN'
-    ? 'SUPER_ADMIN'
-    : role === 'MOTORISTA'
-      ? 'DRIVER'
-      : ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(role)
-        ? 'ADMIN'
-        : role === 'SUPERVISOR'
-          ? 'SUPERVISOR'
-          : 'USER';
+  const helpRole = helpRoleForUser(role);
   const fallbackContent = '<h1>Manual do Atendo One</h1><p>Consulte os módulos liberados para o seu perfil e procure o administrador da empresa quando precisar de acesso ou orientação.</p><h2>Segurança</h2><p>Mantenha seus dados atualizados, não compartilhe códigos de acesso e altere suas preferências de notificações quando necessário.</p>';
 
   useEffect(() => {
