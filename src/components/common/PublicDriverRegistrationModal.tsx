@@ -16,7 +16,7 @@ type Registration = {
 const initialRegistration: Registration = { name: '', email: '', phone: '', cpf: '', cnh: '', cnhCategory: 'E', cnhExpiresAt: '', city: '', state: '' };
 const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-white';
 
-export const PublicDriverRegistrationModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+export const PublicDriverRegistrationModal: React.FC<{ onClose: () => void; standalone?: boolean }> = ({ onClose, standalone = false }) => {
   const [registration, setRegistration] = useState(initialRegistration);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
@@ -56,8 +56,8 @@ export const PublicDriverRegistrationModal: React.FC<{ onClose: () => void }> = 
     }
   };
 
-  return <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="driver-registration-title">
-    <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+  return <div className={standalone ? 'flex min-h-screen items-center justify-center bg-slate-50 p-4 dark:bg-slate-950 sm:p-8' : 'fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/60 p-4'} role="dialog" aria-modal={standalone ? undefined : true} aria-labelledby="driver-registration-title">
+    <div className={`${standalone ? '' : 'max-h-[92vh]'} w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900`}>
       <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 dark:border-slate-800"><div><p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Cadastro independente de fretes</p><h2 id="driver-registration-title" className="mt-1 text-xl font-black text-slate-900 dark:text-white">{step === 'verify' ? 'Validar telefone' : step === 'done' ? 'Cadastro concluído' : 'Cadastrar perfil de motorista'}</h2><p className="mt-1 text-xs text-slate-500">Cadastre-se mesmo quando não houver fretes publicados.</p></div>{step !== 'done' && <button onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Fechar"><X className="h-5 w-5" /></button>}</div>
       <div className="space-y-4 p-5">
         {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">{error}</div>}

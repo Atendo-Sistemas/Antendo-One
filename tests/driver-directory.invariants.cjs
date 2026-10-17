@@ -29,6 +29,8 @@ assert.match(profile, /Permitir que empresas encontrem meu perfil/, 'drivers mus
 assert.match(directory, /Solicitar avaliação/, 'company directory must provide an evaluation request action');
 assert.match(registration, /Cadastrar perfil de motorista/, 'public registration must not require freight');
 assert.match(showcase, /Cadastrar como motorista/, 'public freight page must keep registration available without listings');
+assert.match(showcase, /href="\/cadastro-motorista"/, 'freight showcase must expose the shareable public registration link');
+assert.match(app, /publicPath === '\/cadastro-motorista'[\s\S]*?PublicDriverRegistrationPage/, 'public registration link must open without authentication');
 assert.match(companyDashboard, /totalFreights === 0[\s\S]*?Cadastrar motorista/, 'company admins must be able to open driver registration when there are no freights');
 assert.match(approvals, /Não apto nesta empresa/, 'company decisions must be explicitly company-specific');
 assert.match(manager, /id="driver-company-file-input" type="file"[\s\S]*?htmlFor="driver-company-file-input"[\s\S]*?Selecionar arquivo[\s\S]*?Máximo de 5 MB por arquivo/, 'driver edit modal must show an accessible attachment control with the per-file limit');
