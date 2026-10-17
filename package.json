@@ -1,7 +1,7 @@
 {
   "name": "atendo-one",
   "private": true,
-  "version": "1.8.79+1",
+  "version": "1.8.79+2",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

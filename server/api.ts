@@ -4476,11 +4476,6 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   };
 
   db.freights.unshift(newFreight);
-  if (linkedBudget) {
-    linkedBudget.convertedFreightId = newFreight.id;
-    linkedBudget.status = 'CONVERTIDO';
-    linkedBudget.updatedAt = now;
-  }
 
   db.addAuditLog({ ip: requestIp(req),
     tenantId: tenantId || undefined,

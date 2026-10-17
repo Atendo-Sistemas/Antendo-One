@@ -5,7 +5,55 @@ import { AddressAutocomplete } from '../common/AddressAutocomplete';
 import { CepLookupField } from '../common/CepLookupField';
 import { useAuth } from '../../context/AuthContext';
 
-const empty = { clientId: undefined, clientName: '', date: new Date().toISOString().substring(0, 10), origin: { address: '', city: '', state: '' }, destination: { address: '', city: '', state: '' }, distanceKm: 0, pricePerKm: 0, tolls: 0, insurance: 0, cargoType: '', weightKg: 0, quantity: 0, vehicleType: '', bodyType: '', bodyTypeOther: '', dailyRate: 0, dailyCount: 0, assistantCount: 0, assistantDailyRate: 0, driverPassed: 0, driverPaid: 0, priceTableReference: '', status: 'RASCUNHO' as const, profitValue: 15, expenses: [] };
+const money = (value: unknown) => Math.round((Number(value) || 0) * 100) / 100;
+const previewFinancials = (draft: any) => {
+  const expenses = (draft.expenses || []).map((item: BudgetExpense) => ({
+    ...item,
+    quantity: Number(item.quantity) || 0,
+    unitPrice: money(item.unitPrice),
+    total: money((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0))
+  }));
+  const expenseTotal = money(expenses.reduce((sum: number, item: BudgetExpense & { total?: number }) => sum + (item.total || 0), 0));
+  const routeCost = money((Number(draft.distanceKm) || 0) * (Number(draft.pricePerKm) || 0));
+  const helpers = money((Number(draft.assistantCount) || 0) * (Number(draft.assistantDailyRate) || 0) * (Number(draft.dailyCount) || 0));
+  const daily = money((Number(draft.dailyRate) || 0) * (Number(draft.dailyCount) || 0));
+  const tolls = money(draft.tolls);
+  const insurance = money(draft.insurance);
+  const subtotal = money(expenseTotal + routeCost + tolls + insurance + helpers + daily);
+  const taxes = (draft.taxes || []).map((tax: any) => ({
+    ...tax,
+    percentage: Number(tax.percentage) || 0,
+    fixedValue: money(tax.fixedValue)
+  }));
+  const fixedAndScopedTaxes = money(taxes.reduce((sum: number, tax: any) => {
+    if (tax.type === 'FIXO') return sum + money(tax.fixedValue);
+    if (tax.base === 'DESPESAS') return sum + money(expenseTotal * tax.percentage / 100);
+    if (tax.base === 'SUBTOTAL') return sum + money(subtotal * tax.percentage / 100);
+    return sum;
+  }, 0));
+  const freightTaxRate = taxes.reduce((sum: number, tax: any) => sum + (tax.type === 'PERCENTUAL' && tax.base === 'VALOR_FRETE' ? tax.percentage / 100 : 0), 0);
+  const calculateProfit = (totalCostValue: number) => draft.profitType === 'FIXO'
+    ? money(draft.profitValue)
+    : money(totalCostValue * (Number(draft.profitValue) || 0) / 100);
+  let totalTaxes = fixedAndScopedTaxes;
+  let cost = money(subtotal + totalTaxes);
+  let profit = calculateProfit(cost);
+  let total = money(cost + profit);
+  if (freightTaxRate > 0) {
+    let previous = total;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const freightBasedTaxes = money(previous * freightTaxRate);
+      totalTaxes = money(fixedAndScopedTaxes + freightBasedTaxes);
+      cost = money(subtotal + totalTaxes);
+      profit = calculateProfit(cost);
+      total = money(cost + profit);
+      if (Math.abs(total - previous) < 0.01) break;
+      previous = total;
+    }
+  }
+  return { routeCost, expenseTotal, subtotal, taxes: totalTaxes, cost, profit, total };
+};
+const empty = { clientId: undefined, clientName: '', date: new Date().toISOString().substring(0, 10), origin: { address: '', city: '', state: '' }, destination: { address: '', city: '', state: '' }, distanceKm: 0, pricePerKm: 0, tolls: 0, insurance: 0, cargoType: '', weightKg: 0, quantity: 0, vehicleType: '', bodyType: '', bodyTypeOther: '', dailyRate: 0, dailyCount: 0, assistantCount: 0, assistantDailyRate: 0, driverPassed: 0, driverPaid: 0, priceTableReference: '', status: 'RASCUNHO' as const, profitType: 'PERCENTUAL' as const, profitValue: 15, estimatedMinutes: 0, routeGeometry: null, taxes: [], expenses: [] };
 
 export const BudgetManager: React.FC = () => {
   const { user } = useAuth();
@@ -46,16 +94,7 @@ export const BudgetManager: React.FC = () => {
 
   useEffect(() => {
     if (!draft) return;
-    const expenseTotal = (draft.expenses || []).reduce((sum: number, e: BudgetExpense) => sum + (e.quantity * e.unitPrice), 0);
-    const routeCost = (draft.distanceKm || 0) * (draft.pricePerKm || 0);
-    const helpers = (draft.assistantCount || 0) * (draft.assistantDailyRate || 0) * (draft.dailyCount || 0);
-    const daily = (draft.dailyRate || 0) * (draft.dailyCount || 0);
-    const subtotal = expenseTotal + routeCost + (draft.tolls || 0) + (draft.insurance || 0) + helpers + daily;
-    const taxes = subtotal * 0.15; // 15% impostos
-    const cost = subtotal + taxes;
-    const profit = cost * ((draft.profitValue || 0) / 100);
-    const total = cost + profit;
-    setPreview({ routeCost, expenseTotal, subtotal, taxes, cost, profit, total });
+    setPreview(previewFinancials(draft));
   }, [draft]);
 
   const save = async () => {
@@ -175,7 +214,7 @@ export const BudgetManager: React.FC = () => {
       body: [
         ['Custo da Rota', `R$ ${preview.routeCost.toFixed(2)}`],
         ['Despesas', `R$ ${preview.expenseTotal.toFixed(2)}`],
-        ['Impostos (15%)', `R$ ${preview.taxes.toFixed(2)}`],
+        ['Impostos', `R$ ${preview.taxes.toFixed(2)}`],
         ['Lucro Estimado', `R$ ${preview.profit.toFixed(2)}`],
         ['Total Geral', `R$ ${preview.total.toFixed(2)}`]
       ],
