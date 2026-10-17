@@ -304,7 +304,7 @@ export interface Driver {
   updatedAt?: string;
 }
 
-export type DriverCompanyLinkStatus = 'PENDENTE' | 'APROVADO' | 'RECUSADO' | 'BLOQUEADO';
+export type DriverCompanyLinkStatus = 'PENDENTE' | 'APROVADO' | 'RECUSADO' | 'BLOQUEADO' | 'REMOVIDO';
 export type DriverCompanyLinkScope = 'FRETE' | 'EMPRESA';
 export interface DriverCompanyLink {
   id: string;

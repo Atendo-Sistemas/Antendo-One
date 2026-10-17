@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, clientApi } from '../../services/api';
-import { Driver } from '../../types';
+import { Driver, DriverCompanyLink } from '../../types';
 import { Camera, MapPin, Search, ShieldAlert, Truck, UploadCloud, X, Send, Lock, RotateCcw } from 'lucide-react';
 import { AddressAutocomplete } from '../common/AddressAutocomplete';
 import { useAuth } from '../../context/AuthContext';
@@ -9,10 +9,11 @@ export const DriverManager: React.FC = () => {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [companyLinks, setCompanyLinks] = useState<any[]>([]);
+  const [companyLinks, setCompanyLinks] = useState<DriverCompanyLink[]>([]);
   const [tenants, setTenants] = useState<any[]>([]);
   const [linkingDriver, setLinkingDriver] = useState<Driver | null>(null);
   const [linkTenantId, setLinkTenantId] = useState('');
+  const [removingLinkId, setRemovingLinkId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -106,7 +107,7 @@ export const DriverManager: React.FC = () => {
         const [links, tenantList] = await Promise.all([api.getDriverCompanyLinks(), api.getTenants()]);
         setCompanyLinks(links);
         setTenants(tenantList);
-      }
+      } else setCompanyLinks(await api.getDriverCompanyLinks());
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -134,6 +135,20 @@ export const DriverManager: React.FC = () => {
     } catch (e: any) {
       setError(e.message || 'Não foi possível criar o vínculo com a empresa.');
     } finally { setSaving(false); }
+  };
+
+  const removeCompanyLink = async (driver: Driver, link: DriverCompanyLink) => {
+    if (!window.confirm(`Excluir ${driver.name} desta empresa? O cadastro global e os vínculos com outras empresas serão preservados.`)) return;
+    setRemovingLinkId(link.id);
+    setError('');
+    try {
+      await api.unlinkDriverFromCompany(link.id);
+      await load();
+    } catch (e: any) {
+      setError(e.message || 'Não foi possível excluir o motorista desta empresa.');
+    } finally {
+      setRemovingLinkId(null);
+    }
   };
 
   const handleEdit = (driver: Driver) => {
@@ -261,6 +276,9 @@ export const DriverManager: React.FC = () => {
             ) : (
               <div className="grid gap-2 p-2">
                 {filtered.map(driver => (
+                  (() => {
+                    const companyLink = companyLinks.find(link => link.driverId === driver.id && link.tenantId === user?.tenantId && link.scope === 'EMPRESA' && link.status !== 'REMOVIDO');
+                    return (
                   <article key={driver.id} className={`p-4 rounded-xl border transition-all ${editingId === driver.id ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-slate-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700'}`}>
                     <div className="flex justify-between items-start gap-4">
                       <div className="min-w-0 flex-1">
@@ -278,9 +296,12 @@ export const DriverManager: React.FC = () => {
                       <div className="flex flex-col gap-1.5 shrink-0">
                         <button onClick={() => handleEdit(driver)} className="px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-200 dark:hover:bg-emerald-800/40 cursor-pointer transition-colors">Editar Perfil</button>
                         {isSuperAdmin && <button onClick={() => openManualLink(driver)} className="px-3 py-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-800/40 cursor-pointer transition-colors">Vincular empresa</button>}
+                        {!isSuperAdmin && companyLink && <button type="button" disabled={removingLinkId === companyLink.id} onClick={() => void removeCompanyLink(driver, companyLink)} className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50">{removingLinkId === companyLink.id ? 'Excluindo...' : 'Excluir da empresa'}</button>}
                       </div>
                     </div>
                   </article>
+                    );
+                  })()
                 ))}
               </div>
             )}

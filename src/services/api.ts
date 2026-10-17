@@ -332,7 +332,7 @@ export const api = {
   async updateDriverLocation(data: { lat: number; lng: number; accuracyMeters: number; recordedAt: string }) { return request<any>('/drivers/me/location', { method: 'POST', body: JSON.stringify(data) }); },
   async deleteDriver(id: string) { return request<{ success: boolean }>(`/drivers/${id}`, { method: 'DELETE' }); },
   async inviteDriver(email: string) { return request<{ success: boolean }>('/drivers/invite', { method: 'POST', body: JSON.stringify({ email }) }); },
-  async unlinkDriverFromCompany(linkId: string) { return request<{ success: boolean }>(`/driver-company-links/${linkId}`, { method: 'DELETE' }); },
+  async unlinkDriverFromCompany(linkId: string) { return request<{ success: boolean }>(`/driver-company-links/${encodeURIComponent(linkId)}`, { method: 'DELETE' }); },
 
   // Compatibility methods used by legacy and administrative screens
   async login(...args: any[]) { return request<any>('/auth/login', { method: 'POST', body: JSON.stringify({ email: args[0], password: args[2] ?? args[1] }) }); },

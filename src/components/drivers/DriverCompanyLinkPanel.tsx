@@ -51,6 +51,8 @@ export const DriverCompanyLinkPanel: React.FC = () => {
               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
               : link.status === 'RECUSADO'
                 ? 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300'
+                : link.status === 'REMOVIDO'
+                  ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
                 : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300';
             return (
               <article key={link.id} className="rounded-xl border border-slate-100 p-4 dark:border-slate-800">
@@ -58,7 +60,7 @@ export const DriverCompanyLinkPanel: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">{driver?.name || 'Motorista'}</h3>
-                      <span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${statusStyle}`}>{link.scope === 'EMPRESA' ? link.status === 'APROVADO' ? 'APTO NESTA EMPRESA' : link.status === 'RECUSADO' ? 'NÃO APTO NESTA EMPRESA' : link.status : link.status}</span>
+                      <span className={`rounded-full px-2 py-1 text-[10px] font-extrabold ${statusStyle}`}>{link.scope === 'EMPRESA' ? link.status === 'APROVADO' ? 'APTO NESTA EMPRESA' : link.status === 'RECUSADO' ? 'NÃO APTO NESTA EMPRESA' : link.status === 'REMOVIDO' ? 'VÍNCULO REMOVIDO' : link.status : link.status}</span>
                     </div>
                     <p className="mt-1 text-xs text-slate-500">{driver?.city || 'Cidade não informada'}/{driver?.state || '--'} • {driver?.phone || 'Telefone não informado'}</p>
                     <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{link.freightCode ? `Interesse no frete ${link.freightCode}: ${link.originCity || '--'} → ${link.destinationCity || '--'}` : 'Solicitação de vínculo com a empresa'}</p>

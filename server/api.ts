@@ -1681,6 +1681,29 @@ apiRouter.put('/driver-company-links/:id/status', (req: AuthenticatedRequest, re
   if (driverUser && !isCompanyDecision) void dispatchConfiguredNotification('INTERESSE_FRETE', [driverUser], { nome: driverUser.name, empresa: req.tenant?.name || 'empresa responsável', status, codigoFrete: linkedFreight?.code || '', link: process.env.APP_URL || '' });
   return res.json({ success: true, link, companyLink });
 });
+apiRouter.delete('/driver-company-links/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem remover vínculos de motoristas.' });
+  const link = db.driverCompanyLinks.find(item => item.id === req.params.id);
+  if (!link || link.scope !== 'EMPRESA') return res.status(404).json({ error: 'Vínculo com a empresa não encontrado.' });
+  if (req.user?.role !== 'SUPER_ADMIN' && link.tenantId !== req.user?.tenantId) return res.status(403).json({ error: 'Este vínculo pertence a outra empresa.' });
+  if (link.status !== 'REMOVIDO') {
+    link.status = 'REMOVIDO';
+    link.updatedAt = new Date().toISOString();
+    db.addAuditLog({
+      ip: requestIp(req),
+      tenantId: link.tenantId,
+      userId: req.user?.id || 'system',
+      userName: req.user?.name || 'Sistema',
+      userRole: req.user?.role || 'ADMIN',
+      action: 'REMOVER_VINCULO_MOTORISTA_EMPRESA',
+      entity: 'DriverCompanyLink',
+      entityId: link.id,
+      details: `Vínculo do motorista ${link.driverId} removido desta empresa; cadastro global e vínculos com outras empresas preservados.`
+    });
+  }
+  await db.persistNow();
+  return res.json({ success: true });
+});
 // Persist every successful write after the route has completed. This protects
 // existing CRUD routes as well as newly added modules from restart data loss.
 apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -4039,12 +4062,23 @@ apiRouter.get('/drivers', (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role === 'SUPER_ADMIN') {
     const tenantId = String(req.query.tenantId || '').trim();
     const drivers = tenantId
-      ? db.drivers.filter(driver => driver.tenantId === tenantId || db.hasDriverCompanyAccess(driver.id, tenantId, true))
+      ? db.drivers.filter(driver => {
+        const companyLink = db.getDriverCompanyLink(driver.id, tenantId);
+        return companyLink
+          ? companyLink.status === 'APROVADO' || companyLink.status === 'PENDENTE'
+          : driver.tenantId === tenantId || db.hasDriverCompanyAccess(driver.id, tenantId, true);
+      })
       : db.drivers;
     return res.json(drivers.map(sanitizeDriver));
   }
   // Scoped by independent company link; a driver may belong to many companies.
-  const drivers = db.drivers.filter(d => req.user?.tenantId ? (d.tenantId === req.user.tenantId || db.hasDriverCompanyAccess(d.id, req.user.tenantId, true)) : false);
+  const drivers = db.drivers.filter(driver => {
+    if (!req.user?.tenantId) return false;
+    const companyLink = db.getDriverCompanyLink(driver.id, req.user.tenantId);
+    return companyLink
+      ? companyLink.status === 'APROVADO' || companyLink.status === 'PENDENTE'
+      : driver.tenantId === req.user.tenantId || db.hasDriverCompanyAccess(driver.id, req.user.tenantId, true);
+  });
   res.json(drivers.map(sanitizeDriver));
 });
 
