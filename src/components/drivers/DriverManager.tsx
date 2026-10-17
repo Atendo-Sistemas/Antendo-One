@@ -275,34 +275,32 @@ export const DriverManager: React.FC = () => {
               <div className="p-8 text-center text-slate-500 text-sm">Nenhum motorista encontrado.</div>
             ) : (
               <div className="grid gap-2 p-2">
-                {filtered.map(driver => (
-                  (() => {
-                    const companyLink = companyLinks.find(link => link.driverId === driver.id && link.tenantId === user?.tenantId && link.scope === 'EMPRESA' && link.status !== 'REMOVIDO');
-                    return (
-                  <article key={driver.id} className={`p-4 rounded-xl border transition-all ${editingId === driver.id ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-slate-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700'}`}>
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-extrabold text-slate-900 dark:text-white truncate">{driver.name}</h3>
-                          {driver.systemLocked && <Lock className="w-3.5 h-3.5 text-slate-400" title="Cadastro bloqueado pelo sistema (Demo)" />}
+                {filtered.map(driver => {
+                  const companyLink = companyLinks.find(link => link.driverId === driver.id && link.tenantId === user?.tenantId && link.scope === 'EMPRESA' && link.status !== 'REMOVIDO');
+                  return (
+                    <article key={driver.id} className={`p-4 rounded-xl border transition-all ${editingId === driver.id ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20' : 'border-slate-100 dark:border-slate-800 hover:border-emerald-300 dark:hover:border-emerald-700'}`}>
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-extrabold text-slate-900 dark:text-white truncate">{driver.name}</h3>
+                            {driver.systemLocked && <Lock className="w-3.5 h-3.5 text-slate-400" title="Cadastro bloqueado pelo sistema (Demo)" />}
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                            <span className="flex items-center gap-1 shrink-0"><MapPin className="w-3 h-3" /> {driver.city}/{driver.state}</span>
+                            <span className="shrink-0">{driver.phone}</span>
+                            {driver.cpf && <span className="shrink-0 font-medium font-mono text-slate-600 dark:text-slate-400">CPF: {driver.cpf}</span>}
+                          </div>
+                          {isSuperAdmin && <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] text-slate-600 dark:bg-slate-950/50 dark:text-slate-300"><strong>Empresas vinculadas:</strong> {companyLinks.filter(link => link.driverId === driver.id && link.scope === 'EMPRESA').map(link => `${link.tenantName || link.tenantId} (${link.status})`).join(', ') || 'Nenhuma'}</div>}
                         </div>
-                        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                          <span className="flex items-center gap-1 shrink-0"><MapPin className="w-3 h-3" /> {driver.city}/{driver.state}</span>
-                          <span className="shrink-0">{driver.phone}</span>
-                          {driver.cpf && <span className="shrink-0 font-medium font-mono text-slate-600 dark:text-slate-400">CPF: {driver.cpf}</span>}
+                        <div className="flex flex-col gap-1.5 shrink-0">
+                          <button onClick={() => handleEdit(driver)} className="px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-200 dark:hover:bg-emerald-800/40 cursor-pointer transition-colors">Editar Perfil</button>
+                          {isSuperAdmin && <button onClick={() => openManualLink(driver)} className="px-3 py-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-800/40 cursor-pointer transition-colors">Vincular empresa</button>}
+                          {!isSuperAdmin && companyLink && <button type="button" disabled={removingLinkId === companyLink.id} onClick={() => void removeCompanyLink(driver, companyLink)} className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50">{removingLinkId === companyLink.id ? 'Excluindo...' : 'Excluir da empresa'}</button>}
                         </div>
-                        {isSuperAdmin && <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] text-slate-600 dark:bg-slate-950/50 dark:text-slate-300"><strong>Empresas vinculadas:</strong> {companyLinks.filter(link => link.driverId === driver.id && link.scope === 'EMPRESA').map(link => `${link.tenantName || link.tenantId} (${link.status})`).join(', ') || 'Nenhuma'}</div>}
                       </div>
-                      <div className="flex flex-col gap-1.5 shrink-0">
-                        <button onClick={() => handleEdit(driver)} className="px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-200 dark:hover:bg-emerald-800/40 cursor-pointer transition-colors">Editar Perfil</button>
-                        {isSuperAdmin && <button onClick={() => openManualLink(driver)} className="px-3 py-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold hover:bg-blue-200 dark:hover:bg-blue-800/40 cursor-pointer transition-colors">Vincular empresa</button>}
-                        {!isSuperAdmin && companyLink && <button type="button" disabled={removingLinkId === companyLink.id} onClick={() => void removeCompanyLink(driver, companyLink)} className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300 dark:hover:bg-red-950/50">{removingLinkId === companyLink.id ? 'Excluindo...' : 'Excluir da empresa'}</button>}
-                      </div>
-                    </div>
-                  </article>
-                    );
-                  })()
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             )}
           </div>

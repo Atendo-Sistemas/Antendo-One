@@ -4134,9 +4134,11 @@ apiRouter.post('/drivers/:id/company-link', async (req: AuthenticatedRequest, re
   const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user.tenantId!;
   if (!tenantId || !db.tenants.some(item => item.id === tenantId)) return res.status(400).json({ error: 'Empresa de vínculo inválida.' });
   const existing = db.driverCompanyLinks.find(item => item.driverId === driver.id && item.tenantId === tenantId && item.scope === 'EMPRESA');
-  const link = existing || db.upsertDriverCompanyLink({ driverId: driver.id, tenantId, status: 'PENDENTE', scope: 'EMPRESA', source: 'COMPANY_ADMIN_REGISTRATION' });
+  const link = existing?.status === 'REMOVIDO'
+    ? db.upsertDriverCompanyLink({ driverId: driver.id, tenantId, status: 'PENDENTE', scope: 'EMPRESA', source: existing.source, approvedAt: undefined, approvedByUserId: undefined, rejectedAt: undefined, rejectionReason: undefined })
+    : existing || db.upsertDriverCompanyLink({ driverId: driver.id, tenantId, status: 'PENDENTE', scope: 'EMPRESA', source: 'COMPANY_ADMIN_REGISTRATION' });
   await db.persistNow();
-  return res.status(existing ? 200 : 201).json({ driver: sanitizeDriverLookup(driver), companyLink: link });
+  return res.status(existing && existing.status !== 'REMOVIDO' ? 200 : 201).json({ driver: sanitizeDriverLookup(driver), companyLink: link });
 });
 
 apiRouter.get('/drivers/:id/company-profile', (req: AuthenticatedRequest, res: Response) => {
