@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SaaSGlobalConfig, MapboxConfig } from '../../types';
-import { api } from '../../services/api';
+import { api, userFacingError } from '../../services/api';
 import { 
   Compass, 
   MapPin, 
@@ -54,11 +54,10 @@ export const MapboxConfigPanel: React.FC<MapboxConfigPanelProps> = ({
   }, [config.mapboxConfig]);
 
   const handleTestToken = async () => {
-    const tokenToTest = mapboxForm.apiKey.includes('•') || mapboxForm.apiKey.includes('*')
-      ? (config.mapboxConfig?.apiKey || '')
-      : mapboxForm.apiKey;
-    if (!tokenToTest || tokenToTest.trim().length < 10) {
-      setTestResult({ success: false, message: 'Insira um token da API do Mapbox válido (ex: pk.eyJ1...)' });
+    const isMasked = mapboxForm.apiKey.includes('•') || mapboxForm.apiKey.includes('*');
+    const tokenToTest = isMasked ? undefined : mapboxForm.apiKey.trim();
+    if (!isMasked && (!tokenToTest || tokenToTest.length < 10)) {
+      setTestResult({ success: false, message: 'Insira um token público do Mapbox válido (iniciado por pk.).' });
       return;
     }
 
@@ -66,16 +65,10 @@ export const MapboxConfigPanel: React.FC<MapboxConfigPanelProps> = ({
     setTestResult(null);
 
     try {
-      const res = await fetch(`https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${encodeURIComponent(tokenToTest.trim())}`);
-      if (res.ok) {
-        setTestResult({ success: true, message: 'Token do Mapbox verificado com sucesso! Conexão estabelecida.' });
-      } else if (res.status === 401) {
-        setTestResult({ success: false, message: 'Token inválido ou não autorizado (401 Unauthorized).' });
-      } else {
-        setTestResult({ success: true, message: 'Token testado com resposta da API Mapbox (Status: ' + res.status + ').' });
-      }
+      const result = await api.testMapboxConnection(tokenToTest);
+      setTestResult({ success: true, message: result.message });
     } catch (e: any) {
-      setTestResult({ success: false, message: 'Erro de conexão ao testar Mapbox: ' + (e.message || 'Falha de rede') });
+      setTestResult({ success: false, message: userFacingError(e, 'Não foi possível validar o serviço de mapas.') });
     } finally {
       setTestingToken(false);
     }

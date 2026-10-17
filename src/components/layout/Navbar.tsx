@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { APP_VERSION } from '../../version';
 import { useSaaS } from '../../context/SaaSContext';
@@ -6,16 +6,16 @@ import { RoleBadge } from '../common/Badge';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { UserProfileModal } from '../common/UserProfileModal';
 import { registerPushNotifications, testPushNotification } from '../../services/pushClient';
-import { 
-  Truck, 
-  Building2, 
-  Bell, 
-  CheckCheck, 
-  Layers, 
-  Users, 
-  FileText, 
-  ShieldCheck, 
-  History, 
+import {
+  Truck,
+  Building2,
+  Bell,
+  CheckCheck,
+  Layers,
+  Users,
+  FileText,
+  ShieldCheck,
+  History,
   SlidersHorizontal,
   ChevronDown,
   Menu,
@@ -35,9 +35,9 @@ interface NavbarProps {
   onOpenNotification?: (notification: { type: string; freightId?: string; message: string; title: string }) => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ 
-  activeTab, 
-  setActiveTab, 
+export const Navbar: React.FC<NavbarProps> = ({
+  activeTab,
+  setActiveTab,
   onOpenCreateFreight,
   onOpenRegisterDriver,
   onOpenNotification
@@ -51,6 +51,17 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [pushStatus, setPushStatus] = useState<string | null>(null);
   const [pushLoading, setPushLoading] = useState(false);
   const [endingSupport, setEndingSupport] = useState(false);
+  const notificationMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && !notificationMenuRef.current?.contains(target)) setShowNotifications(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }, [showNotifications]);
 
   const handleEnablePush = async () => {
     setPushLoading(true);
@@ -83,18 +94,37 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isDriver = user?.role === 'MOTORISTA';
   const isCompanyStaff = !isDriver && !isSuperAdmin;
-  const canManageBilling = user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN';
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
+  const canManageBilling = !isDemo && (user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN');
+  const canManageDirectory = !isDemo && (user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN');
+  const canViewAudit = ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user?.role || '');
   const canManageReportTemplates = !isDemo && canManageBilling;
+  const companyNavGroups = [
+    { key: 'operacao', label: 'Operação', items: [['freights', 'Fretes'], ['operations', 'Central'], ['drivers', 'Motoristas'], ...(canManageBilling ? [['driver-directory', 'Banco de motoristas'], ['driver-approvals', 'Aprovação de motoristas'], ['company-vehicles', 'Veículos próprios']] : []), ['expenses', 'Prestação de contas']] },
+    { key: 'gestao', label: 'Gestão', items: [['budgets', 'Orçamentos'], ['clients', 'Clientes'], ['forms', 'Formulários'], ...(canManageDirectory ? [['users', 'Usuários']] : []), ...(canViewAudit ? [['audit', 'Auditoria']] : [])] },
+    { key: 'configuracoes', label: 'Configurações', items: [...(canManageBilling ? [['billing', 'Assinatura'], ['company-notification-templates', 'Mensagens'], ['company-email-config', 'E-mail da empresa'], ['freight-alerts', 'Alertas de frete']] : []), ...(canManageReportTemplates ? [['company-report-templates', 'Relatórios']] : []), ['notification-preferences', 'Preferências'], ['help', 'Ajuda']] }
+  ];
+  const renderMobileCompanyGroups = () => companyNavGroups.map((group) => (
+    <div key={group.key} className="mt-3 first:mt-0">
+      <div className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500">{group.label}</div>
+      <div className="space-y-1">
+        {group.items.map(([tab, label]) => (
+          <button key={tab} type="button" onClick={() => { setActiveTab(tab); setShowMobileMenu(false); }} className={`w-full rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${activeTab === tab ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  ));
 
   return (
     <header id="navbar-main-container" className="sticky top-0 z-40 w-full max-w-full bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shadow-xs transition-colors">
       <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-1 sm:gap-4">
-          
+
           {/* Brand Logo & Tenant Name */}
           <div className="flex items-center gap-2 min-w-0 shrink">
-            <button 
+            <button
               onClick={() => setActiveTab(isDriver ? 'driver-portal' : 'freights')}
               className="flex items-center gap-2 text-left group cursor-pointer focus:outline-none min-w-0"
             >
@@ -125,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Right Action Area */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            
+
             {/* Quick Action Button for Company & Super Admin */}
             {(isCompanyStaff || isSuperAdmin) && onOpenCreateFreight && (
               <button
@@ -141,12 +171,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             <ThemeToggle />
 
             {/* Notification Bell with Dropdown */}
-            <div className="relative">
+            <div ref={notificationMenuRef} className="relative">
               <button
                 id="btn-notification-bell"
                 onClick={() => setShowNotifications(!showNotifications)}
+                aria-expanded={showNotifications}
+                aria-controls="notification-popover"
                 className="relative p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center"
-                title="Notificações"
+                title={showNotifications ? 'Fechar notificações' : 'Abrir notificações'}
+                aria-label={showNotifications ? 'Fechar notificações' : 'Abrir notificações'}
               >
                 <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
                 {unreadCount > 0 && (
@@ -159,11 +192,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               {/* Notification Popover */}
               {showNotifications && (
                 <>
-                  <div 
+                  <div
                     className="fixed inset-0 z-40 bg-black/20 md:hidden"
                     onClick={() => setShowNotifications(false)}
                   />
-                  <div className="fixed inset-x-3 top-18 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 w-auto sm:w-80 md:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div id="notification-popover" role="dialog" aria-label="Notificações da conta" className="fixed inset-x-3 top-18 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 w-auto sm:w-80 md:w-96 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                     <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Bell className="w-4 h-4 text-slate-700 dark:text-slate-300" />
@@ -229,8 +262,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                             key={n.id}
                             onClick={() => { markNotificationAsRead(n.id); if (n.targetPath) setActiveTab(n.targetPath); onOpenNotification?.(n); setShowNotifications(false); }}
                             className={`p-3.5 transition-colors cursor-pointer ${
-                              n.read 
-                                ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50' 
+                              n.read
+                                ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50'
                                 : 'bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
                             }`}
                           >
@@ -331,7 +364,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Secondary Row for Navigation Menu - Placed below the main header row */}
       <div className="hidden md:block border-t border-slate-200/50 dark:border-slate-800/50 bg-slate-50/80 dark:bg-slate-900/40 transition-colors">
         <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
-          <nav className={`flex items-center gap-1.5 no-scrollbar ${isSuperAdmin ? 'overflow-visible' : 'overflow-x-auto'}`} aria-label="Navegação principal">
+          <nav className="flex items-center gap-1.5 no-scrollbar overflow-visible" aria-label="Navegação principal">
             <div className="flex items-center gap-1.5 pr-2 mr-1 border-r border-slate-200 dark:border-slate-700 shrink-0">
               <button type="button" onClick={() => setActiveTab(isDriver ? 'driver-portal' : isSuperAdmin ? 'saas-tenants' : 'freights')} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-black shadow-sm hover:bg-emerald-700 transition-colors">Início</button>
               {!isDriver && <button type="button" onClick={() => setActiveTab('operations')} className={`px-3 py-1.5 rounded-lg text-xs font-black transition-colors ${activeTab === 'operations' ? 'bg-indigo-600 text-white' : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:text-indigo-300'}`}>Central</button>}
@@ -360,16 +393,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   👤 Meu Perfil & Veículos
                 </button>
                 <button
-                  onClick={() => setActiveTab('company-vehicles')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'company-vehicles'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Veículos próprios
-                </button>
-                <button
                   onClick={() => setActiveTab('expenses')}
                   className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
                     activeTab === 'expenses'
@@ -379,9 +402,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   💰 Prestação de Contas
                 </button>
-                <button onClick={() => setActiveTab('operations')} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 hover:bg-slate-200">Central</button>
-                <button onClick={() => setActiveTab('clients')} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 hover:bg-slate-200">Clientes</button>
-                <button onClick={() => setActiveTab('budgets')} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 hover:bg-slate-200">Orçamentos</button>
                 <button
                   onClick={() => setActiveTab('notification-preferences')}
                   className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'notification-preferences' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
@@ -399,11 +419,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   📖 Ajuda
                 </button>
               </>
+            ) : isDemo ? (
+              <>
+                {[
+                  ['freights', 'Fretes'], ['operations', 'Central'], ['budgets', 'Orçamentos'],
+                  ['clients', 'Clientes'], ['drivers', 'Motoristas'], ['company-vehicles', 'Veículos próprios'],
+                  ['expenses', 'Prestação de contas'], ['forms', 'Formulários'], ['users', 'Usuários'],
+                  ['audit', 'Auditoria'], ['notification-preferences', 'Preferências'], ['help', 'Ajuda']
+                ].map(([tab, label]) => (
+                  <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === tab ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800'}`}>{label}</button>
+                ))}
+              </>
             ) : isSuperAdmin ? (
               <>
                 {[
                   { key: 'saas', label: '👑 SaaS', color: 'purple', items: [['saas-tenants', 'Empresas'], ['content-management', 'Conteúdos']] },
-                  { key: 'operacao', label: 'Operação', color: 'indigo', items: [['freights', 'Fretes'], ['clients', 'Clientes'], ['budgets', 'Orçamentos'], ['drivers', 'Motoristas']] },
+                  { key: 'operacao', label: 'Operação', color: 'indigo', items: [['freights', 'Fretes'], ['clients', 'Clientes'], ['budgets', 'Orçamentos'], ['drivers', 'Motoristas'], ['company-vehicles', 'Veículos próprios']] },
                   { key: 'controle', label: 'Controle', color: 'slate', items: [['expenses', 'Contas'], ['forms', 'Formulários'], ['users', 'Usuários'], ['audit', 'Auditoria']] },
                   { key: 'sistema', label: 'Configurações', color: 'emerald', items: [['saas-config', 'SaaS'], ['notification-preferences', 'Notificações'], ['help', 'Ajuda']] }
                 ].map((group) => {
@@ -424,121 +455,25 @@ export const Navbar: React.FC<NavbarProps> = ({
                   );
                 })}
               </>
-            ) : isDemo ? (
-              <>
-                <button onClick={() => setActiveTab('freights')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'freights' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Fretes</button>
-                <button onClick={() => setActiveTab('drivers')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'drivers' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Motoristas</button>
-                <button onClick={() => setActiveTab('company-vehicles')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'company-vehicles' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Veículos</button>
-                <button onClick={() => setActiveTab('expenses')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'expenses' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Prestação de contas</button>
-                <button onClick={() => setActiveTab('forms')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'forms' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Formulários</button>
-                <button onClick={() => setActiveTab('users')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'users' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Usuários</button>
-                <button onClick={() => setActiveTab('audit')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'audit' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}>Auditoria</button>
-                <button onClick={() => setActiveTab('help')} className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'help' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40'}`}>Ajuda</button>
-              </>
             ) : (
               <>
-                <button
-                  onClick={() => setActiveTab('freights')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'freights'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Fretes
-                </button>
-                {canManageBilling && <button
-                  onClick={() => setActiveTab('billing')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'billing' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'}`}
-                >
-                  Assinatura
-                </button>}
-                {canManageBilling && <button
-                  onClick={() => setActiveTab('company-notification-templates')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'company-notification-templates' ? 'bg-amber-600 text-white font-extrabold' : 'text-amber-700 dark:text-amber-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'}`}
-                  title="Editar mensagens de e-mail e WhatsApp da empresa"
-                >
-                  Mensagens
-                </button>}
-                {canManageReportTemplates && <button
-                  onClick={() => setActiveTab('company-report-templates')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'company-report-templates' ? 'bg-emerald-600 text-white font-extrabold' : 'text-emerald-700 dark:text-emerald-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'}`}
-                  title="Editar os modelos de relatórios da empresa"
-                >
-                  Relatórios
-                </button>}
-                <button
-                  onClick={() => setActiveTab('drivers')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'drivers'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Motoristas
-                </button>
-                <button
-                  onClick={() => setActiveTab('expenses')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'expenses'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-emerald-700 dark:text-emerald-400 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  💰 Prestação de Contas
-                </button>
-                <button
-                  onClick={() => setActiveTab('notification-preferences')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'notification-preferences' ? 'bg-indigo-600 text-white font-extrabold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
-                >
-                  Preferências
-                </button>
-                <button
-                  onClick={() => setActiveTab('forms')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'forms'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Formulários & Checklists
-                </button>
-                <button
-                  onClick={() => setActiveTab('users')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'users'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Usuários
-                </button>
-                <button
-                  onClick={() => setActiveTab('audit')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'audit'
-                      ? 'bg-emerald-600 text-white font-extrabold shadow-xs'
-                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  Auditoria
-                </button>
-                <button
-                  onClick={() => setActiveTab('notification-preferences')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${activeTab === 'notification-preferences' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-indigo-700 dark:text-indigo-300 hover:bg-slate-200 dark:hover:bg-slate-800/60'}`}
-                >
-                  Preferências
-                </button>
-                <button
-                  onClick={() => setActiveTab('help')}
-                  className={`px-3 py-1.5 rounded-lg text-xs lg:text-sm font-semibold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-                    activeTab === 'help'
-                      ? 'bg-amber-500 text-white font-semibold shadow-xs'
-                      : 'text-amber-700 dark:text-amber-300 hover:bg-slate-250 dark:hover:bg-slate-800/60'
-                  }`}
-                >
-                  📖 Ajuda
-                </button>
+                {companyNavGroups.map((group) => {
+                  const active = group.items.some(([tab]) => tab === activeTab);
+                  return (
+                    <div key={group.key} className="relative shrink-0">
+                      <button type="button" onClick={() => setOpenNavGroup(openNavGroup === group.key ? null : group.key)} className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs lg:text-sm font-bold whitespace-nowrap transition-colors ${active ? 'bg-indigo-600 text-white' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800'}`} aria-expanded={openNavGroup === group.key}>
+                        {group.label}<ChevronDown className={`w-3.5 h-3.5 transition-transform ${openNavGroup === group.key ? 'rotate-180' : ''}`} />
+                      </button>
+                      {openNavGroup === group.key && (
+                        <div className="absolute left-0 top-full mt-1 z-[70] min-w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                          {group.items.map(([tab, label]) => (
+                            <button key={tab} type="button" onClick={() => { setActiveTab(tab); setOpenNavGroup(null); }} className={`block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold whitespace-nowrap ${activeTab === tab ? 'bg-emerald-600 text-white' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800'}`}>{label}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </>
             )}
           </nav>
@@ -567,7 +502,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 👤 Meu Perfil & Veículos
               </button>
               <button
-                onClick={() => { setActiveTab('company-vehicles'); setShowMobileMenu(false); }}
+                onClick={() => { setActiveTab('driver-profile'); setShowMobileMenu(false); }}
                 className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 Veículos próprios
@@ -577,6 +512,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
               >
                 💰 Prestação de Contas
+              </button>
+              <button
+                onClick={() => { setActiveTab('notification-preferences'); setShowMobileMenu(false); }}
+                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
+              >
+                Preferências de notificações
               </button>
               <button
                 onClick={() => { setActiveTab('help'); setShowMobileMenu(false); }}
@@ -663,85 +604,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             </>
           ) : isDemo ? (
-            <>
-              <button onClick={() => { setActiveTab('freights'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">📦 Fretes</button>
-              <button onClick={() => { setActiveTab('drivers'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">🚛 Motoristas</button>
-              <button onClick={() => { setActiveTab('company-vehicles'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Veículos</button>
-              <button onClick={() => { setActiveTab('expenses'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Prestação de contas</button>
-              <button onClick={() => { setActiveTab('forms'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Formulários</button>
-              <button onClick={() => { setActiveTab('users'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Usuários</button>
-              <button onClick={() => { setActiveTab('audit'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Auditoria</button>
-              <button onClick={() => { setActiveTab('help'); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950">Ajuda</button>
-            </>
+            <div className="space-y-1">
+              {[
+                ['freights', 'Fretes'], ['operations', 'Central'], ['budgets', 'Orçamentos'],
+                ['clients', 'Clientes'], ['drivers', 'Motoristas'], ['company-vehicles', 'Veículos próprios'],
+                ['expenses', 'Prestação de contas'], ['forms', 'Formulários'], ['users', 'Usuários'],
+                ['audit', 'Auditoria'], ['notification-preferences', 'Preferências'], ['help', 'Ajuda']
+              ].map(([tab, label]) => <button key={tab} type="button" onClick={() => { setActiveTab(tab); setShowMobileMenu(false); }} className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800">{label}</button>)}
+            </div>
           ) : (
-            <>
-              <button
-                onClick={() => { setActiveTab('freights'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                📦 Fretes
-              </button>
-              {canManageBilling && <button
-                onClick={() => { setActiveTab('billing'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
-              >
-                Assinatura e financeiro
-              </button>}
-              {canManageReportTemplates && <button
-                onClick={() => { setActiveTab('company-report-templates'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-              >
-                Modelos de relatórios
-              </button>}
-              <button
-                onClick={() => { setActiveTab('drivers'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                🚛 Motoristas
-              </button>
-              <button
-                onClick={() => { setActiveTab('expenses'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950"
-              >
-                💰 Prestação de Contas & Despesas
-              </button>
-              <button
-                onClick={() => { setActiveTab('notification-preferences'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
-              >
-                Preferências de notificações
-              </button>
-              <button
-                onClick={() => { setActiveTab('forms'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                📝 Formulários & Checklists
-              </button>
-              <button
-                onClick={() => { setActiveTab('users'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                👥 Usuários da Empresa
-              </button>
-              <button
-                onClick={() => { setActiveTab('audit'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                🛡️ Logs de Auditoria
-              </button>
-              <button
-                onClick={() => { setActiveTab('notification-preferences'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950"
-              >
-                Preferências de notificações
-              </button>
-              <button
-                onClick={() => { setActiveTab('help'); setShowMobileMenu(false); }}
-                className="w-full text-left px-3 py-2 rounded-md text-sm font-bold text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950"
-              >
-                📖 Ajuda
-              </button>
-            </>
+            <div className="space-y-1">
+              {renderMobileCompanyGroups()}
+            </div>
           )}
 
           <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1">
@@ -764,9 +638,9 @@ export const Navbar: React.FC<NavbarProps> = ({
       )}
 
       {/* Universal User Profile Edit Modal */}
-      <UserProfileModal 
-        isOpen={isProfileOpen} 
-        onClose={() => setIsProfileOpen(false)} 
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
       />
     </header>
   );

@@ -1,0 +1,10 @@
+const fs = require('fs');
+const api = fs.readFileSync('server/api.ts', 'utf8');
+const db = fs.readFileSync('server/db.ts', 'utf8');
+const types = fs.readFileSync('src/types/index.ts', 'utf8');
+const budget = fs.readFileSync('src/types/budgets.ts', 'utf8');
+for (const value of ['/clients/cnpj/:cnpj/lookup', "client.tenantId === req.user?.tenantId", 'Cliente inválido para esta empresa', 'db.clients', 'clients: this.clients']) if (!api.includes(value) && !db.includes(value)) throw new Error(`CLIENT_INVARIANT_MISSING:${value}`);
+for (const value of ['CLIENT_LOOKUP_LIMIT', 'clientLookupCache', 'CONSULTA_CNPJ', 'status(429)']) if (!api.includes(value)) throw new Error(`CLIENT_SECURITY_INVARIANT_MISSING:${value}`);
+if (!types.includes('interface Client')) throw new Error('CLIENT_TYPE_MISSING');
+if (!budget.includes('clientId?: string')) throw new Error('BUDGET_CLIENT_LINK_MISSING');
+console.log('CLIENT_INVARIANTS_OK');

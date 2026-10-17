@@ -12,7 +12,10 @@ dotenv.config();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number.parseInt(process.env.PORT || '3000', 10);
+  if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+    throw new Error('PORT inválida.');
+  }
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
@@ -29,7 +32,7 @@ async function startServer() {
   });
 
   const allowedOrigins = new Set(
-    (process.env.CORS_ALLOWED_ORIGINS || process.env.APP_URL || 'https://gestor.atendo.log.br')
+    [process.env.CORS_ALLOWED_ORIGINS || process.env.APP_URL || 'https://gestor.atendo.log.br', process.env.MOBILE_APP_ORIGINS || ''].join(',')
       .split(',')
       .map(origin => origin.trim().replace(/\/$/, ''))
       .filter(Boolean)
@@ -40,10 +43,17 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID, asaas-access-token');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID, X-CSRF-Token, X-Atendo-Client, asaas-access-token');
       res.setHeader('Vary', 'Origin');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(origin && allowedOrigins.has(origin) ? 204 : 403);
+    next();
+  });
+  app.use((req, res, next) => {
+    if (!String(req.headers.cookie || '').split(';').some(cookie => cookie.trim().startsWith('atendo_csrf='))) {
+      const secure = process.env.NODE_ENV === 'production' || String(process.env.APP_URL || '').startsWith('https://');
+      res.append('Set-Cookie', `atendo_csrf=${encodeURIComponent(randomUUID())}; Path=/; SameSite=Lax${secure ? '; Secure' : ''}`);
+    }
     next();
   });
   app.use((_req, res, next) => {
@@ -113,8 +123,8 @@ async function startServer() {
   app.use('/api', async (req, res, next) => {
     try {
       await db.waitForPersistence();
-      res.once('finish', () => {
-        void db.persistNow();
+        res.once('finish', () => {
+        void db.persistNow().catch(error => console.error('PERSISTENCE_FAILURE', error instanceof Error ? error.message : error));
       });
       next();
     } catch (error) {
@@ -130,7 +140,7 @@ async function startServer() {
     res.setHeader('Cache-Control', 'no-store');
     res.json({ 
       status: 'ok', 
-      service: 'Portal de Fretes e Motoristas SaaS API',
+      service: 'Atendo One SaaS API',
       timestamp: new Date().toISOString() 
     });
   });
@@ -202,8 +212,8 @@ async function startServer() {
     };
     const normalizeSeoBrand = (value: string, siteName: string) => String(value || '').replace(/Elo Log|Atendo One/gi, siteName).replace(/\s{2,}/g, ' ').trim();
     const publicSeo = () => ({
-      siteName: db.saasGlobalConfig.seo?.siteName || db.saasGlobalConfig.systemName || 'Elo Log',
-      title: db.saasGlobalConfig.seo?.title || `${db.saasGlobalConfig.systemName || 'Elo Log'} — Gestão e publicação de fretes`,
+      siteName: db.saasGlobalConfig.seo?.siteName || db.saasGlobalConfig.systemName || 'Atendo One',
+      title: db.saasGlobalConfig.seo?.title || `${db.saasGlobalConfig.systemName || 'Atendo One'} — Gestão e publicação de fretes`,
       description: db.saasGlobalConfig.seo?.description || 'Plataforma de gestão logística para transportadoras, motoristas e operações de fretes.',
       keywords: db.saasGlobalConfig.seo?.keywords || '',
       canonicalUrl: safeHttpsUrl(db.saasGlobalConfig.seo?.canonicalUrl || process.env.APP_URL, 'https://gestor.atendo.log.br'),
@@ -229,10 +239,11 @@ async function startServer() {
       const item: any = slug ? publicItemBySlug(slug) : null;
       const isShowcase = req.path === '/vitrine-fretes';
       const routeMatchesItem = Boolean(item && (item.publicPath === publicSection || (!item.publicPath && publicSection === 'conteudo')));
-      const isKnownPublicRoute = req.path === '/' || isShowcase || isSolutionIndex || isContentIndex || ((req.path.startsWith('/conteudo/') || req.path.startsWith('/elo-log/')) && routeMatchesItem);
+      const isLoginRoute = req.path === '/login';
+      const isKnownPublicRoute = req.path === '/' || isLoginRoute || isShowcase || isSolutionIndex || isContentIndex || ((req.path.startsWith('/conteudo/') || req.path.startsWith('/elo-log/')) && routeMatchesItem);
       const isNotFound = !isKnownPublicRoute;
-      const title = isNotFound ? `Página não encontrada | ${seo.siteName}` : isSolutionIndex ? `Soluções para operações logísticas | ${seo.siteName}` : isContentIndex ? `Conteúdos sobre transporte e gestão de fretes | ${seo.siteName}` : isShowcase ? `Fretes de mercadorias disponíveis | ${seo.siteName}` : normalizeSeoBrand(item?.metaTitle || item?.title || seo.title, seo.siteName);
-      const description = isNotFound ? 'A página solicitada não foi encontrada.' : isSolutionIndex ? 'Conheça as soluções do Atendo One para gestão de fretes, transportadoras, motoristas, veículos e viagens.' : isContentIndex ? 'Guias e conteúdos práticos sobre TMS, fretes, motoristas, viagens, checklists e operação logística.' : isShowcase ? 'Encontre fretes de mercadorias publicados por empresas e cadastre-se para demonstrar interesse com segurança.' : item?.metaDescription || item?.excerpt || seo.description;
+      const title = isNotFound ? `Página não encontrada | ${seo.siteName}` : isLoginRoute ? `Entrar | ${seo.siteName}` : isSolutionIndex ? `Soluções para operações logísticas | ${seo.siteName}` : isContentIndex ? `Conteúdos sobre transporte e gestão de fretes | ${seo.siteName}` : isShowcase ? `Fretes de mercadorias disponíveis | ${seo.siteName}` : normalizeSeoBrand(item?.metaTitle || item?.title || seo.title, seo.siteName);
+      const description = isNotFound ? 'A página solicitada não foi encontrada.' : isLoginRoute ? 'Acesse sua conta Atendo One.' : isSolutionIndex ? 'Conheça as soluções do Atendo One para gestão de fretes, transportadoras, motoristas, veículos e viagens.' : isContentIndex ? 'Guias e conteúdos práticos sobre TMS, fretes, motoristas, viagens, checklists e operação logística.' : isShowcase ? 'Encontre fretes de mercadorias publicados por empresas e cadastre-se para demonstrar interesse com segurança.' : item?.metaDescription || item?.excerpt || seo.description;
       const itemPath = item ? (item.publicPath === 'elo-log' ? 'elo-log' : 'conteudo') : publicSection;
       const itemCanonical = safeHttpsUrl(item?.canonicalUrl);
       const canonical = isNotFound ? `${seo.canonicalUrl}/404` : isSolutionIndex ? `${seo.canonicalUrl}/elo-log` : isContentIndex ? `${seo.canonicalUrl}/conteudo` : isShowcase ? `${seo.canonicalUrl}/vitrine-fretes` : itemCanonical || `${seo.canonicalUrl}${slug ? `/${itemPath}/${encodeURIComponent(slug)}` : '/'}`;
@@ -348,7 +359,7 @@ async function startServer() {
       const publicPathMatch = normalizedPath.match(/^\/(conteudo|elo-log)\/([^/]+)$/);
       const publicItem = publicPathMatch ? publicItemBySlug(decodeURIComponent(publicPathMatch[2])) : null;
       const publicItemMatchesSection = Boolean(publicItem && ((publicItem as any).publicPath === publicPathMatch?.[1] || (!(publicItem as any).publicPath && publicPathMatch?.[1] === 'conteudo')));
-      const isKnownPublic = normalizedPath === '/' || normalizedPath === '/vitrine-fretes' || normalizedPath === '/elo-log' || normalizedPath === '/conteudo' || publicItemMatchesSection;
+      const isKnownPublic = normalizedPath === '/' || normalizedPath === '/login' || normalizedPath === '/vitrine-fretes' || normalizedPath === '/elo-log' || normalizedPath === '/conteudo' || publicItemMatchesSection;
       res.status(isKnownPublic ? 200 : 404).type('html').send(renderSeoHtml(req));
     });
   } else {
@@ -364,7 +375,7 @@ async function startServer() {
     const correlationId = String(req.headers['x-request-id'] || `corr-${Date.now()}-${randomUUID().slice(0, 8)}`);
     db.addErrorLog({
       correlationId,
-      service: 'elolog-app',
+      service: 'atendo-one-app',
       route: req.path,
       method: req.method,
       statusCode: Number(error?.status || 500),
@@ -375,8 +386,18 @@ async function startServer() {
     res.status(Number(error?.status || 500)).json({ error: 'Ocorreu um erro interno. Consulte o suporte com o identificador de atendimento.', correlationId });
   });
 
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.DATABASE_URL && !process.env.DB_HOST) throw new Error('PostgreSQL é obrigatório em produção; configure DATABASE_URL ou DB_HOST.');
+    if (process.env.NORMALIZED_DOMAIN_RLS === 'true') {
+      throw new Error('NORMALIZED_DOMAIN_RLS deve permanecer false até a migração relacional do domínio ser validada.');
+    }
+    if (process.env.RLS_DOMAIN_MODE === 'active' && process.env.NORMALIZED_DOMAIN_RLS !== 'true') {
+      throw new Error('RLS_DOMAIN_MODE=active exige NORMALIZED_DOMAIN_RLS=true; o domínio app_state ainda está em transição.');
+    }
+    await db.waitForPersistence();
+  }
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚚 Portal de Fretes SaaS Server running on http://0.0.0.0:${PORT}`);
+    console.log(`🚚 Atendo One Server running on http://0.0.0.0:${PORT}`);
   });
 }
 

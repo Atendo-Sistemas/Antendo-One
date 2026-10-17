@@ -37,6 +37,28 @@ export interface BlogPost {
   publishedAt?: string;
 }
 
+export type AdBannerFormat = 'STRIP' | 'CARD' | 'SIDEBAR' | 'MODAL';
+export type AdBannerPlacement = 'HOME' | 'FREIGHTS' | 'OPERATIONS' | 'DRIVER_PORTAL' | 'DASHBOARD';
+
+export interface AdBanner {
+  id: string;
+  title: string;
+  imageUrl: string;
+  linkUrl?: string;
+  openInNewTab: boolean;
+  format: AdBannerFormat;
+  placements: AdBannerPlacement[];
+  targetRoles: UserRole[];
+  targetTenantIds: string[];
+  targetUserIds: string[];
+  isActive: boolean;
+  startsAt?: string;
+  endsAt?: string;
+  priority: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type UserRole = 
   | 'SUPER_ADMIN' 
   | 'EMPRESA_SUPER_ADMIN' 
@@ -69,7 +91,8 @@ export type BodyType =
   | 'REFRIGERADO' 
   | 'CACAMBA' 
   | 'PLATAFORMA'
-  | 'TANQUE';
+  | 'TANQUE'
+  | 'OUTRO';
 
 export type CargoType = 
   | 'GERAL' 
@@ -91,6 +114,8 @@ export type PaymentMethod =
 
 export type FreightStatus = 
   | 'RASCUNHO' 
+  | 'AGUARDANDO_APROVACAO'
+  | 'APROVADO'
   | 'PUBLICADO' 
   | 'DISPONIVEL' 
   | 'RESERVADO' 
@@ -133,6 +158,7 @@ export interface Client {
 }
 
 export interface Tenant {
+  asaasApiKey?: string;
   id: string;
   name: string;
   legalName: string;
@@ -159,6 +185,7 @@ export interface Tenant {
   notificationBillingStatus?: NotificationBillingStatus;
   notificationSubscriptionId?: string;
   notificationBillingNextDueDate?: string;
+  freightAlertConfig?: FreightAlertConfig;
   isDemo?: boolean;
   atendoCrmTenantId?: string;
   atendoCrmProvisioningStatus?: 'NOT_REQUESTED' | 'PENDING' | 'PROVISIONED' | 'ERROR' | 'NOT_CONFIGURED';
@@ -173,6 +200,17 @@ export interface NotificationConsent {
   whatsapp: boolean;
   updatedAt?: string;
   source?: 'USER' | 'ADMIN' | 'REGISTRATION';
+}
+
+export type FreightAlertFallbackRegion = 'CITY' | 'STATE' | 'NONE';
+export interface FreightAlertConfig {
+  geographicFilterEnabled: boolean;
+  radiusKm: number;
+  fallbackRegion: FreightAlertFallbackRegion;
+  requireCurrentLocation: boolean;
+  maxLocationAgeMinutes: number;
+  maxAccuracyMeters: number;
+  updatedAt?: string;
 }
 
 export interface User {
@@ -197,6 +235,8 @@ export interface User {
   updatedAt?: string;
   activeSessionId?: string;
   activeSessionExpiresAt?: string;
+  mergedIntoUserId?: string;
+  mergedAt?: string;
 }
 
 export interface LegalDocumentVersion {
@@ -250,6 +290,16 @@ export interface Driver {
   bankAccount?: string;
   pixKeyType?: string;
   pixKey?: string;
+  proximityAlertsEnabled?: boolean;
+  directoryVisible?: boolean;
+  registrationPendingVerification?: boolean;
+  directoryConsentPending?: boolean;
+  currentLocation?: {
+    lat: number;
+    lng: number;
+    accuracyMeters?: number;
+    recordedAt: string;
+  };
   createdAt: string;
   updatedAt?: string;
 }
@@ -295,8 +345,15 @@ export interface CompanyVehicle {
   year: number;
   plate: string;
   renavam: string;
+  chassis?: string;
   capacityKg: number;
   bodyType: BodyType;
+  color?: string;
+  fuelType?: string;
+  axleCount?: number;
+  manufactureYear?: number;
+  modelYear?: number;
+  insuranceValidUntil?: string;
   ownerName?: string;
   ownerCnpj?: string;
   registrationState?: string;
@@ -322,6 +379,8 @@ export interface PublicFreightSummary {
   minCapacityKg: number;
   interestEnabled: boolean;
   publishedAt?: string;
+  routeAvailable?: boolean;
+  distanceKm?: number;
 }
 export interface Vehicle {
   id: string;
@@ -379,6 +438,7 @@ export interface FreightRequirements {
   vehicleType: VehicleType;
   vehicleBrand?: string;
   bodyTypeRequired?: BodyType;
+  bodyTypeOther?: string;
   minCapacityKg: number;
   helperRequired?: boolean;
   trackerRequired?: boolean;
@@ -410,6 +470,7 @@ export interface FreightTrackingLocation {
   lat: number;
   lng: number;
   speedKmh?: number;
+  heading?: number;
   accuracyMeters?: number;
   recordedAt: string;
   label?: string;
@@ -481,6 +542,12 @@ export interface Freight {
   assignedVehiclePlate?: string;
   assignedVehicleModel?: string;
   assignedAt?: string;
+  targetedDriverId?: string;
+  targetedDriverName?: string;
+  targetedDriverPhone?: string;
+  targetedVehicleId?: string;
+  targetedVehiclePlate?: string;
+  targetedAt?: string;
   startedAt?: string;
   collectedAt?: string;
   inTransitAt?: string;
@@ -493,6 +560,7 @@ export interface Freight {
   createdAt: string;
   updatedAt: string;
   customData?: Record<string, any>;
+  routeGeometry?: { type: 'LineString'; coordinates: number[][] };
   companyVehicleId?: string;
   companyVehicle?: CompanyVehicle;
   publicListingEnabled?: boolean;
@@ -965,6 +1033,7 @@ export interface SaaSGlobalConfig {
   backupNotifications?: BackupNotificationConfig;
   seo?: SeoConfig;
   notificationTemplates?: NotificationTemplate[];
+  adBanners?: AdBanner[];
 }
 
 export type ExpenseCategory = 
@@ -1018,10 +1087,14 @@ export type TripExpenseStatus =
 
 export interface TripExpenseReport {
   id: string;
+  /** Código legível e token não previsível para validação de documentos avulsos. */
+  publicCode?: string;
+  publicToken?: string;
   tenantId?: string;
   freightId?: string;
   freightCode?: string;
-  driverId: string;
+  /** Motorista é opcional em prestações avulsas ou lançadas antes da vinculação. */
+  driverId?: string;
   driverName: string;
   driverPhone?: string;
   vehiclePlate?: string;
@@ -1062,3 +1135,17 @@ export interface TripExpenseReport {
 }
 
 export * from './budgets';
+
+export interface Metrics {
+  totalTenants: number;
+  activeTenants: number;
+  totalUsers: number;
+  recentProvisionings: number;
+}
+export interface Invoice {
+  id: string;
+  value: number;
+  status: string;
+  dueDate: string;
+  invoiceUrl: string;
+}

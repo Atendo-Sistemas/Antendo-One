@@ -14,6 +14,8 @@ interface BadgeProps {
 export const StatusBadge: React.FC<{ status: FreightStatus; className?: string }> = ({ status, className = '' }) => {
   const map: Record<FreightStatus, { label: string; bg: string; text: string; dot: string }> = {
     RASCUNHO: { label: 'Rascunho', bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-700 dark:text-slate-300', dot: 'bg-slate-400' },
+    AGUARDANDO_APROVACAO: { label: 'Aguardando aprovação', bg: 'bg-amber-50 dark:bg-amber-950/50', text: 'text-amber-700 dark:text-amber-300', dot: 'bg-amber-500 animate-pulse' },
+    APROVADO: { label: 'Aprovado', bg: 'bg-emerald-50 dark:bg-emerald-950/50', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
     PUBLICADO: { label: 'Publicado', bg: 'bg-sky-50 dark:bg-sky-950/50', text: 'text-sky-700 dark:text-sky-300', dot: 'bg-sky-500' },
     DISPONIVEL: { label: 'Disponível', bg: 'bg-emerald-50 dark:bg-emerald-950/50', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500 animate-pulse' },
     RESERVADO: { label: 'Reservado', bg: 'bg-amber-50 dark:bg-amber-950/50', text: 'text-amber-700 dark:text-amber-300', dot: 'bg-amber-500' },

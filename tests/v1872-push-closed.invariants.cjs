@@ -1,0 +1,27 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+const sw = read('public/sw.js');
+const api = read('server/api.ts');
+const pushClient = read('src/services/pushClient.ts');
+const auth = read('src/context/AuthContext.tsx');
+const app = read('src/App.tsx');
+const appVersion = read('src/version.ts').match(/APP_VERSION = 'v([^']+)'/)?.[1];
+
+assert(appVersion && sw.includes(`CACHE_NAME = 'atendo-one-v${appVersion}'`), 'SW_CACHE_VERSION_MISSING');
+assert(/addEventListener\('push'/.test(sw), 'SW_PUSH_HANDLER_MISSING');
+assert(/showNotification\(title, options\)/.test(sw), 'SW_SHOW_NOTIFICATION_MISSING');
+assert(/addEventListener\('notificationclick'/.test(sw), 'SW_CLICK_HANDLER_MISSING');
+assert(/openWindow\(targetUrl\)|navigate\(targetUrl\)/.test(sw), 'SW_NOTIFICATION_TARGET_MISSING');
+assert(/data: \{ url/.test(sw), 'SW_NOTIFICATION_DATA_MISSING');
+assert(/apiRouter\.post\('\/push\/test'/.test(api), 'PUSH_TEST_ROUTE_MISSING');
+assert(/sendPushNotificationToUsers\(\[req\.user\]/.test(api), 'PUSH_TEST_MUST_BE_SELF_ONLY');
+assert(/result\.sent === 0/.test(api), 'PUSH_TEST_SUBSCRIPTION_CHECK_MISSING');
+assert(/url: `\/freights\?frete=/.test(api), 'FREIGHT_PUSH_TARGET_MISSING');
+assert(/apiRouter\.delete\('\/push\/subscribe'/.test(api), 'PUSH_UNSUBSCRIBE_ROUTE_MISSING');
+assert(/unregisterPushNotifications/.test(pushClient), 'PUSH_CLIENT_UNREGISTER_MISSING');
+assert(/unregisterPushNotifications/.test(auth), 'LOGOUT_PUSH_CLEANUP_MISSING');
+assert(/params\.get\('frete'\)/.test(app), 'PUSH_FREIGHT_QUERY_HANDLING_MISSING');
+console.log('V1872_PUSH_CLOSED_INVARIANTS_OK');

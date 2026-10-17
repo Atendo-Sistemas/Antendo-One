@@ -42,7 +42,7 @@ const DEMO_PROFILES = [
 ] as const;
 
 export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ onLoginSuccess, onDemoStart, initialTab = 'inicio' }) => {
-  const { refreshProfile, refreshNotifications } = useAuth();
+  const { setAuthenticatedUser, refreshProfile, refreshNotifications } = useAuth();
   const { config } = useSaaS();
   const [activeSubTab, setActiveSubTab] = useState<'inicio' | 'contato' | 'login' | 'cadastro'>(initialTab);
 
@@ -51,8 +51,8 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [publicContent, setPublicContent] = useState<any[]>([]);
 
-  // Dynamic layout / institutional home text config with fallbacks
-  const logoName = config?.layout?.logoText || 'Atendo One';
+  // A marca pública oficial do produto é Atendo One; não acrescentar rótulos técnicos ou comerciais automaticamente.
+  const logoName = 'Atendo One';
   const homeBadge = config?.layout?.homeBadgeText || 'Gestão completa para sua operação de transporte';
   const homeTitle = config?.layout?.homeTitle || 'Gestão e Publicação de Fretes em';
   const homeTitleAccent = config?.layout?.homeTitleAccent || 'Tempo Real';
@@ -194,6 +194,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
     try {
       const res = await api.login(loginEmail, undefined, loginPassword);
       setAuthSession(res.token, res.refreshToken);
+      if (res.user) setAuthenticatedUser(res.user);
       await refreshProfile();
       await refreshNotifications();
       onLoginSuccess();
@@ -241,6 +242,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
     try {
       const res = await api.verifyOtp(loginPhone, loginOtpCode);
       setAuthSession(res.token, res.refreshToken);
+      if (res.user) setAuthenticatedUser(res.user);
       await refreshProfile();
       await refreshNotifications();
       onLoginSuccess();
@@ -346,7 +348,7 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
               </div>
               <div>
                 <span className="text-base font-bold tracking-tight text-slate-900 dark:text-white block leading-tight">
-                  {logoName} <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">SaaS</span>
+                  {logoName}
                 </span>
                 <span className="text-[10px] font-medium text-slate-500 block">
                   Logística Inteligente & Conectada
@@ -1197,11 +1199,8 @@ export const GuestInstitutionalPage: React.FC<GuestInstitutionalPageProps> = ({ 
 
       {/* Institutional Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-6 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="max-w-7xl mx-auto px-4 flex items-center justify-center gap-2">
           <span>{config?.layout?.footerText || 'Atendo One • Gestão Logística Integrada © 2026'}</span>
-          <span className="font-mono text-[10px] text-slate-400">
-            Plataforma SaaS Segura • Conectividade Offline Garantida
-          </span>
         </div>
       </footer>
     </div>

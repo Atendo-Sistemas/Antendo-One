@@ -12,7 +12,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Novo cadastro de empresa — {empresa}',
     emailBody: 'Olá, {nome}. O cadastro da empresa {empresa} foi recebido e está aguardando análise.',
-    whatsappBody: 'ELO LOG: o cadastro da empresa {empresa} foi recebido e está aguardando análise.',
+    whatsappBody: 'ATENDO ONE: o cadastro da empresa {empresa} foi recebido e está aguardando análise.',
     variables: ['nome', 'empresa', 'email', 'telefone']
   },
   {
@@ -26,7 +26,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Cadastro aprovado — {empresa}',
     emailBody: 'Olá, {nome}. O cadastro da empresa {empresa} foi aprovado. Acesse a plataforma para começar.',
-    whatsappBody: 'ELO LOG: o cadastro da empresa {empresa} foi aprovado. Você já pode acessar a plataforma.',
+    whatsappBody: 'ATENDO ONE: o cadastro da empresa {empresa} foi aprovado. Você já pode acessar a plataforma.',
     variables: ['nome', 'empresa', 'link']
   },
   {
@@ -38,9 +38,9 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     enabled: true,
     editable: true,
     channels: { email: true, whatsapp: true, inApp: true },
-    emailSubject: 'Seu acesso ao Elo Log foi criado',
+    emailSubject: 'Seu acesso ao Atendo One foi criado',
     emailBody: 'Olá, {nome}. Seu acesso à empresa {empresa} foi criado. Use o e-mail cadastrado para entrar.',
-    whatsappBody: 'ELO LOG: seu acesso à empresa {empresa} foi criado. Use o e-mail cadastrado para entrar.',
+    whatsappBody: 'ATENDO ONE: seu acesso à empresa {empresa} foi criado. Use o e-mail cadastrado para entrar.',
     variables: ['nome', 'empresa', 'email', 'telefone', 'link']
   },
   {
@@ -54,7 +54,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Cadastro de motorista realizado',
     emailBody: 'Olá, {nome}. Seu cadastro como motorista na empresa {empresa} foi realizado.',
-    whatsappBody: 'ELO LOG: seu cadastro como motorista na empresa {empresa} foi realizado.',
+    whatsappBody: 'ATENDO ONE: seu cadastro como motorista na empresa {empresa} foi realizado.',
     variables: ['nome', 'empresa', 'email', 'telefone']
   },
   {
@@ -68,7 +68,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Novo frete disponível — {codigoFrete}',
     emailBody: 'Um novo frete ({codigoFrete}) foi publicado de {origem} para {destino}, no valor de {valor}.',
-    whatsappBody: 'ELO LOG: novo frete {codigoFrete} disponível de {origem} para {destino}. Valor: {valor}.',
+    whatsappBody: 'ATENDO ONE: novo frete {codigoFrete} disponível de {origem} para {destino}. Valor: {valor}.',
     variables: ['codigoFrete', 'origem', 'destino', 'valor', 'empresa', 'link']
   },
   {
@@ -82,7 +82,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Frete {codigoFrete} aceito',
     emailBody: 'O frete {codigoFrete} foi aceito pelo motorista {nomeMotorista}.',
-    whatsappBody: 'ELO LOG: o frete {codigoFrete} foi aceito pelo motorista {nomeMotorista}.',
+    whatsappBody: 'ATENDO ONE: o frete {codigoFrete} foi aceito pelo motorista {nomeMotorista}.',
     variables: ['codigoFrete', 'nomeMotorista', 'empresa', 'status']
   },
   {
@@ -96,7 +96,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Frete {codigoFrete}: status {status}',
     emailBody: 'O status do frete {codigoFrete} foi atualizado para {status}.',
-    whatsappBody: 'ELO LOG: o frete {codigoFrete} foi atualizado para {status}.',
+    whatsappBody: 'ATENDO ONE: o frete {codigoFrete} foi atualizado para {status}.',
     variables: ['codigoFrete', 'status', 'empresa', 'nomeMotorista']
   },
   {
@@ -110,7 +110,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Frete {codigoFrete} cancelado',
     emailBody: 'O frete {codigoFrete} da empresa {empresa} foi cancelado. Motivo: {motivo}.',
-    whatsappBody: 'ELO LOG: o frete {codigoFrete} foi cancelado. Motivo: {motivo}.',
+    whatsappBody: 'ATENDO ONE: o frete {codigoFrete} foi cancelado. Motivo: {motivo}.',
     variables: ['codigoFrete', 'empresa', 'motivo', 'status', 'link']
   },
   {
@@ -124,7 +124,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Cobrança do plano criada — {empresa}',
     emailBody: 'A cobrança do plano {plano} para {empresa} foi criada no valor de {valor}.',
-    whatsappBody: 'ELO LOG: a cobrança do plano {plano} para {empresa} foi criada no valor de {valor}.',
+    whatsappBody: 'ATENDO ONE: a cobrança do plano {plano} para {empresa} foi criada no valor de {valor}.',
     variables: ['empresa', 'plano', 'valor', 'link']
   },
   {
@@ -136,9 +136,9 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     enabled: true,
     editable: true,
     channels: { email: true, whatsapp: true, inApp: true },
-    emailSubject: 'Atualização do seu acesso ao Elo Log',
+    emailSubject: 'Atualização do seu acesso ao Atendo One',
     emailBody: 'Olá, {nome}. O status do seu acesso à empresa {empresa} foi atualizado para {status}.',
-    whatsappBody: 'ELO LOG: o status do seu acesso à empresa {empresa} foi atualizado para {status}.',
+    whatsappBody: 'ATENDO ONE: o status do seu acesso à empresa {empresa} foi atualizado para {status}.',
     variables: ['nome', 'empresa', 'status', 'email', 'telefone', 'link']
   },
   {
@@ -152,7 +152,7 @@ export const defaultNotificationTemplates: NotificationTemplate[] = [
     channels: { email: true, whatsapp: true, inApp: true },
     emailSubject: 'Atualização da sua solicitação de frete',
     emailBody: 'Olá, {nome}. A empresa {empresa} atualizou sua solicitação para o frete {codigoFrete}: {status}.',
-    whatsappBody: 'ELO LOG: sua solicitação no frete {codigoFrete} foi atualizada para {status} pela empresa {empresa}.',
+    whatsappBody: 'ATENDO ONE: sua solicitação no frete {codigoFrete} foi atualizada para {status} pela empresa {empresa}.',
     variables: ['nome', 'empresa', 'status', 'codigoFrete', 'link']
   },
   {

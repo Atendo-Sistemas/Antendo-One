@@ -40,6 +40,11 @@ export const FormFillModal: React.FC<FormFillModalProps> = ({ form, freightId, o
   const handleFileUpload = (fieldId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('image/') || file.size > 8 * 1024 * 1024) {
+        alert('Selecione uma imagem de até 8 MB.');
+        e.target.value = '';
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         if (reader.result) {
@@ -53,6 +58,15 @@ export const FormFillModal: React.FC<FormFillModalProps> = ({ form, freightId, o
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const missing = form.fields.find(field => {
+      if (!field.required) return false;
+      const value = answers[field.id];
+      return value === undefined || value === null || (typeof value === 'string' && !value.trim()) || (Array.isArray(value) && value.length === 0);
+    });
+    if (missing) {
+      alert(`Preencha o campo obrigatório: ${missing.label}`);
+      return;
+    }
     setSubmitting(true);
     try {
       await api.submitFormResponse({
@@ -200,7 +214,11 @@ export const FormFillModal: React.FC<FormFillModalProps> = ({ form, freightId, o
                   </p>
                   <button
                     type="button"
-                    onClick={() => setSigned(!signed)}
+                    onClick={() => {
+                      const nextSigned = !signed;
+                      setSigned(nextSigned);
+                      handleAnswerChange(field.id, nextSigned);
+                    }}
                     className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer"
                   >
                     {signed ? 'Limpar e Reassinar' : 'Coletar Assinatura'}
@@ -233,6 +251,26 @@ export const FormFillModal: React.FC<FormFillModalProps> = ({ form, freightId, o
                     <option key={i} value={opt}>{opt}</option>
                   ))}
                 </select>
+              ) : field.type === 'checkbox' && field.options ? (
+                <div className="space-y-1.5">
+                  {field.options.map((opt, i) => {
+                    const selected = Array.isArray(answers[field.id]) && answers[field.id].includes(opt);
+                    return (
+                      <label key={i} className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => {
+                            const current = Array.isArray(answers[field.id]) ? answers[field.id] : [];
+                            handleAnswerChange(field.id, selected ? current.filter((item: string) => item !== opt) : [...current, opt]);
+                          }}
+                          className="text-emerald-600"
+                        />
+                        <span>{opt}</span>
+                      </label>
+                    );
+                  })}
+                </div>
               ) : field.type === 'textarea' ? (
                 <textarea
                   rows={3}
@@ -243,9 +281,10 @@ export const FormFillModal: React.FC<FormFillModalProps> = ({ form, freightId, o
                 />
               ) : (
                 <input
-                  type={field.type === 'number' ? 'number' : 'text'}
+                  type={field.type === 'number' ? 'number' : field.type === 'email' ? 'email' : field.type === 'date' ? 'date' : field.type === 'time' ? 'time' : field.type === 'phone' ? 'tel' : 'text'}
                   value={answers[field.id] || ''}
                   onChange={e => handleAnswerChange(field.id, e.target.value)}
+                  maxLength={field.type === 'textarea' ? 5000 : 500}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
                   placeholder={field.placeholder || 'Preencha o campo...'}
                 />
@@ -305,4 +344,3 @@ export const FormFillModal: React.FC<FormFillModalProps> = ({ form, freightId, o
     </div>
   );
 };
-

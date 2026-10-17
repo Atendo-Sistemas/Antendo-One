@@ -6,5 +6,7 @@ const vite = fs.readFileSync(path.resolve(__dirname, '../vite.config.ts'), 'utf8
 assert.match(modal, /lazy\(\(\) => import\('\.\/InteractiveMapboxView'\)/);
 assert.match(modal, /<Suspense fallback=/);
 assert.doesNotMatch(modal, /import \{ InteractiveMapboxView \} from/);
+assert.match(modal, /publicTrackingApi\.geocode\(/);
+assert.doesNotMatch(modal, /api\.mapbox\.com\/geocoding/);
 assert.match(vite, /vendor-mapbox/);
 console.log('MAPBOX_PERFORMANCE_INVARIANTS_OK');

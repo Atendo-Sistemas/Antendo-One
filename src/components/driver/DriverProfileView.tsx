@@ -1,13 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { api } from '../../services/api';
 import { VehicleBadge } from '../common/Badge';
 import { UserProfileModal } from '../common/UserProfileModal';
 import { Truck, User, FileText, Phone, MapPin, Award, Shield, CheckCircle, Plus, Edit3 } from 'lucide-react';
 
 export const DriverProfileView: React.FC = () => {
-  const { user, driver, vehicles } = useAuth();
+  const { user, driver, vehicles, refreshProfile } = useAuth();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [directoryVisible, setDirectoryVisible] = useState(driver?.directoryVisible === true);
+  const [directorySaving, setDirectorySaving] = useState(false);
+  const [directoryError, setDirectoryError] = useState('');
   const primaryVehicle = vehicles[0];
+  useEffect(() => { setDirectoryVisible(driver?.directoryVisible === true); }, [driver?.directoryVisible]);
+  const updateDirectoryVisibility = async (visible: boolean) => {
+    if (!driver || directorySaving) return;
+    setDirectorySaving(true);
+    setDirectoryError('');
+    try {
+      await api.updateDriver(driver.id, { directoryVisible: visible });
+      setDirectoryVisible(visible);
+      await refreshProfile();
+    } catch (error: any) {
+      setDirectoryError(error.message || 'Não foi possível atualizar a autorização do catálogo.');
+    } finally {
+      setDirectorySaving(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -51,6 +70,14 @@ export const DriverProfileView: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+          <label className="flex items-start gap-3 text-xs text-blue-950 dark:text-blue-100">
+            <input type="checkbox" checked={directoryVisible} disabled={directorySaving} onChange={event => void updateDirectoryVisibility(event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-600" />
+            <span><strong className="block">Permitir que empresas encontrem meu perfil</strong><span className="mt-1 block text-blue-800/80 dark:text-blue-200/80">Ao autorizar, seu nome, cidade, UF e categoria da CNH aparecem no catálogo. Se uma empresa solicitar sua avaliação, telefone, CPF e dados da CNH serão compartilhados com ela para análise. Você pode retirar a autorização do catálogo quando quiser.</span></span>
+          </label>
+          {directoryError && <p className="mt-2 text-[11px] font-semibold text-red-700 dark:text-red-300">{directoryError}</p>}
         </div>
 
         {/* Documentation details */}

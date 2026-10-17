@@ -9,13 +9,15 @@ const service = fs.readFileSync('src/services/api.ts', 'utf8');
 for (const token of ['requestedBudgetId', 'linkedBudget', 'budgetCode', 'mapboxPlaceId']) {
   if (!api.includes(token)) throw new Error(`INTEGRATION_MISSING:${token}`);
 }
-for (const token of ['budgetApi.list()', 'applyBudget', 'Calcular rota', 'searchAddress', 'chooseAddress', 'routeDistanceKm']) {
+for (const token of ['budgetApi.list(undefined, effectiveTenantId)', 'applyBudget', 'Calcular rota', 'searchAddress', 'chooseAddress', 'routeDistanceKm']) {
   if (!freight.includes(token)) throw new Error(`FREIGHT_MAPBOX_BUDGET_UI_MISSING:${token}`);
 }
 for (const token of ['publicTrackingApi.geocode', 'subscribePublicTracking']) {
   if (!liveTracking.includes(token)) throw new Error(`TRACKING_UI_MISSING:${token}`);
 }
-if (!freight.includes("item.status === 'APROVADO'")) throw new Error('FREIGHT_BUDGET_SELECTION_MUST_BE_APPROVED');
+if (!freight.includes("item.status === 'APROVADO'") || !freight.includes('isSuperAdmin')) throw new Error('FREIGHT_BUDGET_SELECTION_ROLE_RULE_MISSING');
+if (!api.includes("req.user?.role !== 'SUPER_ADMIN' && linkedBudget.status !== 'APROVADO'")) throw new Error('SUPER_ADMIN_BUDGET_LINK_RULE_MISSING');
+if (!api.includes("req.user?.role !== 'SUPER_ADMIN' && budget.status !== 'APROVADO'")) throw new Error('SUPER_ADMIN_BUDGET_CONVERT_RULE_MISSING');
 if (liveTracking.includes('api.mapbox.com/geocoding')) throw new Error('TRACKING_UI_BYPASSES_BACKEND_GEOCODE');
 if (interactiveMapbox.includes('api.mapbox.com/directions')) throw new Error('TRACKING_UI_BYPASSES_BACKEND_DIRECTIONS');
 for (const token of ['MAPBOX_SECRET_ID', 'persistMapboxSecret', 'hydrateSecureMapboxConfig', 'WHATSAPP_SECRET_ID', 'persistWhatsAppSecret']) {

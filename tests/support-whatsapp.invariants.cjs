@@ -14,6 +14,8 @@ const types = read('src/types/index.ts');
 
 assert.match(api, /apiRouter\.post\('\/support\/sessions'/, 'rota de início de suporte ausente');
 assert.match(api, /apiRouter\.post\('\/support\/sessions\/end'/, 'rota de encerramento de suporte ausente');
+assert.match(api, /apiRouter\.get\('\/admin\/impersonate\/:tenantId'/, 'rota de acesso de suporte por empresa ausente');
+assert.match(api, /res\.redirect\('\/'\)/, 'acesso de suporte por empresa não retorna para a aplicação');
 assert.match(api, /SUPPORT_SESSION_TTL_MS\s*=\s*30\s*\*\s*60\s*\*\s*1000/, 'TTL de suporte não está limitado a 30 minutos');
 assert.match(api, /decoded\.support === true/, 'middleware não valida o claim de suporte');
 assert.match(api, /activeSupportSessions/, 'sessão de suporte não tem controle server-side');

@@ -481,6 +481,7 @@ export const ExpenseManager: React.FC<ExpenseManagerProps> = ({ currentUser }) =
             setEditingReport(null);
           }}
           existingReport={editingReport}
+          currentUser={currentUser}
           onSuccess={() => {
             loadReports();
           }}

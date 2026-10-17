@@ -1,0 +1,15 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const server = fs.readFileSync('server.ts', 'utf8');
+assert.match(server, /app\.disable\('x-powered-by'\)/);
+assert.match(server, /Access-Control-Allow-Origin/);
+assert.match(server, /CORS_ALLOWED_ORIGINS/);
+assert.match(server, /X-Content-Type-Options/);
+assert.match(server, /Strict-Transport-Security/);
+assert.match(server, /Content-Security-Policy/);
+assert.match(server, /frame-ancestors 'self'/);
+assert.match(server, /const rateLimit =/);
+assert.match(server, /Retry-After/);
+assert.match(server, /express\.json\(\{ limit: '10mb' \}\)/);
+assert.doesNotMatch(server, /Access-Control-Allow-Origin', '\*'/);
+console.log('HTTP_SECURITY_INVARIANTS=PASS');

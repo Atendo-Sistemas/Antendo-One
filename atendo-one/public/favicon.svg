@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Atendo One</title>
+  <desc id="desc">Ícone verde de gestão logística</desc>
+  <rect width="64" height="64" rx="16" fill="#047857"/>
+  <path d="M16 20h23c4.4 0 8 3.6 8 8v16H16z" fill="#ecfdf5"/>
+  <path d="M39 27h7l7 8v9H39z" fill="#a7f3d0"/>
+  <circle cx="25" cy="47" r="5" fill="#064e3b"/>
+  <circle cx="47" cy="47" r="5" fill="#064e3b"/>
+  <path d="M20 30h13M20 35h9" stroke="#047857" stroke-width="3" stroke-linecap="round"/>
+</svg>

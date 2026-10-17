@@ -83,6 +83,18 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({ isOpen
   } | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
 
+  const applySafeConfig = (config: SafeWhatsAppConfig) => {
+    setBaseUrl(config.baseUrl || '');
+    setToken('');
+    setTokenSaved(Boolean(config.tokenMasked));
+    setDefaultChannelNumber(config.defaultChannelNumber || '');
+    setIsActive(config.isActive !== undefined ? config.isActive : true);
+    setAutoNotifyChecklist(config.autoNotifyChecklist !== undefined ? config.autoNotifyChecklist : true);
+    setAutoNotifyFreightStatus(config.autoNotifyFreightStatus !== undefined ? config.autoNotifyFreightStatus : true);
+    setConnectionStatus(config.connectionStatus || 'UNKNOWN');
+    setConnectionMessage(config.lastConnectionError || '');
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     const initialTenantId = tenantId || tenant?.id || '';
@@ -127,15 +139,7 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({ isOpen
           selectedTenantId ? api.getNotificationModuleStatus(selectedTenantId) : Promise.resolve(null)
         ]);
         if (cancelled) return;
-        setBaseUrl(config.baseUrl || '');
-        setToken('');
-        setTokenSaved(Boolean(config.tokenMasked));
-        setDefaultChannelNumber(config.defaultChannelNumber || '');
-        setIsActive(config.isActive !== undefined ? config.isActive : true);
-        setAutoNotifyChecklist(config.autoNotifyChecklist !== undefined ? config.autoNotifyChecklist : true);
-        setAutoNotifyFreightStatus(config.autoNotifyFreightStatus !== undefined ? config.autoNotifyFreightStatus : true);
-        setConnectionStatus(config.connectionStatus || 'UNKNOWN');
-        setConnectionMessage(config.lastConnectionError || '');
+        applySafeConfig(config);
         setModuleStatus(module);
         setModuleMessage('');
       } catch (err: any) {
@@ -262,8 +266,8 @@ export const WhatsAppConfigModal: React.FC<WhatsAppConfigModalProps> = ({ isOpen
         autoNotifyChecklist,
         autoNotifyFreightStatus
       });
-      setToken('');
-      setTokenSaved(true);
+      const refreshedConfig = await api.getWhatsAppConfig(selectedTenantId || undefined) as SafeWhatsAppConfig;
+      applySafeConfig(refreshedConfig);
       setSaveSuccessMsg('Configuração salva com segurança.');
       setTimeout(() => setSaveSuccessMsg(''), 4000);
     } catch (err: any) {

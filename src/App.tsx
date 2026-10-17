@@ -22,11 +22,15 @@ import { PrivacyPolicy } from './components/common/PrivacyPolicy';
 import { PublicContentPage } from './components/common/PublicContentPage';
 import { PublicContentIndexPage } from './components/common/PublicContentIndexPage';
 import { FreightShowcasePage } from './components/common/FreightShowcasePage';
+import { PublicExpensePage } from './components/common/PublicExpensePage';
 const CompanyVehicleManager = lazy(() => import('./components/company/CompanyVehicleManager').then(m => ({ default: m.CompanyVehicleManager })));
 const CompanyBillingPanel = lazy(() => import('./components/company/CompanyBillingPanel').then(m => ({ default: m.CompanyBillingPanel })));
 const NotificationConsentPanel = lazy(() => import('./components/common/NotificationConsentPanel').then(m => ({ default: m.NotificationConsentPanel })));
 const NotificationTemplatesPanel = lazy(() => import('./components/superadmin/NotificationTemplatesPanel').then(m => ({ default: m.NotificationTemplatesPanel })));
+const CompanyEmailConfigPanel = lazy(() => import('./components/company/CompanyEmailConfigPanel').then(m => ({ default: m.CompanyEmailConfigPanel })));
 const ReportTemplatesPanel = lazy(() => import('./components/company/ReportTemplatesPanel').then(m => ({ default: m.ReportTemplatesPanel })));
+const DriverCompanyLinkPanel = lazy(() => import('./components/drivers/DriverCompanyLinkPanel').then(m => ({ default: m.DriverCompanyLinkPanel })));
+const DriverDirectoryPanel = lazy(() => import('./components/drivers/DriverDirectoryPanel').then(m => ({ default: m.DriverDirectoryPanel })));
 const CompanyStopsPanel = lazy(() => import('./components/company/CompanyStopsPanel').then(m => ({ default: m.CompanyStopsPanel })));
 const BudgetManager = lazy(() => import('./components/budgets/BudgetManager').then(m => ({ default: m.BudgetManager })));
 const ClientManager = lazy(() => import('./components/clients/ClientManager').then(m => ({ default: m.ClientManager })));
@@ -80,7 +84,28 @@ const AppContent: React.FC = () => {
 
   const isDriver = user?.role === 'MOTORISTA';
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const isCompanyAdmin = user?.role === 'EMPRESA_SUPER_ADMIN' || user?.role === 'ADMIN';
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
+  const canAccessTab = (tab: string): boolean => {
+    if (!user) return false;
+    if (isDemo) return ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'notification-preferences', 'help'].includes(tab);
+    if (isDriver) return ['driver-portal', 'driver-profile', 'expenses', 'notification-preferences', 'help'].includes(tab);
+    if (isSuperAdmin) return ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'freight-alerts', 'help'].includes(tab);
+    if (tab === 'driver-approvals') return isCompanyAdmin;
+    if (tab === 'driver-directory') return isCompanyAdmin;
+    if (['billing', 'company-notification-templates', 'company-email-config', 'freight-alerts', 'company-report-templates'].includes(tab)) return ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role);
+    if (tab === 'users') return ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role);
+    if (tab === 'audit') return ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user.role);
+    return ['freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'notification-preferences', 'help'].includes(tab);
+  };
+  const defaultTab = isDriver ? 'driver-portal' : isSuperAdmin ? 'saas-tenants' : 'freights';
+  const safeActiveTab = canAccessTab(activeTab) ? activeTab : defaultTab;
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.get('frete')) return;
+    setActiveTab(user?.role === 'MOTORISTA' ? 'driver-portal' : 'freights');
+  }, [user?.role]);
 
   // Automatically adjust active tab when switching demo roles
   useEffect(() => {
@@ -94,21 +119,25 @@ const AppContent: React.FC = () => {
       return;
     }
     if (user?.role === 'MOTORISTA') {
-      if (activeTab !== 'driver-portal' && activeTab !== 'driver-profile' && activeTab !== 'expenses' && activeTab !== 'notification-preferences') {
+      if (activeTab !== 'driver-portal' && activeTab !== 'driver-profile' && activeTab !== 'expenses' && activeTab !== 'notification-preferences' && activeTab !== 'help') {
         setActiveTab('driver-portal');
       }
     } else if (user?.role === 'SUPER_ADMIN') {
-      const validSuperAdminTabs = ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences'];
+      const validSuperAdminTabs = ['saas-tenants', 'freights', 'budgets', 'clients', 'operations', 'drivers', 'company-vehicles', 'expenses', 'forms', 'users', 'audit', 'saas-config', 'content-management', 'notification-preferences', 'help'];
       if (!validSuperAdminTabs.includes(activeTab)) {
         setActiveTab('saas-tenants');
       }
     } else {
       // Company roles (ADMIN, SUPERVISOR, USUARIO)
-      if (activeTab === 'driver-portal' || activeTab === 'driver-profile' || activeTab === 'saas-tenants' || activeTab === 'company-notification-templates' || activeTab === 'company-report-templates') {
+      if (activeTab === 'driver-portal' || activeTab === 'driver-profile' || activeTab === 'saas-tenants') {
         setActiveTab('freights');
       }
     }
   }, [user?.role, user?.id, tenant?.isDemo, isDemo, activeTab, supportSession?.id, supportSession?.targetUser.id]);
+
+  useEffect(() => {
+    if (user && !canAccessTab(activeTab)) setActiveTab(defaultTab);
+  }, [user?.role, user?.accountType, tenant?.isDemo, activeTab, defaultTab]);
 
   const handleOpenFormModal = async (formId: string, freightId?: string) => {
     try {
@@ -126,6 +155,8 @@ const AppContent: React.FC = () => {
   };
 
   const publicPath = typeof window !== 'undefined' ? window.location.pathname : '';
+  const publicExpenseMatch = publicPath.match(/^\/prestacao\/([a-f0-9]{32,64})$/i);
+  if (publicExpenseMatch) return <PublicExpensePage token={publicExpenseMatch[1]} />;
   if (publicPath === '/termos-de-uso' || publicPath === '/conteudo/termos-de-uso') return <main className="min-h-screen bg-slate-100 p-4 sm:p-8"><TermsOfUse /></main>;
   if (publicPath === '/politica-de-privacidade' || publicPath === '/conteudo/politica-de-privacidade') return <main className="min-h-screen bg-slate-100 p-4 sm:p-8"><PrivacyPolicy /></main>;
   const publicSlug = publicPath.startsWith('/conteudo/') || publicPath.startsWith('/elo-log/')
@@ -171,17 +202,17 @@ const AppContent: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 w-full max-w-full pb-16">
         {isDriver ? (
-          activeTab === 'driver-profile' ? (
+          safeActiveTab === 'driver-profile' ? (
             <DriverProfileView />
-          ) : activeTab === 'expenses' ? (
+          ) : safeActiveTab === 'expenses' ? (
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
               <ExpenseManager currentUser={user} />
             </div>
-          ) : activeTab === 'notification-preferences' ? (
+          ) : safeActiveTab === 'notification-preferences' ? (
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
               <NotificationConsentPanel />
             </div>
-          ) : activeTab === 'help' ? (
+          ) : safeActiveTab === 'help' ? (
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
               <HelpPanel role={user.role} />
             </div>
@@ -190,25 +221,29 @@ const AppContent: React.FC = () => {
           )
         ) : (
           <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
-            {activeTab === 'freights' && <CompanyDashboard />}
-            {activeTab === 'budgets' && <BudgetManager />}
-            {activeTab === 'clients' && <ClientManager />}
-            {activeTab === 'operations' && <OperationsCenter />}
-            {activeTab === 'company-stops' && <CompanyStopsPanel />}
-            {activeTab === 'billing' && (isDemo ? <DemoRestrictedNotice title="Assinatura e pagamentos indisponíveis" description="A demonstração não acessa cobrança, Asaas, faturas ou dados financeiros. Essas operações pertencem à empresa contratante e ficam protegidas no ambiente SaaS." /> : <CompanyBillingPanel onOpenNotificationTemplates={() => setActiveTab('company-notification-templates')} />)}
-            {activeTab === 'company-notification-templates' && (isDemo ? <DemoRestrictedNotice title="Mensagens protegidas no modo demo" description="A demonstração utiliza a operação SaaS configurada, mas não permite consultar ou alterar tokens, URLs ou modelos de comunicação." /> : <NotificationTemplatesPanel scope="tenant" />)}
-            {activeTab === 'company-report-templates' && (isDemo ? <DemoRestrictedNotice title="Modelos protegidos no modo demo" description="A demonstração permite visualizar relatórios fictícios, mas não permite editar ou salvar modelos de relatório." /> : <ReportTemplatesPanel />)}
-            {activeTab === 'drivers' && <DriverManager />}
-            {activeTab === 'company-vehicles' && <CompanyVehicleManager />}
-            {activeTab === 'expenses' && <ExpenseManager currentUser={user} />}
-            {activeTab === 'forms' && <FormBuilder />}
-            {activeTab === 'users' && <UserManager />}
-            {activeTab === 'audit' && <AuditLogViewer />}
-            {activeTab === 'help' && <HelpPanel role={user.role} />}
-            {activeTab === 'saas-tenants' && <SuperAdminDashboard />}
-            {activeTab === 'saas-config' && <SaaSConfigPanel onOpenContentManagement={() => setActiveTab('content-management')} />}
-            {activeTab === 'content-management' && <ContentManagementPanel />}
-            {activeTab === 'notification-preferences' && <NotificationConsentPanel />}
+            {safeActiveTab === 'freights' && <CompanyDashboard onOpenDriverRegistration={!isDemo && isCompanyAdmin ? () => setActiveTab('drivers') : undefined} />}
+            {safeActiveTab === 'budgets' && <BudgetManager />}
+            {safeActiveTab === 'clients' && <ClientManager />}
+            {safeActiveTab === 'operations' && <OperationsCenter />}
+            {safeActiveTab === 'company-stops' && <CompanyStopsPanel />}
+            {safeActiveTab === 'billing' && (isDemo ? <DemoRestrictedNotice title="Assinatura e pagamentos indisponíveis" description="A demonstração não acessa cobrança, Asaas, faturas ou dados financeiros. Essas operações pertencem à empresa contratante e ficam protegidas no ambiente SaaS." /> : <CompanyBillingPanel onOpenNotificationTemplates={() => setActiveTab('company-notification-templates')} />)}
+            {safeActiveTab === 'company-notification-templates' && (isDemo ? <DemoRestrictedNotice title="Mensagens protegidas no modo demo" description="A demonstração utiliza a operação SaaS configurada, mas não permite consultar ou alterar tokens, URLs ou modelos de comunicação." /> : <NotificationTemplatesPanel scope="tenant" />)}
+            {safeActiveTab === 'company-email-config' && (isDemo ? <DemoRestrictedNotice title="SMTP indisponível no modo demo" description="A configuração de e-mail pertence à empresa contratante." /> : <CompanyEmailConfigPanel />)}
+            {safeActiveTab === 'company-report-templates' && (isDemo ? <DemoRestrictedNotice title="Modelos protegidos no modo demo" description="A demonstração permite visualizar relatórios fictícios, mas não permite editar ou salvar modelos de relatório." /> : <ReportTemplatesPanel />)}
+            {safeActiveTab === 'drivers' && <DriverManager />}
+            {safeActiveTab === 'driver-approvals' && (isDemo ? <DemoRestrictedNotice title="Aprovação indisponível no modo demo" description="A demonstração não permite alterar aprovações ou vínculos de motoristas." /> : isCompanyAdmin ? <DriverCompanyLinkPanel /> : <DemoRestrictedNotice title="Acesso restrito" description="Somente administradores da empresa podem aprovar solicitações de motoristas." />)}
+            {safeActiveTab === 'driver-directory' && isCompanyAdmin && <DriverDirectoryPanel onOpenApprovals={() => setActiveTab('driver-approvals')} />}
+            {safeActiveTab === 'company-vehicles' && <CompanyVehicleManager />}
+            {safeActiveTab === 'expenses' && <ExpenseManager currentUser={user} />}
+            {safeActiveTab === 'forms' && <FormBuilder />}
+            {safeActiveTab === 'users' && <UserManager />}
+            {safeActiveTab === 'audit' && <AuditLogViewer />}
+            {safeActiveTab === 'help' && <HelpPanel role={user.role} />}
+            {safeActiveTab === 'saas-tenants' && <SuperAdminDashboard />}
+            {safeActiveTab === 'saas-config' && <SaaSConfigPanel onOpenContentManagement={() => setActiveTab('content-management')} />}
+            {safeActiveTab === 'content-management' && <ContentManagementPanel />}
+            {safeActiveTab === 'notification-preferences' && <NotificationConsentPanel mode="preferences" />}
+            {safeActiveTab === 'freight-alerts' && (isDemo ? <DemoRestrictedNotice title="Alertas indisponíveis no modo demo" description="A demonstração não permite alterar configurações de alertas da empresa." /> : isCompanyAdmin && tenant?.id ? <NotificationConsentPanel mode="freight-alerts" /> : <DemoRestrictedNotice title="Acesso restrito" description="Somente administradores da empresa podem configurar os alertas de frete." />)}
           </div>
         )}
       </main>

@@ -6,6 +6,7 @@ import { StatusBadge, VehicleBadge } from '../common/Badge';
 import { FreightFormModal } from '../freight/FreightFormModal';
 import { FreightDetailModal } from '../freight/FreightDetailModal';
 import { WhatsAppConfigModal } from '../common/WhatsAppConfigModal';
+import { AdBannerSlot } from '../superadmin/AdBannersPanel';
 import { 
   Truck, 
   Package, 
@@ -25,9 +26,11 @@ import {
   Pencil
 } from 'lucide-react';
 
-export const CompanyDashboard: React.FC = () => {
+export const CompanyDashboard: React.FC<{ onOpenDriverRegistration?: () => void }> = ({ onOpenDriverRegistration }) => {
   const { user, tenant } = useAuth();
   const isDemo = user?.accountType === 'TEST' && tenant?.isDemo === true;
+  const canApproveFreight = ['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user?.role || '');
+  const canManageFreight = !isDemo && canApproveFreight;
   const [freights, setFreights] = useState<Freight[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -124,20 +127,24 @@ export const CompanyDashboard: React.FC = () => {
               title="Configurar e testar API de WhatsApp / Canal"
             >
               <MessageCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>WhatsApp API</span>
+              <span>WhatsApp da empresa</span>
             </button>
           )}
           
-          <button
+          {(isDemo || canManageFreight) && <button
             id="btn-create-new-freight-main"
             onClick={() => setIsCreateModalOpen(true)}
             className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
             <span>{isDemo ? 'Simular cadastro' : 'Cadastrar Novo Frete'}</span>
-          </button>
+          </button>}
         </div>
       </div>
+
+      <AdBannerSlot placement="HOME" />
+      <AdBannerSlot placement="DASHBOARD" />
+      <AdBannerSlot placement="FREIGHTS" />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -201,6 +208,8 @@ export const CompanyDashboard: React.FC = () => {
             className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
           >
             <option value="ALL">Todos os Status</option>
+            <option value="AGUARDANDO_APROVACAO">Aguardando aprovação</option>
+            <option value="APROVADO">Aprovado</option>
             <option value="DISPONIVEL">Disponível</option>
             <option value="RESERVADO">Reservado</option>
             <option value="EM_COLETA">Em Coleta</option>
@@ -247,7 +256,7 @@ export const CompanyDashboard: React.FC = () => {
               {filteredFreights.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-12 text-center text-slate-400">
-                    Nenhum frete encontrado com os filtros selecionados.
+                    {totalFreights === 0 ? <div className="space-y-3"><p>Nenhum frete cadastrado. Você pode incluir motoristas sem publicar fretes.</p>{onOpenDriverRegistration && <button type="button" onClick={onOpenDriverRegistration} className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700">Cadastrar motorista</button>}</div> : 'Nenhum frete encontrado com os filtros selecionados.'}
                   </td>
                 </tr>
               ) : (
@@ -313,7 +322,7 @@ export const CompanyDashboard: React.FC = () => {
                           <Eye className="w-3.5 h-3.5" />
                           <span>Ver</span>
                         </button>
-                        {!isDemo && ['RASCUNHO', 'PUBLICADO', 'DISPONIVEL'].includes(freight.status) && (
+                        {canManageFreight && ['RASCUNHO', 'PUBLICADO', 'DISPONIVEL'].includes(freight.status) && (
                           <button
                             onClick={() => setEditingFreight(freight)}
                             className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 transition-colors cursor-pointer"
@@ -322,7 +331,7 @@ export const CompanyDashboard: React.FC = () => {
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {!isDemo && <button
+                        {canManageFreight && <button
                           onClick={() => handleDeleteFreight(freight.id, freight.code)}
                           className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors cursor-pointer"
                           title="Excluir frete"
@@ -364,9 +373,9 @@ export const CompanyDashboard: React.FC = () => {
       {selectedFreight && (
         <FreightDetailModal
           freight={selectedFreight}
-          isAdmin={!isDemo}
+          isAdmin={!isDemo && canApproveFreight}
           onClose={() => setSelectedFreight(null)}
-          onEdit={!isDemo ? (f) => setEditingFreight(f) : undefined}
+          onEdit={canManageFreight ? (f) => setEditingFreight(f) : undefined}
           onUpdateSuccess={(updated) => {
             setFreights(prev => prev.map(f => f.id === updated.id ? updated : f));
             setSelectedFreight(updated);

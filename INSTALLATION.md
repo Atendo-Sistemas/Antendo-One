@@ -1,4 +1,4 @@
-# Manual de Instalação e Configuração: Elo Log & Gestão de Frota
+# Manual de Instalação e Configuração: Atendo One & Gestão de Frota
 
 Este manual descreve o processo completo de instalação, implantação automatizada (1-Click via SSH ou Portainer) e parametrização de banco de dados relacional PostgreSQL e otimização de imagens.
 
@@ -9,77 +9,30 @@ Este manual descreve o processo completo de instalação, implantação automati
 Em sua VPS (Ubuntu / Debian / Rocky / CentOS 22.04+ com Docker e Docker Compose instalados), execute o comando abaixo para realizar a instalação e migração completa de forma totalmente autônoma:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/elolog/elolog/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Atendo-Sistemas/Antendo-One/main/install.sh | sudo bash
 ```
 
 O script acima executa automaticamente:
 1. Verificação do ambiente Docker e Docker Compose.
 2. Criação da rede isolada e container do **PostgreSQL 16**.
 3. Inicialização e migração do schema SQL (`schema.sql`).
-4. Build e start do container principal da aplicação Elo Log na porta configurada.
+4. Build e start do container principal da aplicação Atendo One na porta configurada.
+
+Após o primeiro start, a ordem operacional recomendada é: confirmar o backup do PostgreSQL, executar o `server/db/schema.sql`, executar as migrations em ordem lexicográfica (incluindo `010_tenant_rls_policies.sql`), validar isolamento com `npm run test:rls` em um banco de teste e somente então liberar a aplicação para uso. A role de runtime não deve ser proprietária das tabelas nem possuir `BYPASSRLS`; mantenha uma role administrativa separada para migrations e backup.
 
 ---
 
 ## 🐳 Método 2: Instalação Visual via Portainer (Stack)
 
+Antes de criar a stack, gere valores fortes para `DB_PASSWORD` (`openssl rand -base64 32`), `JWT_SECRET` e `CONFIG_ENCRYPTION_KEY` (`openssl rand -hex 32`). Cadastre-os nas variáveis de ambiente da Stack do Portainer ou em um arquivo `.env` fora do Git. Mantenha `CONFIG_ENCRYPTION_KEY` estável: sem a chave original, configurações protegidas já salvas não poderão ser descriptografadas. Nunca coloque esses valores neste documento, no Compose ou em uma imagem Docker.
+
 Se você gerencia sua VPS utilizando o painel **Portainer**:
 
 1. Acesse seu painel Portainer e clique em **Stacks** > **Add stack**.
-2. Defina o nome da stack como `elo-log`.
-3. Selecione a aba **Web editor** e cole o seguinte conteúdo (`docker-compose.portainer.yml`):
-
-```yaml
-version: '3.8'
-
-networks:
-  elolog-net:
-    driver: bridge
-
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: elolog-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: elolog
-      POSTGRES_USER: elolog_user
-      POSTGRES_PASSWORD: elolog_secret_password_2026
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./schema.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks:
-      - elolog-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U elolog_user -d elolog"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  app:
-    build: .
-    container_name: elolog-app
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - PORT=3000
-      - NODE_ENV=production
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=elolog
-      - DB_USER=elolog_user
-      - DB_PASSWORD=elolog_secret_password_2026
-    networks:
-      - elolog-net
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-volumes:
-  postgres_data:
-```
-
-4. Clique no botão inferior **Deploy the stack**.
+2. Defina o nome da stack como `atendo-one`.
+3. Selecione **Web editor** e cole o conteúdo atual do arquivo `docker-compose.portainer.yml` (também disponível para copiar ou baixar no painel **Super Admin > SQL & Instalação VPS**). Use essa stack como fonte única; não utilize exemplos antigos de Compose.
+4. Configure `DB_PASSWORD`, `JWT_SECRET` e `CONFIG_ENCRYPTION_KEY` nas variáveis da stack.
+5. Clique em **Deploy the stack**.
 
 ---
 
@@ -137,11 +90,10 @@ Para economizar largura de banda e espaço de armazenamento em fotos tiradas pel
 ```bash
 docker ps
 ```
-*Deve listar `elolog-postgres` e `elolog-app` como "Up".*
+*Deve listar `atendo-one-postgres` e `atendo-one-app` como "Up".*
 
 ### Verificar Logs
 ```bash
-docker logs -f elolog-app
-docker logs -f elolog-postgres
+docker logs -f atendo-one-app
+docker logs -f atendo-one-postgres
 ```
-

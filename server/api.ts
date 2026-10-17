@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { db, PUBLIC_DEMO_TENANT_ID, PUBLIC_DEMO_PRIMARY_USER_ID } from './db';
 import { sqlAdapter } from './db/sqlAdapter';
+import { runWithTenantDbContext } from './db/sqlAdapter';
 import webpush from 'web-push';
 import nodemailer from 'nodemailer';
 import bcrypt from 'bcryptjs';
@@ -19,6 +21,8 @@ import {
   Driver,
   Vehicle,
   FormDefinition,
+  FormField,
+  FormFieldType,
   FormResponse,
   UserRole,
   WhatsAppConfig,
@@ -43,11 +47,15 @@ import {
   TenantReportTemplate,
   CompanyStop,
   LodgingPartner,
-  Client
+  Client,
+  FreightAlertConfig,
+  AdBanner,
+  AdBannerFormat,
+  AdBannerPlacement
 } from '../src/types';
 
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV !== 'production' ? 'dev_insecure_secret_for_local_testing' : undefined);
 if (!JWT_SECRET) {
   console.error('FATAL ERROR: JWT_SECRET environment variable is missing or insecure.');
   process.exit(1);
@@ -198,18 +206,71 @@ if (publicVapidKey && privateVapidKey) {
   console.warn('VAPID keys are not configured; push notifications are disabled.');
 }
 
-export async function sendPushNotificationToAll(payload: any) {
+let fcmAccessCache: { token: string; expiresAt: number } | null = null;
+function fcmServiceAccount(): { project_id: string; client_email: string; private_key: string } | null {
+  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed?.project_id && parsed?.client_email && parsed?.private_key ? parsed : null;
+  } catch { return null; }
+}
+async function fcmAccessToken(account: { client_email: string; private_key: string }): Promise<string> {
+  if (fcmAccessCache && fcmAccessCache.expiresAt > Date.now() + 60_000) return fcmAccessCache.token;
+  const assertion = jwt.sign({ scope: 'https://www.googleapis.com/auth/firebase.messaging' }, account.private_key, { algorithm: 'RS256', issuer: account.client_email, audience: 'https://oauth2.googleapis.com/token', expiresIn: 3600 });
+  const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }) });
+  if (!response.ok) throw Object.assign(new Error('FCM auth failed'), { statusCode: response.status });
+  const data: any = await response.json();
+  fcmAccessCache = { token: String(data.access_token), expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000 };
+  return fcmAccessCache.token;
+}
+
+export async function sendPushNotificationToUsers(recipients: User[], payload: any): Promise<{ sent: number; removed: number }> {
+  const allowedRecipients = new Set(
+    recipients.filter(user => Boolean(user?.id)).map(user => `${user.id}:${user.tenantId || ''}`)
+  );
   const subs = (db as any).pushSubscriptions || [];
+  if (!publicVapidKey || !privateVapidKey) {
+    const hasExpoToken = subs.some((item: any) => (item?.kind === 'expo' || item?.kind === 'fcm') && allowedRecipients.has(`${String(item?.userId || '')}:${String(item?.tenantId || '')}`));
+    if (!hasExpoToken) return { sent: 0, removed: 0 };
+  }
+  let sent = 0;
+  let removed = 0;
   for (let i = subs.length - 1; i >= 0; i--) {
     const sub = subs[i];
+    const subscriptionKey = `${String(sub?.userId || '')}:${String(sub?.tenantId || '')}`;
+    if (!allowedRecipients.has(subscriptionKey)) continue;
     try {
-      await webpush.sendNotification(sub, JSON.stringify(payload));
+      if (sub?.kind === 'expo') {
+        const expoResponse = await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ to: sub.token, title: payload.title, body: payload.body, data: { url: payload.url, freightId: payload.freightId }, sound: 'default', channelId: 'fretes' })
+        });
+        if (!expoResponse.ok) throw Object.assign(new Error('Expo Push delivery failed'), { statusCode: expoResponse.status });
+      } else if (sub?.kind === 'fcm') {
+        const account = fcmServiceAccount();
+        if (!account) continue;
+        const accessToken = await fcmAccessToken(account);
+        const fcmResponse = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
+          body: JSON.stringify({ message: { token: sub.token, notification: { title: String(payload.title || ''), body: String(payload.body || '') }, data: { url: String(payload.url || ''), freightId: String(payload.freightId || '') }, android: { priority: 'HIGH', notification: { channel_id: 'fretes' } } } })
+        });
+        if (!fcmResponse.ok) throw Object.assign(new Error('FCM delivery failed'), { statusCode: fcmResponse.status === 400 || fcmResponse.status === 404 ? 404 : fcmResponse.status });
+      } else {
+        if (!publicVapidKey || !privateVapidKey) continue;
+        await webpush.sendNotification(sub, JSON.stringify(payload));
+      }
+      sent++;
     } catch (err: any) {
       if (err.statusCode === 404 || err.statusCode === 410) {
         subs.splice(i, 1);
+        removed++;
       }
     }
   }
+  return { sent, removed };
 }
 
 // Middleware to extract user from Authorization header or session demo token
@@ -225,6 +286,46 @@ const USER_SESSION_TTL_MS = 10 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const activeSupportSessions = new Map<string, SupportSessionRecord>();
 const activeRefreshFamilies = new Map<string, string>();
+const ACCESS_COOKIE = 'atendo_access';
+const REFRESH_COOKIE = 'atendo_refresh';
+const CSRF_COOKIE = 'atendo_csrf';
+
+function parseCookies(req: Request): Record<string, string> {
+  return Object.fromEntries(String(req.headers.cookie || '').split(';').map(item => {
+    const index = item.indexOf('=');
+    return index > 0 ? [item.slice(0, index).trim(), decodeURIComponent(item.slice(index + 1).trim())] : ['', ''];
+  }).filter(([key]) => key));
+}
+
+function setSessionCookies(res: Response, token: string, refreshToken?: string): void {
+  const forwardedProto = String(res.req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const requestIsHttps = forwardedProto === 'https' || res.req.secure;
+  const configuredHttps = String(process.env.APP_URL || '').startsWith('https://');
+  // Secure cookies are accepted only over HTTPS. Prefer the proxy's actual
+  // protocol so local HTTP and misconfigured APP_URL values do not discard the
+  // login response in the browser.
+  const secure = requestIsHttps || (configuredHttps && process.env.NODE_ENV === 'production');
+  const base = `Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+  res.append('Set-Cookie', `${ACCESS_COOKIE}=${encodeURIComponent(token)}; Max-Age=600; ${base}`);
+  if (refreshToken) res.append('Set-Cookie', `${REFRESH_COOKIE}=${encodeURIComponent(refreshToken)}; Max-Age=${Math.floor(REFRESH_TOKEN_TTL_MS / 1000)}; ${base}`);
+  // O token CSRF precisa ser legível pelo cliente para acompanhar as requisições mutáveis.
+  const csrfSecure = secure ? '; Secure' : '';
+  res.append('Set-Cookie', `${CSRF_COOKIE}=${encodeURIComponent(randomUUID())}; Max-Age=${Math.floor(REFRESH_TOKEN_TTL_MS / 1000)}; Path=/; SameSite=Lax${csrfSecure}`);
+}
+
+// Native beta clients cannot depend on browser cookie persistence. Tokens are
+// returned only for the explicitly identified Atendo One Motorista client.
+const isAtendoMotoristaMobileClient = (req: Request) => String(req.headers['x-atendo-client'] || '').trim() === 'atendo-one-motorista-beta';
+const sessionResponseForClient = (req: Request, user: User, token: string, refreshToken?: string) => ({
+  ...getSessionDataForUser(user),
+  ...(isAtendoMotoristaMobileClient(req) ? { accessToken: token, refreshToken } : {})
+});
+
+function clearSessionCookies(res: Response): void {
+  res.append('Set-Cookie', `${ACCESS_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+  res.append('Set-Cookie', `${REFRESH_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax`);
+  res.append('Set-Cookie', `${CSRF_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`);
+}
 
 function issueUserSession(user: User) {
   const sessionId = randomUUID();
@@ -261,7 +362,9 @@ const canAssignUserRole = (actor: User | undefined, targetRole: unknown): target
 };
 
 const VALID_STATUS_TRANSITIONS: Record<FreightStatus, FreightStatus[]> = {
-  RASCUNHO: ['PUBLICADO', 'CANCELADO'],
+  RASCUNHO: ['AGUARDANDO_APROVACAO', 'CANCELADO'],
+  AGUARDANDO_APROVACAO: ['APROVADO', 'CANCELADO'],
+  APROVADO: ['PUBLICADO', 'CANCELADO'],
   PUBLICADO: ['DISPONIVEL', 'RESERVADO', 'CANCELADO'],
   DISPONIVEL: ['RESERVADO', 'CANCELADO'],
   RESERVADO: ['EM_COLETA', 'DISPONIVEL', 'CANCELADO'],
@@ -275,7 +378,10 @@ const VALID_STATUS_TRANSITIONS: Record<FreightStatus, FreightStatus[]> = {
 
 // Auth / Identity Middleware
 export function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  const cookies = parseCookies(req);
   const authHeader = req.headers.authorization;
+  const cookieToken = cookies[ACCESS_COOKIE];
+  const suppliedToken = cookieToken || (authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '');
   const path = req.path;
 
   // Explicit public / unauthenticated routes
@@ -287,16 +393,29 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     '/auth/register-company',
     '/auth/verify-registration',
     '/auth/register-driver',
+    '/public/drivers/register',
     '/auth/switch-demo',
     '/auth/demo-session',
     '/analytics/visit',
     '/health',
+    '/public/mapbox/geocode',
+    '/public/mapbox/client-config',
+    '/public/cep',
+    // Mapbox is called server-side and these GET endpoints return only route
+    // results; keeping them public prevents a stale app session from blocking
+    // address resolution and route calculation in the budget screen.
+    '/mapbox/geocode',
+    '/mapbox/geocode-tracking',
+    '/mapbox/directions',
+    '/mapbox/client-config',
     '/internal/backups/event'
   ];
 
+  const isPublicExpensePath = req.method === 'GET' && /^\/public\/expenses\/[a-f0-9]{32,64}$/i.test(path);
   const isPublicRoute =
     publicPaths.includes(path) ||
     (req.method === 'GET' && /^\/public\/tracking\/[^/]+$/.test(path)) ||
+    isPublicExpensePath ||
     (path === '/saas/config' && req.method === 'GET') ||
     (path === '/push/vapid-key' && req.method === 'GET');
   const routeExists = ((apiRouter as any).stack || []).some((layer: any) => {
@@ -304,12 +423,12 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     const methods = layer.route.methods || {};
     return Boolean(layer.match(path) && (methods[req.method.toLowerCase()] || methods._all));
   });
-  if (!routeExists && !publicPaths.includes(path)) {
+  if (!routeExists && !publicPaths.includes(path) && !isPublicExpensePath) {
     return res.status(404).json({ error: 'Rota não encontrada.' });
   }
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.split(' ')[1]?.trim();
+  if (suppliedToken) {
+    const token = suppliedToken;
 
     if (token) {
       // 1. Attempt JWT verification
@@ -346,6 +465,11 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
           }
           req.user = foundUser;
           req.authToken = token;
+          if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !isPublicRoute && !isAtendoMotoristaMobileClient(req)) {
+            const csrfCookie = cookies[CSRF_COOKIE] || '';
+            const csrfHeader = String(req.headers['x-csrf-token'] || '');
+            if (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader) return res.status(403).json({ error: 'Token CSRF ausente ou inválido.' });
+          }
           req.tenant = foundUser.tenantId ? db.tenants.find(t => t.id === foundUser.tenantId) || null : null;
           return next();
         }
@@ -378,8 +502,28 @@ export function sanitizeUser(user?: User | null): any {
 
 function sanitizeDriver(driver?: Driver | null): any {
   if (!driver) return driver;
-  const { bankName, bankAgency, bankAccount, pixKeyType, pixKey, ...safeDriver } = driver as any;
+  const { bankName, bankAgency, bankAccount, pixKeyType, pixKey, notes, currentLocation, registrationPendingVerification, directoryConsentPending, ...safeDriver } = driver as any;
   return safeDriver;
+}
+
+function sanitizeDriverLookup(driver: Driver): any {
+  return {
+    id: driver.id,
+    name: driver.name,
+    phone: driver.phone,
+    email: driver.email,
+    cpf: driver.cpf,
+    rg: driver.rg,
+    birthDate: driver.birthDate,
+    address: driver.address,
+    zipCode: driver.zipCode,
+    cnh: driver.cnh,
+    cnhCategory: driver.cnhCategory,
+    cnhExpiresAt: driver.cnhExpiresAt,
+    city: driver.city,
+    state: driver.state,
+    status: driver.status
+  };
 }
 
 function safeSupportIdentity(user: User): Pick<User, 'id' | 'name' | 'email' | 'role' | 'tenantId'> {
@@ -411,6 +555,47 @@ function getSessionDataForUser(targetUser: User) {
 const CURRENT_LEGAL_VERSIONS = {
   terms: '2026-08-27.1',
   privacy: '2026-08-27.1'
+};
+const DEFAULT_FREIGHT_ALERT_CONFIG: FreightAlertConfig = {
+  geographicFilterEnabled: true,
+  radiusKm: 100,
+  fallbackRegion: 'STATE',
+  requireCurrentLocation: false,
+  maxLocationAgeMinutes: 15,
+  maxAccuracyMeters: 5000
+};
+const freightAlertConfigFor = (tenant?: Tenant | null): FreightAlertConfig => ({
+  ...DEFAULT_FREIGHT_ALERT_CONFIG,
+  ...(tenant?.freightAlertConfig || {})
+});
+const normalizeFreightAlertConfig = (input: any, current?: FreightAlertConfig): FreightAlertConfig => {
+  const base = { ...DEFAULT_FREIGHT_ALERT_CONFIG, ...(current || {}) };
+  const radiusKm = Number(input?.radiusKm ?? base.radiusKm);
+  const maxLocationAgeMinutes = Number(input?.maxLocationAgeMinutes ?? base.maxLocationAgeMinutes);
+  const maxAccuracyMeters = Number(input?.maxAccuracyMeters ?? base.maxAccuracyMeters);
+  const fallbackRegion = String(input?.fallbackRegion ?? base.fallbackRegion).toUpperCase();
+  if (!Number.isFinite(radiusKm) || radiusKm < 1 || radiusKm > 500) throw new Error('O raio deve estar entre 1 e 500 km.');
+  if (!Number.isInteger(maxLocationAgeMinutes) || maxLocationAgeMinutes < 1 || maxLocationAgeMinutes > 1440) throw new Error('A validade da localização deve estar entre 1 e 1440 minutos.');
+  if (!Number.isFinite(maxAccuracyMeters) || maxAccuracyMeters < 10 || maxAccuracyMeters > 50000) throw new Error('A precisão máxima deve estar entre 10 e 50000 metros.');
+  if (!['CITY', 'STATE', 'NONE'].includes(fallbackRegion)) throw new Error('Fallback regional inválido.');
+  return {
+    geographicFilterEnabled: input?.geographicFilterEnabled === undefined ? base.geographicFilterEnabled : Boolean(input.geographicFilterEnabled),
+    radiusKm: Math.round(radiusKm * 10) / 10,
+    fallbackRegion: fallbackRegion as FreightAlertConfig['fallbackRegion'],
+    requireCurrentLocation: input?.requireCurrentLocation === undefined ? base.requireCurrentLocation : Boolean(input.requireCurrentLocation),
+    maxLocationAgeMinutes,
+    maxAccuracyMeters: Math.round(maxAccuracyMeters),
+    updatedAt: new Date().toISOString()
+  };
+};
+const normalizeGeoText = (value: unknown): string => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+const validGeoCoordinate = (lat: unknown, lng: unknown): boolean => Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && Number(lat) >= -90 && Number(lat) <= 90 && Number(lng) >= -180 && Number(lng) <= 180;
+const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const toRad = (value: number) => value * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 const escapeEmailHtml = (value: string) => String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] || char));
 const interpolateNotification = (template: string, values: Record<string, any>) => String(template || '').replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key) => String(values[key] ?? ''));
@@ -454,7 +639,7 @@ const tenantOwnNumberActive = (tenantId?: string | null): boolean => {
 
 const notificationTemplateForTenant = (eventKey: string, tenantId?: string | null): NotificationTemplate | undefined => {
   const globalTemplate = notificationTemplateFor(eventKey) as NotificationTemplate | undefined;
-  if (!globalTemplate || !tenantOwnNumberActive(tenantId)) return globalTemplate;
+  if (!globalTemplate || !tenantId) return globalTemplate;
   const tenantTemplate = db.tenantNotificationTemplates.get(String(tenantId))?.find(template => template.eventKey === eventKey);
   if (!tenantTemplate) return globalTemplate;
   return {
@@ -513,8 +698,8 @@ const notificationConsentFor = (user: User) => ({
 const addIgnoredNotificationDelivery = (eventKey: string, tenantId: string | null, userId: string, channel: 'email' | 'whatsapp', subject: string) => {
   db.addNotificationDelivery({ eventKey, tenantId, userId, channel, status: 'IGNORADO', subject, attempts: 0, errorMessage: 'Sem consentimento do destinatário para este canal.' });
 };
-async function sendConfiguredEmail(user: User, subject: string, body: string): Promise<void> {
-  const config: any = db.saasGlobalConfig.emailConfig;
+async function sendConfiguredEmail(user: User, subject: string, body: string, tenantId?: string | null): Promise<void> {
+  const config: any = (tenantId && db.tenantEmailConfigs.get(tenantId)) || (user.tenantId && db.tenantEmailConfigs.get(user.tenantId)) || db.saasGlobalConfig.emailConfig;
   if (!user.email || !config?.isActive || !config.host || !config.user || !config.password) return;
   const transporter = nodemailer.createTransport({
     host: config.host,
@@ -531,10 +716,20 @@ async function sendConfiguredEmail(user: User, subject: string, body: string): P
   });
 }
 export async function dispatchConfiguredNotification(eventKey: string, recipients: User[], values: Record<string, any>): Promise<void> {
-  const uniqueRecipients = Array.from(new Map(recipients.filter(Boolean).map(user => [user.id, user])).values());
+  const sourceTenantId = typeof values.tenantId === 'string' && values.tenantId.trim() ? values.tenantId.trim() : null;
+  const eligibleDriverIds = new Set(Array.isArray(values.eligibleDriverIds) ? values.eligibleDriverIds.map(value => String(value)) : []);
+  const uniqueRecipients = Array.from(new Map(
+    recipients
+      .filter(Boolean)
+      .filter(user => {
+        if (!sourceTenantId) return user.role === 'SUPER_ADMIN' || Boolean(user.tenantId);
+        return user.role === 'SUPER_ADMIN' || user.tenantId === sourceTenantId || (user.role === 'MOTORISTA' && Boolean(user.driverId) && eligibleDriverIds.has(String(user.driverId)));
+      })
+      .map(user => [user.id, user])
+  ).values());
   for (const user of uniqueRecipients) {
-    const tenantId = user.tenantId || values.tenantId || null;
-    const template = notificationTemplateForTenant(eventKey, user.tenantId);
+    const tenantId = user.tenantId || sourceTenantId || null;
+    const template = notificationTemplateForTenant(eventKey, user.tenantId || sourceTenantId);
     if (!template || !template.enabled) continue;
     const recipientValues = notificationValuesFor(user, { ...values, tenantId });
     const title = interpolateNotification(template.emailSubject || template.label, recipientValues);
@@ -553,7 +748,7 @@ export async function dispatchConfiguredNotification(eventKey: string, recipient
     if (template.channels?.email && notificationConsentFor(user).email) {
       const delivery = db.addNotificationDelivery({ eventKey, tenantId, userId: user.id, channel: 'email', status: 'PENDENTE', subject: title, attempts: 0 });
       try {
-        await sendConfiguredEmail(user, title, inAppMessage);
+        await sendConfiguredEmail(user, title, inAppMessage, tenantId);
         db.updateNotificationDelivery(delivery.id, { status: 'ENVIADO', attempts: 1, sentAt: new Date().toISOString() });
       } catch (error: any) {
         db.updateNotificationDelivery(delivery.id, { status: 'FALHOU', attempts: 1, errorMessage: 'Falha no envio de e-mail.' });
@@ -565,7 +760,8 @@ export async function dispatchConfiguredNotification(eventKey: string, recipient
       addIgnoredNotificationDelivery(eventKey, tenantId, user.id, 'email', title);
     }
     if (template.channels?.whatsapp === true && notificationConsentFor(user).whatsapp) {
-      const config = resolveWhatsAppConfig(user.tenantId || values.tenantId);
+      const notificationWhatsAppTenantId = user.role === 'SUPER_ADMIN' ? undefined : tenantId || undefined;
+      const config = resolveWhatsAppConfig(notificationWhatsAppTenantId);
       const delivery = db.addNotificationDelivery({ eventKey, tenantId, userId: user.id, channel: 'whatsapp', status: 'PENDENTE', subject: title, attempts: 0 });
       try {
         const result = await sendToWhatsAppGateway(config, {
@@ -759,14 +955,22 @@ apiRouter.get('/public/registration-content/:slug', (req: AuthenticatedRequest, 
 
 const normalizePublicPlate = (value: unknown) => String(value || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 const normalizePublicIdentity = (value: unknown) => String(value || '').replace(/\D/g, '');
+const BRAZILIAN_UFS = new Set(['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']);
+const normalizePublicUf = (value: unknown, city?: unknown) => {
+  const raw = String(value || '').trim().toUpperCase();
+  if (BRAZILIAN_UFS.has(raw)) return raw;
+  // Legacy records may contain the beginning of “São...” due to a UTF-8/legacy encoding mismatch.
+  if (/^SÃ/.test(raw) || raw === 'SAO' || String(city || '').toUpperCase().includes('RIO PRETO')) return 'SP';
+  return raw.slice(0, 2);
+};
 const publicFreightSummary = (freight: Freight): PublicFreightSummary => ({
   id: freight.id,
   code: freight.code,
   operationType: freight.operationType || 'CARGA_GERAL',
   originCity: freight.origin.city,
-  originState: freight.origin.state,
+  originState: normalizePublicUf(freight.origin.state, freight.origin.city),
   destinationCity: freight.destination.city,
-  destinationState: freight.destination.state,
+  destinationState: normalizePublicUf(freight.destination.state, freight.destination.city),
   date: freight.origin.date,
   cargoType: freight.cargo.description,
   weightKg: freight.cargo.weightKg,
@@ -774,7 +978,9 @@ const publicFreightSummary = (freight: Freight): PublicFreightSummary => ({
   bodyType: freight.requirements.bodyTypeRequired,
   minCapacityKg: freight.requirements.minCapacityKg,
   interestEnabled: freight.publicInterestEnabled !== false,
-  publishedAt: freight.publicPublishedAt
+  publishedAt: freight.publicPublishedAt,
+  routeAvailable: Boolean(freight.routeGeometry && Number(freight.distanceKm) > 0),
+  distanceKm: Number(freight.distanceKm) > 0 ? freight.distanceKm : undefined
 });
 const driverCanSeeFreightPrice = (driverId: string | undefined, freight: Freight) => {
   if (!driverId) return false;
@@ -787,30 +993,114 @@ const isPublicFreight = (freight: Freight) => {
   const expiresAt = freight.origin.date ? new Date(`${freight.origin.date}T23:59:59`) : null;
   return freight.publicListingEnabled === true && ['DISPONIVEL', 'PUBLICADO'].includes(freight.status) && (!expiresAt || expiresAt.getTime() >= Date.now());
 };
+const cnhCategoryRank: Record<string, number> = { B: 1, C: 2, D: 3, E: 4 };
+const normalizeAlertText = (value: unknown): string => String(value || '').trim().toUpperCase();
+const driverCanReceiveFreightAlert = (driver: Driver, user: User | undefined, freight: Freight, bypassGeographicFilter = false): boolean => {
+  if (!user || user.status !== 'ATIVO' || driver.status !== 'DISPONIVEL') return false;
+  const tenantId = freight.tenantId;
+  const blocked = db.driverCompanyLinks.some(link => link.driverId === driver.id && link.tenantId === tenantId && link.scope === 'EMPRESA' && link.status === 'BLOQUEADO');
+  const approved = driver.tenantId === tenantId || db.hasDriverCompanyAccess(driver.id, tenantId, false);
+  if (blocked || !approved) return false;
+  const requiredCnh = cnhCategoryRank[normalizeAlertText(freight.requirements.cnhMinCategory)] || 0;
+  const driverCnh = cnhCategoryRank[normalizeAlertText(driver.cnhCategory)] || 0;
+  if (driverCnh < requiredCnh) return false;
+  const requirement = freight.requirements;
+  const compatibleVehicle = db.vehicles.some(vehicle => {
+    if (vehicle.driverId !== driver.id || vehicle.status !== 'ATIVO') return false;
+    if (normalizeAlertText(vehicle.type) !== normalizeAlertText(requirement.vehicleType)) return false;
+    if (Number(vehicle.capacityKg || 0) < Number(requirement.minCapacityKg || 0)) return false;
+    if (requirement.bodyTypeRequired && normalizeAlertText(vehicle.bodyType) !== normalizeAlertText(requirement.bodyTypeRequired)) return false;
+    if (requirement.vehicleBrand && normalizeAlertText(vehicle.brand) !== normalizeAlertText(requirement.vehicleBrand)) return false;
+    if (requirement.trackerRequired && vehicle.trackerInstalled === false) return false;
+    return true;
+  });
+  if (!compatibleVehicle || bypassGeographicFilter) return compatibleVehicle;
+  const tenant = db.tenants.find(item => item.id === tenantId);
+  const config = freightAlertConfigFor(tenant);
+  if (!config.geographicFilterEnabled) return true;
+  const originHasCoordinates = validGeoCoordinate(freight.origin.lat, freight.origin.lng);
+  const location = driver.currentLocation;
+  const locationDate = location?.recordedAt ? new Date(location.recordedAt).getTime() : NaN;
+  const locationFresh = Number.isFinite(locationDate) && Date.now() - locationDate <= config.maxLocationAgeMinutes * 60 * 1000;
+  const locationAccurate = Number(location?.accuracyMeters || 0) <= config.maxAccuracyMeters;
+  if (originHasCoordinates && location && validGeoCoordinate(location.lat, location.lng) && locationFresh && locationAccurate) {
+    const distance = haversineKm(Number(location.lat), Number(location.lng), Number(freight.origin.lat), Number(freight.origin.lng));
+    return distance <= config.radiusKm + Number(location.accuracyMeters || 0) / 1000;
+  }
+  if (config.requireCurrentLocation) return false;
+  if (config.fallbackRegion === 'NONE') return false;
+  if (config.fallbackRegion === 'CITY') return normalizeGeoText(driver.city) !== '' && normalizeGeoText(driver.city) === normalizeGeoText(freight.origin.city) && normalizeGeoText(driver.state) === normalizeGeoText(freight.origin.state);
+  return normalizeGeoText(driver.state) !== '' && normalizeGeoText(driver.state) === normalizeGeoText(freight.origin.state);
+};
 const isPublicTrackingFreight = (freight: Freight) => freight.publicTrackingEnabled !== false && !['RASCUNHO', 'CANCELADO'].includes(freight.status);
 const trackingSubscribers = new Map<string, Set<Response>>();
-apiRouter.get('/mapbox/geocode', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
-  const query = String(req.query.q || '').trim().slice(0, 180);
-  const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
-  if (query.length < 3) return res.json([]);
-  if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
-  try {
-    const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
-    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
-    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; context?: Array<{ id: string; text: string }> }> };
-    return res.json((data.features || []).filter(item => item.center).map(item => ({ id: item.id, placeName: item.place_name, address: item.text || item.place_name, city: item.context?.find(c => c.id.startsWith('place'))?.text, state: item.context?.find(c => c.id.startsWith('region'))?.text, lng: item.center![0], lat: item.center![1] })));
-  } catch {
-    return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
-  }
-});
+  const normalizeMapboxFeatures = (features: any[]) => features.filter((item: any) => {
+    const coordinates = item.geometry?.coordinates || item.center;
+    return Array.isArray(coordinates) && coordinates.length >= 2 && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1]));
+  }).map((item: any) => {
+    const properties = item.properties || {};
+    const context = properties.context || item.context || {};
+    const getContext = (key: string, legacyPrefix: string) => {
+      if (Array.isArray(context)) return context.find((entry: any) => entry.id?.startsWith(legacyPrefix))?.text;
+      return context[key]?.name || context[key]?.text || context[key]?.address;
+    };
+    const coordinates = item.geometry?.coordinates || item.center;
+    const address = properties.address || item.address || properties.name || item.text || item.place_name || properties.full_address;
+    return {
+      id: item.id || properties.mapbox_id,
+      placeName: properties.full_address || item.place_name || address,
+      address,
+      number: (typeof properties.address === 'string' ? properties.address : '')?.match(/\d+/)?.[0] || (typeof item.address === 'string' ? item.address : '')?.match(/\d+/)?.[0],
+      neighborhood: getContext('neighborhood', 'neighborhood') || getContext('locality', 'locality'),
+      zipCode: getContext('postcode', 'postcode'),
+      city: getContext('place', 'place') || getContext('district', 'district'),
+      state: getContext('region', 'region'),
+      lng: Number(properties.coordinates?.longitude ?? coordinates[0]),
+      lat: Number(properties.coordinates?.latitude ?? coordinates[1])
+    };
+  });
+
+  const geocodeWithMapbox = async (query: string, token: string) => {
+    const encodedQuery = encodeURIComponent(query);
+    const params = `country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`;
+
+    // The v5 endpoint is stable for address autocomplete. The former v6 URL
+    // used the query as a path segment and could return an empty 200 response,
+    // which made the UI silently hide all suggestions.
+    const v5Response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json?${params}`);
+    const v5Data = await v5Response.json().catch(() => ({}));
+    if (v5Response.ok) {
+      const results = normalizeMapboxFeatures(v5Data.features || []);
+      if (results.length > 0) return results;
+    }
+
+    // Keep a correctly-shaped v6 fallback for accounts where v5 is disabled.
+    const v6Response = await fetch(`https://api.mapbox.com/search/geocode/v6/forward?q=${encodedQuery}&${params}`);
+    const v6Data = await v6Response.json().catch(() => ({}));
+    if (v6Response.ok) return normalizeMapboxFeatures(v6Data.features || []);
+    throw new Error('Mapbox geocoding request failed');
+  };
+
+  const handleGeocode = async (req: AuthenticatedRequest, res: Response) => {
+    const query = String(req.query.q || '').trim().slice(0, 180);
+    if (query.length < 3) return res.json([]);
+    const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
+    if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
+    try {
+      return res.json(await geocodeWithMapbox(query, token));
+    } catch {
+      return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
+    }
+  };
+
+  apiRouter.get('/mapbox/geocode', handleGeocode);
+  apiRouter.get('/mapbox/geocode-tracking', handleGeocode);
 apiRouter.get('/mapbox/directions', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
   const origin = String(req.query.origin || '').split(',').map(Number); const destination = String(req.query.destination || '').split(',').map(Number);
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
   if (origin.length !== 2 || destination.length !== 2 || origin.some(Number.isNaN) || destination.some(Number.isNaN)) return res.status(400).json({ error: 'Coordenadas de origem e destino inválidas.' });
   if (!token) return res.status(503).json({ error: 'Mapbox não configurado.' });
-  try { const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${origin.join(',')};${destination.join(',')}?overview=false&access_token=${encodeURIComponent(token)}`); const data: any = await response.json().catch(() => ({})); if (!response.ok || !data.routes?.[0]) return res.status(502).json({ error: 'Não foi possível calcular a rota no Mapbox.' }); const route = data.routes[0]; return res.json({ distanceKm: Number(route.distance || 0) / 1000, estimatedMinutes: Number(route.duration || 0) / 60 }); } catch { return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' }); }
+  try { const response = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${origin.join(',')};${destination.join(',')}?overview=full&geometries=geojson&access_token=${encodeURIComponent(token)}`); const data: any = await response.json().catch(() => ({})); if (!response.ok || !data.routes?.[0]) return res.status(502).json({ error: 'Não foi possível calcular a rota no Mapbox.' }); const route = data.routes[0]; return res.json({ distanceKm: Number(route.distance || 0) / 1000, estimatedMinutes: Number(route.duration || 0) / 60, geometry: route.geometry || null, source: 'MAPBOX' }); } catch { return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' }); }
   });
 apiRouter.get('/public/mapbox/geocode', async (req: AuthenticatedRequest, res: Response) => {
   const query = String(req.query.q || '').trim().slice(0, 180);
@@ -820,14 +1110,25 @@ apiRouter.get('/public/mapbox/geocode', async (req: AuthenticatedRequest, res: R
   try {
     const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=br&language=pt-BR&limit=5&access_token=${encodeURIComponent(token)}`);
     if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o Mapbox.' });
-    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; context?: Array<{ id: string; text: string }> }> };
-    return res.json((data.features || []).filter(item => item.center).map(item => ({ id: item.id, placeName: item.place_name, address: item.text || item.place_name, city: item.context?.find(c => c.id.startsWith('place'))?.text, state: item.context?.find(c => c.id.startsWith('region'))?.text, lng: item.center![0], lat: item.center![1] })));
+    const data = await response.json() as { features?: Array<{ id: string; place_name: string; center?: [number, number]; text?: string; address?: string; properties?: { address?: string }; context?: Array<{ id: string; text: string }> }> };
+    return res.json((data.features || []).filter(item => item.center).map(item => {
+      const context = item.context || [];
+      const find = (prefix: string) => context.find(c => c.id.startsWith(prefix))?.text;
+      // In Mapbox v5, `address` is often only the house number and `text` is
+      // the street. Keep both so selecting "Rua ... 193" never loses 193.
+      const rawNumber = item.address || item.properties?.address || '';
+      const number = rawNumber.match(/^\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?/)?.[0]
+        || item.place_name.match(/(?:^|,\s*|\s)(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)(?:\s|,|$)/)?.[1];
+      const street = item.text || item.place_name.split(',')[0] || item.place_name;
+      const streetParts = street.split(/\s+/).map(part => part.replace(/[,.]$/, ''));
+      const address = number && !streetParts.includes(number) ? `${street} ${number}` : street;
+      return { id: item.id, placeName: item.place_name, address, number, neighborhood: find('neighborhood') || find('locality'), zipCode: find('postcode'), city: find('place') || find('district'), state: find('region'), lng: item.center![0], lat: item.center![1] };
+    }));
   } catch {
     return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
   }
 });
 apiRouter.get('/mapbox/client-config', (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Autenticação necessária.' });
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
   const isPublicToken = token.startsWith('pk.');
   return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : '', defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || 'streets-v12', defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
@@ -836,6 +1137,19 @@ apiRouter.get('/public/mapbox/client-config', (_req: AuthenticatedRequest, res: 
   const token = db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '';
   const isPublicToken = token.startsWith('pk.');
   return res.json({ enabled: Boolean(db.saasGlobalConfig.mapboxConfig?.enabled && isPublicToken), apiKey: isPublicToken ? token : '', defaultStyle: db.saasGlobalConfig.mapboxConfig?.defaultStyle || 'streets-v12', defaultZoom: db.saasGlobalConfig.mapboxConfig?.defaultZoom || 12 });
+});
+apiRouter.get('/public/cep', async (req: AuthenticatedRequest, res: Response) => {
+  const cep = String(req.query.cep || '').replace(/\D/g, '').slice(0, 8);
+  if (cep.length !== 8) return res.status(400).json({ error: 'Informe um CEP válido com 8 dígitos.' });
+  try {
+    const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return res.status(502).json({ error: 'Não foi possível consultar o CEP.' });
+    const data: any = await response.json();
+    if (data.erro) return res.status(404).json({ error: 'CEP não encontrado.' });
+    return res.json({ zipCode: cep, address: data.logradouro || '', neighborhood: data.bairro || '', city: data.localidade || '', state: data.uf || '', complement: data.complemento || '' });
+  } catch {
+    return res.status(502).json({ error: 'Serviço de CEP indisponível no momento.' });
+  }
 });
 apiRouter.get('/public/freights', (req: AuthenticatedRequest, res: Response) => {
   res.json(db.freights.filter(isPublicFreight).map(publicFreightSummary));
@@ -887,6 +1201,36 @@ apiRouter.get('/public/tracking/:token/events', (req: AuthenticatedRequest, res:
   const heartbeat = setInterval(() => { try { res.write(': heartbeat\\n\\n'); } catch { clearInterval(heartbeat); } }, 25000);
   req.on('close', () => { clearInterval(heartbeat); listeners.delete(res); if (!listeners.size) trackingSubscribers.delete(token); });
 });
+apiRouter.get('/public/expenses/:token', (req: AuthenticatedRequest, res: Response) => {
+  const token = String(req.params.token || '').trim();
+  if (!/^[a-f0-9]{32,64}$/i.test(token)) return res.status(404).json({ error: 'Documento não encontrado.' });
+  const report = (db.tripExpenses || []).find(reportItem => reportItem.publicToken === token && !reportItem.archivedAt);
+  if (!report) return res.status(404).json({ error: 'Documento não encontrado ou indisponível.' });
+  const reportTenant = (report as any)['tenant' + 'Id'];
+  const company = reportTenant ? db.tenants.find(tenantRecord => tenantRecord.id === reportTenant) : undefined;
+  return res.json({
+    publicCode: report.publicCode,
+    companyName: company?.name || db.saasGlobalConfig.systemName || 'Atendo One',
+    companyCnpj: company?.cnpj || '',
+    driverName: report.driverName,
+    vehiclePlate: report.vehiclePlate || '',
+    freightCode: report.freightCode || 'Avulso',
+    startDate: report.startDate,
+    endDate: report.endDate,
+    tripDays: report.tripDays,
+    totalKm: report.totalKm,
+    initialKm: report.initialKm,
+    finalKm: report.finalKm,
+    averageKmPerLiter: report.averageKmPerLiter,
+    advanceAmount: report.advanceAmount,
+    totalExpenses: report.totalExpenses,
+    balanceAmount: report.balanceAmount,
+    balanceStatus: report.balanceStatus,
+    status: report.status,
+    items: (report.items || []).map(item => ({ category: item.category, date: item.date, description: item.description, establishmentName: item.establishmentName, amount: item.amount })),
+    createdAt: report.createdAt
+  });
+});
 apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest, res: Response) => {
   const freight = db.freights.find(item => item.id === req.params.id);
   if (!freight || !isPublicFreight(freight)) return res.status(404).json({ error: 'Frete público não encontrado ou encerrado.' });
@@ -933,18 +1277,88 @@ apiRouter.post('/public/freights/:id/interest', async (req: AuthenticatedRequest
   const expiresAt = Date.now() + 5 * 60 * 1000;
   activeOTPs.set(cleanPhone, { code, expiresAt, failedAttempts: 0 });
   activeOTPs.set(user.id, { code, expiresAt, failedAttempts: 0 });
-  const waResult = await sendToWhatsAppGateway(resolveWhatsAppConfig(freight.tenantId), { number: cleanPhone, body: `ELO LOG: seu código para concluir o cadastro de interesse no frete ${freight.code} é ${code}. Válido por 5 minutos.`, externalKey: `freight-interest-${Date.now()}` });
+  const waResult = await sendToWhatsAppGateway(resolveWhatsAppConfig(freight.tenantId), { number: cleanPhone, body: `Atendo One: seu código para concluir o cadastro de interesse no frete ${freight.code} é ${code}. Válido por 5 minutos.`, externalKey: `freight-interest-${Date.now()}` });
   await db.persistNow();
   if (!waResult.success) return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Solicite novamente em alguns instantes.' });
   res.status(201).json({ success: true, userId: user.id, message: 'Código enviado pelo WhatsApp. Valide o telefone para continuar.' });
 });
+const PUBLIC_INTEREST_RATE_WINDOW_MS = 10 * 60 * 1000;
+const publicDriverRegistrationLimiter = rateLimit({
+  windowMs: PUBLIC_INTEREST_RATE_WINDOW_MS,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Muitos cadastros iniciados nesta conexão. Aguarde alguns minutos antes de tentar novamente.' }
+});
+apiRouter.post('/public/drivers/register', publicDriverRegistrationLimiter, async (req: AuthenticatedRequest, res: Response) => {
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const phone = String(req.body?.phone || '').trim();
+  const cpf = normalizePublicIdentity(req.body?.cpf);
+  const cnh = normalizePublicIdentity(req.body?.cnh);
+  const city = String(req.body?.city || '').trim();
+  const state = String(req.body?.state || '').trim().toUpperCase();
+  const category = String(req.body?.cnhCategory || '').trim().toUpperCase();
+  const cnhExpiresAt = String(req.body?.cnhExpiresAt || '').trim();
+  const cleanPhone = normalizePhoneForLookup(phone);
+  const emailAtIndex = email.indexOf('@');
+  const emailDomainDot = email.indexOf('.', emailAtIndex + 1);
+  const emailLooksValid = email.length <= 254 && emailAtIndex > 0 && emailAtIndex === email.lastIndexOf('@') && emailDomainDot > emailAtIndex + 1 && emailDomainDot < email.length - 1 && !email.includes(' ');
+  if (name.length < 5 || name.length > 160 || !emailLooksValid || !isValidBrazilianLoginPhone(cleanPhone) || cpf.length !== 11 || cnh.length < 9 || cnh.length > 20 || city.length < 2 || city.length > 120 || !BRAZILIAN_UFS.has(state) || !['B', 'C', 'D', 'E'].includes(category) || !cnhExpiresAt) return res.status(400).json({ error: 'Preencha corretamente nome, e-mail, telefone, CPF, CNH, categoria, validade, cidade e UF.' });
+  if (req.body?.termsAccepted !== true || req.body?.privacyAccepted !== true) return res.status(400).json({ error: 'É necessário aceitar os Termos de Uso e a Política de Privacidade.' });
+  const lastAttempt = publicDriverRegistrationAttempts.get(cleanPhone);
+  if (lastAttempt && Date.now() - lastAttempt < PUBLIC_INTEREST_RATE_WINDOW_MS) return res.status(429).json({ error: 'Já recebemos um cadastro para este telefone. Aguarde alguns minutos antes de tentar novamente.' });
+  if (db.users.some(user => user.email?.trim().toLowerCase() === email || normalizePhoneForLookup(user.phone) === cleanPhone)) return res.status(409).json({ error: 'Este e-mail ou telefone já possui cadastro. Acesse sua conta.' });
+  if (db.drivers.some(driver => normalizePublicIdentity(driver.cpf) === cpf || normalizePublicIdentity(driver.cnh) === cnh)) return res.status(409).json({ error: 'Este CPF ou CNH já possui cadastro. Acesse sua conta.' });
+  publicDriverRegistrationAttempts.set(cleanPhone, Date.now());
+  const now = new Date().toISOString();
+  const userId = `user-driver-directory-${randomUUID()}`;
+  const driverId = `driver-directory-${randomUUID()}`;
+  const newUser: User = { id: userId, tenantId: null, name, email, phone, role: 'MOTORISTA', status: 'PENDENTE', accountType: 'REAL', readOnly: false, driverId, lastLoginAt: null, createdAt: now, termsAcceptedAt: now, privacyAcceptedAt: now, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy };
+  const newDriver: Driver = { id: driverId, userId, tenantId: null, name, cpf, rg: '', birthDate: '', phone, email, zipCode: '', address: '', city, state, cnh, cnhCategory: category as Driver['cnhCategory'], cnhExpiresAt, status: 'PENDENTE', rating: 0, completedTrips: 0, vehiclesCount: 0, directoryVisible: false, createdAt: now };
+  db.users.push(newUser);
+  db.drivers.push(newDriver);
+  newDriver.registrationPendingVerification = true;
+  newDriver.directoryConsentPending = req.body?.directoryConsent === true;
+  const code = randomInt(100000, 1000000).toString();
+  const expiresAt = Date.now() + 5 * 60 * 1000;
+  activeOTPs.set(cleanPhone, { code, expiresAt, failedAttempts: 0 });
+  activeOTPs.set(userId, { code, expiresAt, failedAttempts: 0 });
+  const waResult = await sendToWhatsAppGateway(resolveWhatsAppConfig(), { number: cleanPhone, body: `Atendo One: seu código para concluir o cadastro de motorista é ${code}. Válido por 5 minutos.`, externalKey: `driver-directory-${randomUUID()}` });
+  if (!waResult.success) {
+    db.users = db.users.filter(item => item.id !== userId);
+    db.drivers = db.drivers.filter(item => item.id !== driverId);
+    activeOTPs.delete(cleanPhone);
+    activeOTPs.delete(userId);
+    publicDriverRegistrationAttempts.delete(cleanPhone);
+    await db.persistNow();
+    return res.status(502).json({ error: 'Não foi possível enviar o código pelo WhatsApp. Tente novamente em alguns instantes.' });
+  }
+  await db.persistNow();
+  return res.status(201).json({ success: true, message: 'Código enviado pelo WhatsApp. Valide o telefone para concluir o cadastro.' });
+});
 // Apply auth middleware to all authenticated /api routes.
 apiRouter.use(authMiddleware);
+// Every PostgreSQL query started by a request receives a server-derived tenant context.
+// Super-admin global access is granted only to explicit global API namespaces.
+apiRouter.use((req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+  const globalSuperAdminRoute = req.user?.role === 'SUPER_ADMIN' && (
+    req.path.startsWith('/saas/') ||
+    req.path.startsWith('/tenants') ||
+    req.path.startsWith('/analytics/') ||
+    req.path === '/health/detailed' ||
+    req.path.startsWith('/expenses')
+  );
+  runWithTenantDbContext({
+    tenantId: req.user?.tenantId || null,
+    isSuperAdmin: Boolean(globalSuperAdminRoute)
+  }, next);
+});
 apiRouter.get('/health/detailed', async (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Apenas Super Admin.' });
   const sqlStatus = await sqlAdapter.getStatus();
   const postgresConnected = sqlAdapter.isEnabled() && sqlStatus.status === 'CONNECTED';
-  return res.json({ status: 'ok', version: process.env.APP_VERSION || APP_VERSION, uptimeSeconds: Math.floor(process.uptime()), counts: { tenants: db.tenants.length, users: db.users.length, freights: db.freights.length, budgets: db.budgets.length, clients: db.clients.length, gpsLocations: db.freightLocations.length, notifications: db.notifications.length }, integrations: { mapboxConfigured: Boolean(db.saasGlobalConfig.mapboxConfig?.apiKey), cnpjWsConfigured: true, postgresConfigured: postgresConnected }, persistence: { mode: postgresConnected ? 'postgresql' : 'memory-with-snapshot', lastCheckedAt: new Date().toISOString() }, generatedAt: new Date().toISOString() });
+  return res.json({ status: 'ok', version: process.env.APP_VERSION || APP_VERSION, uptimeSeconds: Math.floor(process.uptime()), counts: { tenants: db.tenants.length, users: db.users.length, freights: db.freights.length, budgets: db.budgets.length, clients: db.clients.length, gpsLocations: db.freightLocations.length, notifications: db.notifications.length }, integrations: { mapboxConfigured: Boolean(db.saasGlobalConfig.mapboxConfig?.apiKey), cnpjWsConfigured: true, postgresConfigured: postgresConnected }, persistence: { mode: postgresConnected ? 'postgresql' : 'memory-with-snapshot', lastCheckedAt: new Date().toISOString() }, domainIsolation: { mode: process.env.RLS_DOMAIN_MODE === 'active' && process.env.NORMALIZED_DOMAIN_RLS === 'true' ? 'normalized-rls-active' : 'snapshot-transition', transactionalContext: true, appStateProtectedByRls: false }, generatedAt: new Date().toISOString() });
 });
 apiRouter.post('/freights/:id/public-tracking/revoke', async (req: AuthenticatedRequest, res: Response) => {
   const freight = db.freights.find(item => item['id'] === req.params.id);
@@ -1052,6 +1466,7 @@ apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => 
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const excludePaths = [
       '/auth/login',
+      '/auth/logout',
       '/auth/request-otp',
       '/auth/verify-otp',
       '/auth/register-company',
@@ -1075,7 +1490,7 @@ apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => 
 // Demo accounts may operate only on the fictional tenant; sensitive platform controls stay server-side blocked.
 apiRouter.use((req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   if (req.user && isPublicDemoUser(req.user)) {
-    const restrictedPrefixes = ['/billing/asaas', '/admin/backups', '/integrations/whatsapp', '/saas/config', '/saas/notification-templates', '/tenant/notification-templates', '/tenant/report-templates', '/error-logs'];
+    const restrictedPrefixes = ['/billing/asaas', '/admin/backups', '/integrations/whatsapp', '/saas/config', '/saas/notification-templates', '/saas/ad-banners', '/tenant/notification-templates', '/tenant/report-templates', '/error-logs'];
     if (restrictedPrefixes.some(prefix => req.path === prefix || req.path.startsWith(`${prefix}/`))) {
       return res.status(403).json({ code: 'DEMO_FEATURE_RESTRICTED', error: 'Esta função não está disponível no ambiente de demonstração.' });
     }
@@ -1162,8 +1577,11 @@ apiRouter.post('/public/freights/:id/interest/complete', async (req: Authenticat
   const interest = db.freightInterests.find(item => item.freightId === freight.id && item.driverId === driver.id && item.status === 'PENDENTE');
   if (!interest) return res.status(404).json({ error: 'Solicitação pendente não encontrada.' });
   const body = req.body || {};
-  const required = ['email', 'cpf', 'cnh', 'cnhCategory', 'cnhExpiresAt', 'city', 'state', 'vehicleType', 'vehicleBrand', 'vehicleModel', 'vehicleYear', 'vehiclePlate', 'capacityKg'];
-  if (required.some(key => !String(body[key] || '').trim())) return res.status(400).json({ error: 'Conclua todas as informações obrigatórias do motorista e do veículo.' });
+  const required = ['email', 'cpf', 'cnh', 'cnhCategory', 'cnhExpiresAt', 'city', 'state'];
+  if (required.some(key => !String(body[key] || '').trim())) return res.status(400).json({ error: 'Conclua todas as informações obrigatórias do motorista.' });
+  const vehicleKeys = ['vehicleType', 'vehicleBrand', 'vehicleModel', 'vehicleYear', 'vehiclePlate', 'capacityKg'];
+  const hasVehicleData = vehicleKeys.some(key => String(body[key] || '').trim());
+  if (hasVehicleData && vehicleKeys.some(key => !String(body[key] || '').trim())) return res.status(400).json({ error: 'Se iniciar o cadastro de veículo, preencha todos os dados do veículo ou deixe todos em branco.' });
   const cleanCpf = normalizePublicIdentity(body.cpf);
   const cleanCnh = normalizePublicIdentity(body.cnh);
   const cleanEmail = String(body.email).trim().toLowerCase();
@@ -1178,12 +1596,14 @@ apiRouter.post('/public/freights/:id/interest/complete', async (req: Authenticat
   const completedAt = new Date().toISOString();
   Object.assign(driver, { name: String(body.name || driver.name).trim(), email: cleanEmail, phone: user.phone, cpf: String(body.cpf).trim(), cnh: String(body.cnh).trim(), cnhCategory: String(body.cnhCategory), cnhExpiresAt: String(body.cnhExpiresAt), city: String(body.city).trim(), state: String(body.state).trim().toUpperCase(), status: nextDriverStatus, updatedAt: completedAt });
   user.name = driver.name; user.email = driver.email; user.status = nextUserStatus; user.termsAcceptedAt = completedAt; user.privacyAcceptedAt = completedAt; user.termsVersion = CURRENT_LEGAL_VERSIONS.terms; user.privacyVersion = CURRENT_LEGAL_VERSIONS.privacy; user.updatedAt = completedAt;
-  const plate = normalizePublicPlate(body.vehiclePlate);
-  const existingVehicle = db.vehicles.find(item => normalizePublicPlate(item.plate) === plate && item.driverId !== driver.id);
-  if (existingVehicle) return res.status(409).json({ error: 'Esta placa já está vinculada a outro veículo. Verifique os dados.' });
-  const existingDriverVehicle = db.vehicles.find(item => item.driverId === driver.id);
-  if (existingDriverVehicle) Object.assign(existingDriverVehicle, { type: String(body.vehicleType), brand: String(body.vehicleBrand).trim(), model: String(body.vehicleModel).trim(), year: Number(body.vehicleYear), plate: String(body.vehiclePlate).trim().toUpperCase(), capacityKg: Number(body.capacityKg), bodyType: String(body.bodyType || 'BAU'), renavam: String(body.vehicleRenavam || existingDriverVehicle.renavam || ''), status: 'ATIVO' });
-  else db.vehicles.push({ id: `vehicle-public-${Date.now()}`, driverId: driver.id, tenantId: null, type: String(body.vehicleType), brand: String(body.vehicleBrand).trim(), model: String(body.vehicleModel).trim(), year: Number(body.vehicleYear), plate: String(body.vehiclePlate).trim().toUpperCase(), renavam: String(body.vehicleRenavam || ''), capacityKg: Number(body.capacityKg), bodyType: String(body.bodyType || 'BAU'), status: 'ATIVO', createdAt: new Date().toISOString() } as Vehicle);
+  if (hasVehicleData) {
+    const plate = normalizePublicPlate(body.vehiclePlate);
+    const existingVehicle = db.vehicles.find(item => normalizePublicPlate(item.plate) === plate && item.driverId !== driver.id);
+    if (existingVehicle) return res.status(409).json({ error: 'Esta placa já está vinculada a outro veículo. Verifique os dados.' });
+    const existingDriverVehicle = db.vehicles.find(item => item.driverId === driver.id);
+    if (existingDriverVehicle) Object.assign(existingDriverVehicle, { type: String(body.vehicleType), brand: String(body.vehicleBrand).trim(), model: String(body.vehicleModel).trim(), year: Number(body.vehicleYear), plate: String(body.vehiclePlate).trim().toUpperCase(), capacityKg: Number(body.capacityKg), bodyType: String(body.bodyType || 'BAU'), renavam: String(body.vehicleRenavam || existingDriverVehicle.renavam || ''), status: 'ATIVO' });
+    else db.vehicles.push({ id: `vehicle-public-${Date.now()}`, driverId: driver.id, tenantId: null, type: String(body.vehicleType), brand: String(body.vehicleBrand).trim(), model: String(body.vehicleModel).trim(), year: Number(body.vehicleYear), plate: String(body.vehiclePlate).trim().toUpperCase(), renavam: String(body.vehicleRenavam || ''), capacityKg: Number(body.capacityKg), bodyType: String(body.bodyType || 'BAU'), status: 'ATIVO', createdAt: new Date().toISOString() } as Vehicle);
+  }
   interest.profileCompleted = true;
   interest.updatedAt = completedAt;
   await db.recordLegalConsent({ userId: user.id, tenantId: freight.tenantId, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy, acceptedAt: completedAt });
@@ -1214,7 +1634,7 @@ apiRouter.get('/driver-company-links', (req: AuthenticatedRequest, res: Response
       vehiclesCount: sourceDriver.vehiclesCount
     } : undefined;
     const freight = link.freightId ? db.freights.find(item => item.id === link.freightId) : undefined;
-    return { ...link, driver, freightCode: freight?.code, originCity: freight?.origin.city, destinationCity: freight?.destination.city };
+    return { ...link, tenantName: db.tenants.find(item => item.id === link.tenantId)?.name || 'Empresa não identificada', driver, freightCode: freight?.code, originCity: freight?.origin.city, destinationCity: freight?.destination.city };
   });
   res.json(links);
 });
@@ -1252,13 +1672,13 @@ apiRouter.put('/driver-company-links/:id/status', (req: AuthenticatedRequest, re
     interest.reviewedAt = now;
     interest.reviewedByUserId = req.user?.id;
   }
-  if (driver && status === 'APROVADO') {
+  if (driver && status === 'APROVADO' && !isCompanyDecision) {
     driver.status = 'DISPONIVEL';
     if (driverUser) driverUser.status = 'ATIVO';
   }
   db.addAuditLog({ ip: requestIp(req), tenantId: link.tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'ATUALIZAR_VINCULO_MOTORISTA', entity: 'DriverCompanyLink', entityId: companyLink?.id || link.id, details: `Vínculo do motorista atualizado para ${status} no escopo ${isCompanyDecision ? 'EMPRESA' : 'FRETE'}. A decisão é exclusiva desta empresa.` });
   const linkedFreight = link.freightId ? db.freights.find(item => item.id === link.freightId) : undefined;
-  if (driverUser) void dispatchConfiguredNotification('INTERESSE_FRETE', [driverUser], { nome: driverUser.name, empresa: req.tenant?.name || 'empresa responsável', status, codigoFrete: linkedFreight?.code || '', link: process.env.APP_URL || '' });
+  if (driverUser && !isCompanyDecision) void dispatchConfiguredNotification('INTERESSE_FRETE', [driverUser], { nome: driverUser.name, empresa: req.tenant?.name || 'empresa responsável', status, codigoFrete: linkedFreight?.code || '', link: process.env.APP_URL || '' });
   return res.json({ success: true, link, companyLink });
 });
 // Persist every successful write after the route has completed. This protects
@@ -1934,7 +2354,7 @@ apiRouter.get('/auth/me', (req: AuthenticatedRequest, res: Response) => {
 });
 
 apiRouter.post('/auth/logout', async (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: 'Não autenticado' });
+  if (!req.user) { clearSessionCookies(res); return res.status(401).json({ error: 'Não autenticado' }); }
   if (req.authToken) db.revokeAuthToken(req.authToken);
   const refreshFamilyId = activeRefreshFamilies.get(req.user.id);
   if (refreshFamilyId) {
@@ -1945,27 +2365,24 @@ apiRouter.post('/auth/logout', async (req: AuthenticatedRequest, res: Response) 
   delete req.user.activeSessionExpiresAt;
   db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId || undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'LOGOUT', entity: 'User', entityId: req.user.id, details: 'Sessão atual revogada pelo próprio usuário.' });
   await db.persistNow();
+  clearSessionCookies(res);
   return res.json({ success: true });
 });
 
 // Temporary support access. It never accepts a target identity from the browser as a login credential;
 // the authenticated Super Admin creates a short-lived, signed, in-memory support session.
-apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) => {
-  if (!req.user || req.user.role !== 'SUPER_ADMIN' || req.supportSession) {
-    return res.status(403).json({ error: 'Somente um Super Admin autenticado pode iniciar uma sessão de suporte.' });
+const createSupportSession = (req: AuthenticatedRequest, res: Response, targetUser: User) => {
+  if (targetUser.role === 'SUPER_ADMIN') {
+    return { status: 400, body: { error: 'Uma sessão de suporte não pode assumir outro Super Admin.' } };
   }
-  const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
-  if (!targetUserId) return res.status(400).json({ error: 'targetUserId é obrigatório.' });
-
-  const targetUser = db.users.find(user => user.id === targetUserId);
-  if (!targetUser) return res.status(404).json({ error: 'Usuário de suporte não encontrado.' });
-  if (targetUser.role === 'SUPER_ADMIN') return res.status(400).json({ error: 'Uma sessão de suporte não pode assumir outro Super Admin.' });
-  if (targetUser.status !== 'ATIVO') return res.status(409).json({ error: 'Somente usuários ativos podem receber acesso de suporte.' });
+  if (targetUser.status !== 'ATIVO') {
+    return { status: 409, body: { error: 'Somente usuários ativos podem receber acesso de suporte.' } };
+  }
 
   const expiresAt = new Date(Date.now() + SUPPORT_SESSION_TTL_MS).toISOString();
   const supportSession: SupportSessionRecord = {
     id: randomUUID(),
-    actorUserId: req.user.id,
+    actorUserId: req.user!.id,
     targetUserId: targetUser.id,
     expiresAt
   };
@@ -1975,7 +2392,7 @@ apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) =
     userId: targetUser.id,
     support: true,
     supportSessionId: supportSession.id,
-    actorUserId: req.user.id,
+    actorUserId: req.user!.id,
     targetUserId: targetUser.id,
     iss: 'elolog-support'
   }, SAFE_JWT_SECRET, { expiresIn: '30m' });
@@ -1983,25 +2400,57 @@ apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) =
   db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
     tenantName: targetUser.tenantId ? db.tenants.find(t => t.id === targetUser.tenantId)?.name : undefined,
-    userId: req.user.id,
-    userName: req.user.name,
-    userRole: req.user.role,
+    userId: req.user!.id,
+    userName: req.user!.name,
+    userRole: req.user!.role,
     action: 'SUPORTE_INICIADO',
     entity: 'SupportSession',
     entityId: supportSession.id,
     details: `Acesso assistido iniciado para ${targetUser.name} (${targetUser.role}); expira em 30 minutos.`
   });
-
-  return res.json({
-    ...getSessionDataForUser(targetUser),
-    token,
-    supportSession: {
-      id: supportSession.id,
-      targetUser: safeSupportIdentity(targetUser),
-      actorUser: safeSupportIdentity(req.user),
-      expiresAt: supportSession.expiresAt
+  setSessionCookies(res, token);
+  return {
+    status: 200,
+    body: {
+      ...getSessionDataForUser(targetUser),
+      supportSession: {
+        id: supportSession.id,
+        targetUser: safeSupportIdentity(targetUser),
+        actorUser: safeSupportIdentity(req.user!),
+        expiresAt: supportSession.expiresAt
+      }
     }
-  });
+  };
+};
+
+apiRouter.post('/support/sessions', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'SUPER_ADMIN' || req.supportSession) {
+    return res.status(403).json({ error: 'Somente um Super Admin autenticado pode iniciar uma sessão de suporte.' });
+  }
+  const targetUserId = typeof req.body?.targetUserId === 'string' ? req.body.targetUserId.trim() : '';
+  if (!targetUserId) return res.status(400).json({ error: 'targetUserId é obrigatório.' });
+
+  const targetUser = db.users.find(user => user.id === targetUserId);
+  if (!targetUser) return res.status(404).json({ error: 'Usuário de suporte não encontrado.' });
+  const result = createSupportSession(req, res, targetUser);
+  return res.status(result.status).json(result.body);
+});
+
+// Compatibilidade com o botão "Acessar como empresa" do painel SaaS.
+// A rota cria a mesma sessão curta e redireciona a nova janela para a SPA.
+apiRouter.get('/admin/impersonate/:tenantId', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'SUPER_ADMIN' || req.supportSession) {
+    return res.status(403).json({ error: 'Somente um Super Admin autenticado pode acessar uma empresa em modo suporte.' });
+  }
+  const tenant = db.tenants.find(item => item.id === req.params.tenantId);
+  if (!tenant) return res.status(404).json({ error: 'Empresa não encontrada.' });
+
+  const targetUser = db.users.find(user => user.tenantId === tenant.id && user.status === 'ATIVO' && ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'USUARIO'].includes(user.role));
+  if (!targetUser) return res.status(404).json({ error: 'Nenhum usuário ativo disponível para suporte nesta empresa.' });
+
+  const result = createSupportSession(req, res, targetUser);
+  if (result.status !== 200) return res.status(result.status).json(result.body);
+  return res.redirect('/');
 });
 
 apiRouter.post('/support/sessions/end', (req: AuthenticatedRequest, res: Response) => {
@@ -2029,7 +2478,8 @@ apiRouter.post('/support/sessions/end', (req: AuthenticatedRequest, res: Respons
     details: `Acesso assistido encerrado para ${req.user.name}. Retorno ao Super Admin.`
   });
 
-  return res.json({ ...getSessionDataForUser(actorUser), token });
+  setSessionCookies(res, token);
+  return res.json({ ...getSessionDataForUser(actorUser) });
 });
 
 // Login endpoint
@@ -2070,6 +2520,7 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
 
   // Um novo login substitui a sessão anterior do mesmo usuário.
   const { token, refreshToken } = issueUserSession(targetUser);
+  setSessionCookies(res, token, refreshToken);
 
   db.addAuditLog({ ip: requestIp(req),
     tenantId: targetUser.tenantId || undefined,
@@ -2083,15 +2534,11 @@ apiRouter.post('/auth/login', async (req: AuthenticatedRequest, res: Response) =
     details: `Login realizado com sucesso via perfil ${targetUser.role}`
   });
 
-  res.json({
-    user: sanitizeUser(targetUser),
-    token,
-    refreshToken
-  });
+  res.json(sessionResponseForClient(req, targetUser, token, refreshToken));
 });
 
 apiRouter.post('/auth/refresh', (req: AuthenticatedRequest, res: Response) => {
-  const rawRefreshToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : '';
+  const rawRefreshToken = parseCookies(req)[REFRESH_COOKIE] || (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken.trim() : '');
   if (!rawRefreshToken) return res.status(401).json({ error: 'Refresh token ausente.' });
   try {
     const decoded = jwt.verify(rawRefreshToken, SAFE_JWT_SECRET) as { userId?: string; jti?: string; familyId?: string; typ?: string };
@@ -2106,7 +2553,8 @@ apiRouter.post('/auth/refresh', (req: AuthenticatedRequest, res: Response) => {
     if (!user) return res.status(401).json({ error: 'Usuário inválido ou inativo.' });
     const issued = issueUserSession(user);
     db.addAuditLog({ ip: requestIp(req), tenantId: user.tenantId || undefined, userId: user.id, userName: user.name, userRole: user.role, action: 'REFRESH_ROTATED', entity: 'UserSession', entityId: user.id, details: 'Refresh token consumido uma única vez e substituído por nova sessão.' });
-    return res.json({ user: sanitizeUser(user), token: issued.token, refreshToken: issued.refreshToken });
+    setSessionCookies(res, issued.token, issued.refreshToken);
+    return res.json({ user: sanitizeUser(user), ...(isAtendoMotoristaMobileClient(req) ? { accessToken: issued.token, refreshToken: issued.refreshToken } : {}) });
   } catch {
     auditAuthFailure(req, 'REFRESH_FAILED', undefined, 'Refresh token inválido ou expirado.');
     return res.status(401).json({ error: 'Refresh token inválido ou expirado.' });
@@ -2138,7 +2586,8 @@ apiRouter.post('/auth/demo-session', async (req: AuthenticatedRequest, res: Resp
     details: `Sessão pública de demonstração iniciada no perfil ${targetUser.role}, com dados fictícios e permissões restritas.`
   });
   await db.persistNow();
-  return res.json({ ...getSessionDataForUser(targetUser), token, demo: true });
+  setSessionCookies(res, token);
+  return res.json({ ...getSessionDataForUser(targetUser), demo: true });
 });
 
 // Demo switching remains development-only and can target only fixed TEST users from the demo tenant.
@@ -2159,14 +2608,15 @@ apiRouter.post('/auth/switch-demo', (req: AuthenticatedRequest, res: Response) =
   targetUser.lastLoginAt = new Date().toISOString();
   const { token } = issueUserSession(targetUser);
 
-  res.json({ ...getSessionDataForUser(targetUser), token });
+  setSessionCookies(res, token);
+  res.json({ ...getSessionDataForUser(targetUser) });
 });
 
 // Active WhatsApp Login OTPs Map with rate limiting & attempt tracking
 const activeOTPs = new Map<string, { code: string; expiresAt: number; failedAttempts?: number }>();
 const otpLastSentAt = new Map<string, number>();
 const publicInterestAttempts = new Map<string, number>();
-const PUBLIC_INTEREST_RATE_WINDOW_MS = 10 * 60 * 1000;
+const publicDriverRegistrationAttempts = new Map<string, number>();
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 
 // Pending registration OTPs Map
@@ -2288,7 +2738,14 @@ apiRouter.post('/auth/request-otp', async (req: AuthenticatedRequest, res: Respo
 });
 
 // Verify WhatsApp OTP for Login
-apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) => {
+const publicDriverOtpVerificationLimiter = rateLimit({
+  windowMs: PUBLIC_INTEREST_RATE_WINDOW_MS,
+  limit: 10,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de verificação. Aguarde alguns minutos antes de tentar novamente.' }
+});
+apiRouter.post('/auth/verify-otp', publicDriverOtpVerificationLimiter, async (req: AuthenticatedRequest, res: Response) => {
   const { phone, code } = req.body;
   if (!phone || !code) {
     return res.status(400).json({ error: 'Telefone e código são obrigatórios.' });
@@ -2347,6 +2804,23 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
   activeOTPs.delete(cleanPhone);
   activeOTPs.delete(cleanUserPhone);
   activeOTPs.delete(targetUser.id);
+  const registeredDriver = db.drivers.find(item => item.userId === targetUser.id);
+  if (registeredDriver?.registrationPendingVerification) {
+    const driver = registeredDriver;
+    const directoryConsent = driver.directoryConsentPending === true;
+    targetUser.status = 'ATIVO';
+    targetUser.updatedAt = new Date().toISOString();
+    if (driver) {
+      driver.status = 'DISPONIVEL';
+      driver.directoryVisible = directoryConsent;
+      driver.updatedAt = targetUser.updatedAt;
+      delete driver.registrationPendingVerification;
+      delete driver.directoryConsentPending;
+    }
+    await db.recordLegalConsent({ userId: targetUser.id, tenantId: null, termsVersion: CURRENT_LEGAL_VERSIONS.terms, privacyVersion: CURRENT_LEGAL_VERSIONS.privacy, acceptedAt: targetUser.updatedAt, ipAddress: requestIp(req), userAgent: req.get('user-agent') || '' });
+    if (directoryConsent && driver) db.addAuditLog({ ip: requestIp(req), userId: targetUser.id, userName: targetUser.name, userRole: 'MOTORISTA', action: 'CONSENTIMENTO_CATALOGO_MOTORISTA', entity: 'Driver', entityId: driver.id, details: 'Motorista autorizou a exibição do perfil básico no catálogo para empresas.' });
+    await db.persistNow();
+  }
 
   targetUser.lastLoginAt = new Date().toISOString();
   const { token, refreshToken } = issueUserSession(targetUser);
@@ -2362,11 +2836,8 @@ apiRouter.post('/auth/verify-otp', (req: AuthenticatedRequest, res: Response) =>
     details: `Login realizado com sucesso via WhatsApp OTP`
   });
 
-  res.json({
-    user: sanitizeUser(targetUser),
-    token,
-    refreshToken
-  });
+  setSessionCookies(res, token, refreshToken);
+  res.json({ user: sanitizeUser(targetUser), ...(isAtendoMotoristaMobileClient(req) ? { accessToken: token, refreshToken } : {}) });
 });
 
 interface AtendoProvisionResult {
@@ -2512,7 +2983,7 @@ apiRouter.post('/auth/register-company', async (req: AuthenticatedRequest, res: 
   if (config?.baseUrl && config?.token && config?.isActive) {
     sendToWhatsAppGateway(config, {
       number: cleanPhone,
-      body: `🚚 [ELO LOG] Olá ${responsibleName}, seu código de verificação para o cadastro da empresa ${companyName} é: *${code}*.`,
+      body: `🚚 [Atendo One] Olá ${responsibleName}, seu código de verificação para o cadastro da empresa ${companyName} é: *${code}*.`,
       externalKey: `reg-wa-${Date.now()}`
     }).catch(err => console.error('WhatsApp reg err:', err));
   }
@@ -2974,6 +3445,113 @@ apiRouter.get('/users', (req: AuthenticatedRequest, res: Response) => {
   res.json(tenantUsers.map(sanitizeUser));
 });
 
+const duplicateUserProfile = (user: User) => {
+  const driver = user.driverId ? db.drivers.find(item => item.id === user.driverId || item.userId === user.id) : undefined;
+  return {
+    name: normalizeGeoText(user.name),
+    email: String(user.email || '').trim().toLowerCase(),
+    phone: normalizePhoneForLookup(user.phone),
+    address: normalizeGeoText(driver?.address),
+    city: normalizeGeoText(driver?.city),
+    state: normalizeGeoText(driver?.state),
+    cpf: normalizePublicIdentity(driver?.cpf),
+    cnh: normalizePublicIdentity(driver?.cnh)
+  };
+};
+const duplicateMatches = (left: User, right: User): string[] => {
+  const a = duplicateUserProfile(left);
+  const b = duplicateUserProfile(right);
+  const matched: string[] = [];
+  if (a.name && a.name === b.name) matched.push('nome');
+  if (a.phone && a.phone === b.phone) matched.push('telefone');
+  if (a.email && a.email === b.email) matched.push('e-mail');
+  if (a.address && a.address === b.address && a.city === b.city && a.state === b.state) matched.push('endereço');
+  if (a.cpf && a.cpf === b.cpf) matched.push('CPF');
+  if (a.cnh && a.cnh === b.cnh) matched.push('CNH');
+  return matched;
+};
+const duplicateCandidatePayload = (user: User, matchedFields: string[]) => {
+  const driver = user.driverId ? db.drivers.find(item => item.id === user.driverId || item.userId === user.id) : undefined;
+  return {
+    user: sanitizeUser(user),
+    matchedFields,
+    comparison: {
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      address: driver?.address || '',
+      city: driver?.city || '',
+      state: driver?.state || '',
+      role: user.role,
+      hasDriverProfile: Boolean(driver)
+    }
+  };
+};
+
+apiRouter.get('/users/duplicate-candidates', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem consultar duplicidades.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '').trim() : String(req.user.tenantId || '').trim();
+  if (!tenantId) return res.status(400).json({ error: 'Empresa não identificada.' });
+  const scopedUsers = db.users.filter(item => item.tenantId === tenantId && item.status !== 'BLOQUEADO' && !item.mergedIntoUserId);
+  const candidates: any[] = [];
+  for (let index = 0; index < scopedUsers.length; index += 1) {
+    for (let next = index + 1; next < scopedUsers.length; next += 1) {
+      const first = scopedUsers[index];
+      const second = scopedUsers[next];
+      if (first.role === 'SUPER_ADMIN' || second.role === 'SUPER_ADMIN' || first.role !== second.role) continue;
+      const matchedFields = duplicateMatches(first, second);
+      const strongMatch = matchedFields.includes('CPF') || matchedFields.includes('CNH') || matchedFields.includes('telefone') || matchedFields.includes('e-mail') || (matchedFields.includes('nome') && matchedFields.includes('endereço'));
+      if (!strongMatch) continue;
+      candidates.push({ id: `${first.id}:${second.id}`, first: duplicateCandidatePayload(first, matchedFields), second: duplicateCandidatePayload(second, matchedFields), recommendedTargetId: new Date(first.createdAt).getTime() <= new Date(second.createdAt).getTime() ? first.id : second.id });
+    }
+  }
+  return res.json(candidates.slice(0, 100));
+});
+
+apiRouter.post('/users/merge', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem unificar usuários.' });
+  const targetUserId = String(req.body?.targetUserId || '').trim();
+  const sourceUserId = String(req.body?.sourceUserId || '').trim();
+  if (!targetUserId || !sourceUserId || targetUserId === sourceUserId) return res.status(400).json({ error: 'Selecione dois usuários diferentes para a unificação.' });
+  const target = db.users.find(item => item.id === targetUserId);
+  const source = db.users.find(item => item.id === sourceUserId);
+  if (!target || !source) return res.status(404).json({ error: 'Usuário da unificação não encontrado.' });
+  if (!target.tenantId || target.tenantId !== source.tenantId || (req.user.role !== 'SUPER_ADMIN' && target.tenantId !== req.user.tenantId)) return res.status(403).json({ error: 'A unificação só pode ocorrer dentro da mesma empresa.' });
+  if (target.role === 'SUPER_ADMIN' || source.role === 'SUPER_ADMIN' || target.role !== source.role) return res.status(409).json({ error: 'Contas Super Admin ou perfis com permissões diferentes não podem ser unificados automaticamente.' });
+  if (target.status === 'BLOQUEADO' || source.status === 'BLOQUEADO' || source.mergedIntoUserId) return res.status(409).json({ error: 'A conta de origem já está bloqueada ou consolidada.' });
+  const matchedFields = duplicateMatches(target, source);
+  const targetProfile = duplicateUserProfile(target);
+  const sourceProfile = duplicateUserProfile(source);
+  const hasConflict = (field: 'email' | 'phone' | 'cpf' | 'cnh') => Boolean(targetProfile[field] && sourceProfile[field] && targetProfile[field] !== sourceProfile[field]);
+  if (!matchedFields.length || (hasConflict('email') || hasConflict('phone') || hasConflict('cpf') || hasConflict('cnh'))) return res.status(409).json({ error: 'Os dados apresentam conflito. Revise os cadastros manualmente antes de unificar.' });
+  if (target.driverId && source.driverId && target.driverId !== source.driverId) return res.status(409).json({ error: 'As contas possuem perfis de motorista diferentes. Unifique o cadastro de motorista antes.' });
+  const now = new Date().toISOString();
+  if (!target.email && source.email) target.email = source.email;
+  if (!target.phone && source.phone) target.phone = source.phone;
+  if (!target.name && source.name) target.name = source.name;
+  if (!target.driverId && source.driverId) {
+    target.driverId = source.driverId;
+    const sourceDriver = db.drivers.find(item => item.id === source.driverId || item.userId === source.id);
+    if (sourceDriver) sourceDriver.userId = target.id;
+    source.driverId = undefined;
+  }
+  for (const notification of db.notifications) if (notification.userId === source.id) notification.userId = target.id;
+  for (const delivery of db.notificationDeliveries) if (delivery.userId === source.id) delivery.userId = target.id;
+  for (const subscription of db.pushSubscriptions) if (subscription.userId === source.id) subscription.userId = target.id;
+  for (const response of db.formResponses) if (response.filledByUserId === source.id) response.filledByUserId = target.id;
+  for (const interest of db.freightInterests) if (interest.userId === source.id) interest.userId = target.id;
+  source.status = 'BLOQUEADO';
+  source.readOnly = true;
+  source.mergedIntoUserId = target.id;
+  source.mergedAt = now;
+  source.activeSessionId = undefined;
+  source.activeSessionExpiresAt = undefined;
+  target.updatedAt = now;
+  db.addAuditLog({ ip: requestIp(req), tenantId: target.tenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'UNIFICAR_USUARIOS', entity: 'User', entityId: target.id, details: `Usuário ${source.id} consolidado em ${target.id}. Campos coincidentes: ${matchedFields.join(', ')}. O cadastro de origem foi preservado como bloqueado para auditoria.` });
+  await db.persistNow();
+  return res.json({ success: true, user: sanitizeUser(target), mergedUser: sanitizeUser(source), matchedFields });
+});
+
 apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem cadastrar usuários.' });
   const {
@@ -3014,19 +3592,26 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     bodyType
   } = req.body;
 
-  const requestedRole = role || (createAsDriver ? 'MOTORISTA' : 'USUARIO');
+  const requestedRole = createAsDriver ? 'MOTORISTA' : (role || 'USUARIO');
   if (!canAssignUserRole(req.user, requestedRole)) return res.status(403).json({ error: 'Você não pode atribuir este nível de acesso.' });
   const targetTenantId = req.user?.role === 'SUPER_ADMIN' ? (requestedRole === 'SUPER_ADMIN' ? null : tenantId) : req.user?.tenantId;
   if (requestedRole !== 'SUPER_ADMIN' && (!targetTenantId || !db.tenants.some(tenant => tenant.id === targetTenantId))) return res.status(400).json({ error: 'Empresa válida é obrigatória para este perfil.' });
 
-  if (!name || !email) {
+  const normalizedName = String(name || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 160);
+  const normalizedEmail = String(email || '').trim().toLowerCase().slice(0, 254);
+  const normalizedPhone = String(phone || '').trim().slice(0, 30);
+  if (normalizedName.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     return res.status(400).json({ error: 'Nome e e-mail são obrigatórios' });
   }
+  if (password !== undefined && String(password).trim() && String(password).trim().length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
 
   // Check if email already registered
-  const emailExists = db.users.some(u => u.email.toLowerCase() === email.toLowerCase());
+  const emailExists = db.users.some(u => u.email.trim().toLowerCase() === normalizedEmail);
   if (emailExists) {
     return res.status(400).json({ error: 'Este e-mail já está sendo utilizado por outra conta.' });
+  }
+  if (normalizedPhone && db.users.some(u => u.phone && normalizePhoneForLookup(u.phone) === normalizePhoneForLookup(normalizedPhone))) {
+    return res.status(409).json({ error: 'Este telefone já está associado a outra conta.' });
   }
 
   const hashedPassword = password && password.trim() ? await bcrypt.hash(password.trim(), 10) : undefined;
@@ -3034,15 +3619,21 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
 
   const newUserId = `user-${Date.now()}`;
   const newDriverId = `driver-${Date.now()}`;
-  const isDriver = requestedRole === 'MOTORISTA' || createAsDriver;
+  const isDriver = requestedRole === 'MOTORISTA';
+  const normalizedCpf = String(cpf || '').replace(/\D/g, '');
+  const normalizedCnh = String(cnh || '').replace(/\s/g, '').toUpperCase();
+  if (isDriver && (normalizedPhone.length < 8 || normalizedCpf.length !== 11 || !normalizedCnh || !['B', 'C', 'D', 'E'].includes(String(cnhCategory || '').toUpperCase()) || !/^\d{4}-\d{2}-\d{2}$/.test(String(cnhExpiresAt || '')))) {
+    return res.status(400).json({ error: 'Para cadastrar motorista, informe telefone, CPF, CNH, categoria e validade da CNH.' });
+  }
+  if (isDriver && db.drivers.some(driver => driver.cpf && driver.cpf.replace(/\D/g, '') === normalizedCpf)) return res.status(409).json({ error: 'Este CPF já está associado a outro motorista.' });
 
   const newUser: User = {
     id: newUserId,
     tenantId: targetTenantId || null,
-    name,
-    email,
-    phone: phone || '',
-    role: isDriver ? 'MOTORISTA' : requestedRole,
+    name: normalizedName,
+    email: normalizedEmail,
+    phone: normalizedPhone,
+    role: requestedRole,
     status: 'ATIVO',
     accountType: 'REAL',
     readOnly: false,
@@ -3051,6 +3642,14 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     createdAt: now
   };
 
+  if (isDriver && (vehiclePlate || vehicleModel || vehicleBrand || vehicleRenavam)) {
+    const normalizedPlate = String(vehiclePlate || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const vehicleYearNumber = Number(vehicleYear);
+    if (!/^[A-Z]{3}\d[A-Z0-9]\d{2}$/.test(normalizedPlate) || !vehicleModel || !vehicleBrand || !Number.isInteger(vehicleYearNumber) || vehicleYearNumber < 1950 || vehicleYearNumber > new Date().getFullYear() + 1) {
+      return res.status(400).json({ error: 'Os dados do veículo são inválidos. Informe marca, modelo, ano e placa válida.' });
+    }
+  }
+
   db.users.push(newUser);
 
   if (isDriver) {
@@ -3058,12 +3657,12 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
       id: newDriverId,
       userId: newUserId,
       tenantId: targetTenantId || null,
-      name,
-      cpf: cpf || '',
+      name: normalizedName,
+      cpf: normalizedCpf,
       rg: rg || '',
       birthDate: birthDate || '',
-      phone: phone || '',
-      email,
+      phone: normalizedPhone,
+      email: normalizedEmail,
       zipCode: zipCode || '',
       address: address || '',
       city: city || '',
@@ -3087,7 +3686,12 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
     db.drivers.push(newDriver);
 
     // If vehicle plate or model was provided, create a vehicle too
-    if (vehiclePlate || vehicleModel) {
+    if (vehiclePlate || vehicleModel || vehicleBrand || vehicleRenavam) {
+      const normalizedPlate = String(vehiclePlate || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      const vehicleYearNumber = Number(vehicleYear);
+      if (!/^[A-Z]{3}\d[A-Z0-9]\d{2}$/.test(normalizedPlate) || !vehicleModel || !vehicleBrand || !Number.isInteger(vehicleYearNumber) || vehicleYearNumber < 1950 || vehicleYearNumber > new Date().getFullYear() + 1) {
+        return res.status(400).json({ error: 'Os dados do veículo são inválidos. Informe marca, modelo, ano e placa válida.' });
+      }
       const newVehicleId = `vehicle-${Date.now()}`;
       const newVehicle: Vehicle = {
         id: newVehicleId,
@@ -3096,10 +3700,10 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
         type: vehicleType || 'TRUCK',
         brand: vehicleBrand || 'Mercedes-Benz',
         model: vehicleModel || 'Atego',
-        year: Number(vehicleYear) || 2022,
-        plate: vehiclePlate || 'ABC1D23',
-        renavam: vehicleRenavam || '00123456789',
-        capacityKg: Number(capacityKg) || 12000,
+        year: vehicleYearNumber,
+        plate: normalizedPlate,
+        renavam: String(vehicleRenavam || '').replace(/\D/g, '').slice(0, 11),
+        capacityKg: Number(capacityKg),
         bodyType: bodyType || 'BAU',
         status: 'ATIVO',
         createdAt: now
@@ -3124,12 +3728,13 @@ apiRouter.post('/users', async (req: AuthenticatedRequest, res: Response) => {
   const tenantUsers = targetTenantId ? db.users.filter(user => user.tenantId === targetTenantId && ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user.role)) : [];
   void dispatchConfiguredNotification('USUARIO_CADASTRADO', [newUser, ...tenantUsers], {
     nome: newUser.name,
-    empresa: targetTenantId ? (db.tenants.find(tenant => tenant.id === targetTenantId)?.name || '') : 'Elo Log',
+    empresa: targetTenantId ? (db.tenants.find(tenant => tenant.id === targetTenantId)?.name || '') : 'Atendo One',
     email: newUser.email,
     telefone: newUser.phone,
     tenantId: targetTenantId || undefined,
     link: process.env.APP_URL || ''
   });
+  await db.persistNow();
   res.status(201).json(sanitizeUser(newUser));
 });
 
@@ -3149,8 +3754,11 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
     return res.status(403).json({ error: 'Você não tem permissão para editar este usuário' });
   }
 
-  const { name, email, phone, role, status, password } = req.body || {};
+  const { name, email, phone, role, status, password, tenantId } = req.body || {};
   const previousUserStatus = user.status;
+  if (isSelf && (role !== undefined || status !== undefined)) {
+    return res.status(403).json({ error: 'Não é permitido alterar o próprio papel ou status de acesso.' });
+  }
   const normalizedName = name === undefined ? user.name : String(name).trim().slice(0, 160);
   const normalizedEmail = email === undefined ? user.email : String(email).trim().toLowerCase().slice(0, 254);
   const normalizedPhone = phone === undefined ? user.phone : String(phone).trim().slice(0, 30);
@@ -3159,12 +3767,20 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
   if (normalizedPhone && db.users.some(item => item.id !== user.id && item.phone && normalizePhoneForLookup(item.phone) === normalizePhoneForLookup(normalizedPhone))) return res.status(409).json({ error: 'Este telefone já está associado a outra conta.' });
   if ((role !== undefined || status !== undefined) && !canManageUserFields) return res.status(403).json({ error: 'Somente administradores podem alterar papel ou status.' });
   if (role !== undefined && !canAssignUserRole(req.user, role)) return res.status(403).json({ error: 'Você não pode atribuir este nível de acesso.' });
+  let nextTenantId: string | null | undefined;
+  if (role !== undefined && role !== 'SUPER_ADMIN') {
+    nextTenantId = req.user?.role === 'SUPER_ADMIN' ? String(tenantId || user.tenantId || '') : String(user.tenantId || req.user?.tenantId || '');
+    if (!nextTenantId || !db.tenants.some(tenant => tenant.id === nextTenantId)) return res.status(400).json({ error: 'Empresa válida é obrigatória para este perfil.' });
+  } else if (role === 'SUPER_ADMIN') {
+    nextTenantId = null;
+  }
   if (status !== undefined && !['ATIVO', 'PENDENTE', 'BLOQUEADO'].includes(status)) return res.status(400).json({ error: 'Status de usuário inválido.' });
   if (password !== undefined && String(password).trim() && String(password).trim().length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
 
   user.name = normalizedName;
   user.email = normalizedEmail;
   user.phone = normalizedPhone;
+  if (role !== undefined && nextTenantId !== undefined) user.tenantId = nextTenantId;
   if (password && String(password).trim()) {
     user.password = await bcrypt.hash(String(password).trim(), 12);
   }
@@ -3178,9 +3794,9 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
   if (user.driverId) {
     const driver = db.drivers.find(d => d.id === user.driverId || d.userId === user.id);
     if (driver) {
-      if (name) driver.name = name;
-      if (email) driver.email = email;
-      if (phone) driver.phone = phone;
+      driver.name = normalizedName;
+      driver.email = normalizedEmail;
+      driver.phone = normalizedPhone;
     }
   }
 
@@ -3199,7 +3815,7 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
     const tenantAdmins = user.tenantId ? db.users.filter(item => item.tenantId === user.tenantId && ['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(item.role)) : [];
     void dispatchConfiguredNotification('USUARIO_STATUS_ATUALIZADO', [user, ...tenantAdmins], {
       nome: user.name,
-      empresa: user.tenantId ? (db.tenants.find(tenant => tenant.id === user.tenantId)?.name || '') : 'Elo Log',
+      empresa: user.tenantId ? (db.tenants.find(tenant => tenant.id === user.tenantId)?.name || '') : 'Atendo One',
       status: user.status,
       email: user.email,
       telefone: user.phone,
@@ -3207,6 +3823,7 @@ apiRouter.put('/users/:id', async (req: AuthenticatedRequest, res: Response) => 
       link: process.env.APP_URL || ''
     });
   }
+  await db.persistNow();
   res.json(sanitizeUser(user));
 });
 
@@ -3246,10 +3863,17 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
     return res.status(404).json({ error: 'Usuário não encontrado' });
   }
 
-  const { name, email, phone, password } = req.body;
-  if (name) user.name = name;
-  if (email) user.email = email;
-  if (phone) user.phone = phone;
+  const { name, email, phone, password } = req.body || {};
+  const normalizedName = name === undefined ? user.name : String(name).replace(/[\r\n]+/g, ' ').trim().slice(0, 160);
+  const normalizedEmail = email === undefined ? user.email : String(email).trim().toLowerCase().slice(0, 254);
+  const normalizedPhone = phone === undefined ? user.phone : String(phone).trim().slice(0, 30);
+  if (normalizedName.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return res.status(400).json({ error: 'Nome e e-mail válidos são obrigatórios.' });
+  if (db.users.some(item => item.id !== user.id && item.email.trim().toLowerCase() === normalizedEmail)) return res.status(409).json({ error: 'Este e-mail já está sendo utilizado por outra conta.' });
+  if (normalizedPhone && db.users.some(item => item.id !== user.id && item.phone && normalizePhoneForLookup(item.phone) === normalizePhoneForLookup(normalizedPhone))) return res.status(409).json({ error: 'Este telefone já está associado a outra conta.' });
+  if (password !== undefined && String(password).trim() && String(password).trim().length < 8) return res.status(400).json({ error: 'A senha deve ter pelo menos 8 caracteres.' });
+  user.name = normalizedName;
+  user.email = normalizedEmail;
+  user.phone = normalizedPhone;
   if (password && password.trim()) {
     user.password = await bcrypt.hash(password.trim(), 10);
   }
@@ -3272,9 +3896,9 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
   if (user.driverId) {
     const driver = db.drivers.find(d => d.id === user.driverId || d.userId === user.id);
     if (driver) {
-      if (name) driver.name = name;
-      if (email) driver.email = email;
-      if (phone) driver.phone = phone;
+      driver.name = normalizedName;
+      driver.email = normalizedEmail;
+      driver.phone = normalizedPhone;
       if (req.body.address) driver.address = req.body.address;
       if (req.body.city) driver.city = req.body.city;
       if (req.body.state) driver.state = req.body.state;
@@ -3294,6 +3918,7 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
     details: `Perfil de usuário atualizado pelo próprio titular`
   });
 
+  await db.persistNow();
   res.json({
     success: true,
     user: sanitizeUser(user),
@@ -3305,11 +3930,75 @@ apiRouter.put('/auth/profile', async (req: AuthenticatedRequest, res: Response) 
    4. DRIVERS & VEHICLES MANAGEMENT
    ========================================================================= */
 
-// Register a global driver from an authenticated company administration.
+apiRouter.get('/tenant/freight-alert-config', (req: AuthenticatedRequest, res: Response) => {
+  const tenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '').trim() : String(req.user?.tenantId || '').trim();
+  if (!tenantId || !db.tenants.some(tenant => tenant.id === tenantId)) return res.status(400).json({ error: 'Empresa não identificada.' });
+  if (req.user?.role !== 'SUPER_ADMIN' && req.user?.tenantId !== tenantId) return res.status(403).json({ error: 'Acesso não autorizado a esta empresa.' });
+  return res.json(freightAlertConfigFor(db.tenants.find(tenant => tenant.id === tenantId)));
+});
+
+apiRouter.put('/tenant/freight-alert-config', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem configurar alertas geográficos.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '').trim() : String(req.user.tenantId || '').trim();
+  const tenant = db.tenants.find(item => item.id === tenantId);
+  if (!tenant) return res.status(400).json({ error: 'Empresa de configuração não identificada.' });
+  if (req.user.role !== 'SUPER_ADMIN' && req.user.tenantId !== tenant.id) return res.status(403).json({ error: 'Acesso não autorizado a esta empresa.' });
+  let config: FreightAlertConfig;
+  try {
+    config = normalizeFreightAlertConfig(req.body, freightAlertConfigFor(tenant));
+  } catch (error: any) {
+    return res.status(400).json({ error: error?.message || 'Configuração geográfica inválida.' });
+  }
+  tenant.freightAlertConfig = config;
+  tenant.updatedAt = new Date().toISOString();
+  db.addAuditLog({ ip: requestIp(req), tenantId: tenant.id, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'CONFIGURAR_ALERTAS_GEOGRAFICOS', entity: 'Tenant', entityId: tenant.id, details: `Alertas geográficos ${config.geographicFilterEnabled ? 'ativados' : 'desativados'} com raio de ${config.radiusKm} km, fallback ${config.fallbackRegion}.` });
+  await db.persistNow();
+  return res.json(config);
+});
+
+apiRouter.get('/drivers/me/proximity-settings', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'MOTORISTA') return res.status(403).json({ error: 'Somente o próprio motorista pode consultar esta preferência.' });
+  const driver = db.drivers.find(item => item.id === req.user?.driverId || item.userId === req.user?.id);
+  if (!driver || !req.user.tenantId) return res.status(404).json({ error: 'Perfil de motorista ou empresa não encontrado.' });
+  return res.json({ enabled: driver.proximityAlertsEnabled === true, location: driver.currentLocation ? { recordedAt: driver.currentLocation.recordedAt, accuracyMeters: driver.currentLocation.accuracyMeters } : null, config: freightAlertConfigFor(db.tenants.find(tenant => tenant.id === req.user!.tenantId)) });
+});
+
+apiRouter.put('/drivers/me/proximity-settings', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'MOTORISTA' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente motoristas reais podem alterar a preferência de proximidade.' });
+  const driver = db.drivers.find(item => item.id === req.user?.driverId || item.userId === req.user?.id);
+  if (!driver || !req.user.tenantId) return res.status(404).json({ error: 'Perfil de motorista ou empresa não encontrado.' });
+  const enabled = Boolean(req.body?.enabled);
+  driver.proximityAlertsEnabled = enabled;
+  if (!enabled) driver.currentLocation = undefined;
+  driver.updatedAt = new Date().toISOString();
+  await db.persistNow();
+  return res.json({ enabled, config: freightAlertConfigFor(db.tenants.find(tenant => tenant.id === req.user!.tenantId)) });
+});
+
+const DRIVER_LOCATION_MIN_INTERVAL_MS = 5000;
+apiRouter.post('/drivers/me/location', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'MOTORISTA' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente motoristas reais podem compartilhar localização.' });
+  const driver = db.drivers.find(item => item.id === req.user?.driverId || item.userId === req.user?.id);
+  if (!driver || !req.user.tenantId) return res.status(404).json({ error: 'Perfil de motorista ou empresa não encontrado.' });
+  if (driver.proximityAlertsEnabled !== true) return res.status(403).json({ error: 'Ative o compartilhamento de localização para receber alertas por proximidade.' });
+  const lat = Number(req.body?.lat);
+  const lng = Number(req.body?.lng);
+  const accuracyMeters = Number(req.body?.accuracyMeters);
+  const recordedAt = typeof req.body?.recordedAt === 'string' ? new Date(req.body.recordedAt) : new Date();
+  if (!validGeoCoordinate(lat, lng) || !Number.isFinite(accuracyMeters) || accuracyMeters < 0 || accuracyMeters > 50000 || Number.isNaN(recordedAt.getTime())) return res.status(400).json({ error: 'Localização GPS inválida.' });
+  if (recordedAt.getTime() > Date.now() + 5 * 60 * 1000 || recordedAt.getTime() < Date.now() - 24 * 60 * 60 * 1000) return res.status(400).json({ error: 'Data da localização fora do intervalo permitido.' });
+  const previousRecordedAt = driver.currentLocation?.recordedAt ? new Date(driver.currentLocation.recordedAt).getTime() : 0;
+  if (previousRecordedAt && Date.now() - previousRecordedAt < DRIVER_LOCATION_MIN_INTERVAL_MS && recordedAt.getTime() <= previousRecordedAt + DRIVER_LOCATION_MIN_INTERVAL_MS) return res.status(429).json({ error: 'Envio de localização muito frequente.' });
+  driver.currentLocation = { lat, lng, accuracyMeters, recordedAt: recordedAt.toISOString() };
+  driver.updatedAt = new Date().toISOString();
+  await db.persistNow();
+  return res.json({ success: true, recordedAt: driver.currentLocation.recordedAt, accuracyMeters: driver.currentLocation.accuracyMeters });
+});
+
+// Register a global driver from any real authenticated company user.
 // The identity is global; only the company relationship is tenant-scoped.
 apiRouter.post('/drivers/register', async (req: AuthenticatedRequest, res: Response) => {
-  const allowedRoles = ['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'];
-  if (!req.user || !allowedRoles.includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem cadastrar motorista.' });
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Somente administradores reais podem cadastrar motorista.' });
   const targetTenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : String(req.user.tenantId || '');
   if (!targetTenantId || !db.tenants.some(tenant => tenant.id === targetTenantId)) return res.status(400).json({ error: 'Empresa de vínculo não identificada.' });
   const name = String(req.body?.name || '').trim();
@@ -3332,35 +4021,124 @@ apiRouter.post('/drivers/register', async (req: AuthenticatedRequest, res: Respo
   const now = new Date().toISOString();
   const userId = `user-driver-${Date.now()}`;
   const driverId = `driver-${Date.now()}`;
-  const vehicleId = `vehicle-${Date.now()}`;
+  const hasVehicle = Boolean(String(req.body?.vehiclePlate || '').trim() || String(req.body?.vehicleBrand || '').trim() || String(req.body?.vehicleModel || '').trim());
   const newUser: User = { id: userId, tenantId: null, name, email, phone, role: 'MOTORISTA', status: 'ATIVO', accountType: 'REAL', readOnly: false, driverId, lastLoginAt: null, createdAt: now };
-  const newDriver: Driver = { id: driverId, userId, tenantId: null, name, cpf, rg: String(req.body?.rg || ''), birthDate: String(req.body?.birthDate || ''), phone, email, zipCode: String(req.body?.zipCode || ''), address: String(req.body?.address || ''), city: String(req.body?.city || ''), state: String(req.body?.state || '').toUpperCase(), cnh, cnhCategory: String(req.body?.cnhCategory || 'B') as Driver['cnhCategory'], cnhExpiresAt: String(req.body?.cnhExpiresAt || ''), status: 'DISPONIVEL', rating: 0, completedTrips: 0, vehiclesCount: 1, createdAt: now };
-  const newVehicle: Vehicle = { id: vehicleId, driverId, tenantId: null, type: String(req.body?.vehicleType || 'TRUCK') as Vehicle['type'], brand: String(req.body?.vehicleBrand || ''), model: String(req.body?.vehicleModel || ''), year: Number(req.body?.vehicleYear || new Date().getFullYear()), plate, renavam: String(req.body?.vehicleRenavam || ''), capacityKg: Number(req.body?.capacityKg || 0), bodyType: String(req.body?.bodyType || 'BAU') as Vehicle['bodyType'], status: 'ATIVO', createdAt: now };
+  const newDriver: Driver = { id: driverId, userId, tenantId: null, name, cpf, rg: String(req.body?.rg || ''), birthDate: String(req.body?.birthDate || ''), phone, email, zipCode: String(req.body?.zipCode || ''), address: String(req.body?.address || ''), city: String(req.body?.city || ''), state: String(req.body?.state || '').toUpperCase(), cnh, cnhCategory: String(req.body?.cnhCategory || 'B') as Driver['cnhCategory'], cnhExpiresAt: String(req.body?.cnhExpiresAt || ''), status: 'DISPONIVEL', rating: 0, completedTrips: 0, vehiclesCount: hasVehicle ? 1 : 0, createdAt: now };
+  const newVehicle: Vehicle | undefined = hasVehicle ? { id: `vehicle-${Date.now()}`, driverId, tenantId: null, type: String(req.body?.vehicleType || 'TRUCK') as Vehicle['type'], brand: String(req.body?.vehicleBrand || ''), model: String(req.body?.vehicleModel || ''), year: Number(req.body?.vehicleYear || new Date().getFullYear()), plate, renavam: String(req.body?.vehicleRenavam || ''), capacityKg: Number(req.body?.capacityKg || 0), bodyType: String(req.body?.bodyType || 'BAU') as Vehicle['bodyType'], status: 'ATIVO', createdAt: now } : undefined;
   db.users.push(newUser);
   db.drivers.push(newDriver);
-  db.vehicles.push(newVehicle);
+  if (newVehicle) db.vehicles.push(newVehicle);
   db.upsertDriverCompanyLink({ driverId, tenantId: targetTenantId, status: 'APROVADO', scope: 'EMPRESA', source: 'COMPANY_ADMIN_REGISTRATION', approvedAt: now, approvedByUserId: req.user.id });
   db.addAuditLog({ ip: requestIp(req), tenantId: targetTenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'CADASTRO_MOTORISTA', entity: 'Driver', entityId: driverId, details: `Motorista global cadastrado e aprovado para a empresa ${targetTenantId}.` });
   void dispatchConfiguredNotification('MOTORISTA_CADASTRADO', [newUser, ...db.users.filter(user => user.tenantId === targetTenantId && ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR'].includes(user.role))], { nome: name, empresa: db.tenants.find(tenant => tenant.id === targetTenantId)?.name || '', status: newUser.status, link: process.env.APP_URL || '' });
   await db.persistNow();
-  return res.status(201).json({ user: sanitizeUser(newUser), driver: newDriver, vehicle: newVehicle });
+  return res.status(201).json({ user: sanitizeUser(newUser), driver: newDriver, vehicle: newVehicle || null });
 });
 
 apiRouter.get('/drivers', (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role === 'SUPER_ADMIN') {
-    return res.json(db.drivers.map(sanitizeDriver));
+    const tenantId = String(req.query.tenantId || '').trim();
+    const drivers = tenantId
+      ? db.drivers.filter(driver => driver.tenantId === tenantId || db.hasDriverCompanyAccess(driver.id, tenantId, true))
+      : db.drivers;
+    return res.json(drivers.map(sanitizeDriver));
   }
   // Scoped by independent company link; a driver may belong to many companies.
-  const drivers = db.drivers.filter(d => req.user?.tenantId ? db.hasDriverCompanyAccess(d.id, req.user.tenantId, true) : false);
+  const drivers = db.drivers.filter(d => req.user?.tenantId ? (d.tenantId === req.user.tenantId || db.hasDriverCompanyAccess(d.id, req.user.tenantId, true)) : false);
   res.json(drivers.map(sanitizeDriver));
 });
 
-apiRouter.put('/drivers/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/drivers/lookup', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Empresa não identificada.' });
+  const phone = normalizePhoneForLookup(String(req.query.phone || ''));
+  const cnh = normalizePublicIdentity(String(req.query.cnh || ''));
+  if (!phone && !cnh) return res.status(400).json({ error: 'Informe telefone ou número de CNH.' });
+  const driver = db.drivers.find(item => (phone && normalizePhoneForLookup(item.phone) === phone) || (cnh && normalizePublicIdentity(item.cnh) === cnh));
+  if (!driver) return res.status(404).json({ error: 'Nenhum motorista encontrado com os dados informados.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : req.user.tenantId!;
+  const link = tenantId ? db.driverCompanyLinks.find(item => item.driverId === driver.id && item.tenantId === tenantId && item.scope === 'EMPRESA') : undefined;
+  return res.json({ driver: sanitizeDriverLookup(driver), companyLink: link || null });
+});
+
+apiRouter.get('/drivers/directory', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || !req.user.tenantId) return res.status(403).json({ error: 'Somente administradores reais de uma empresa podem consultar o catálogo de motoristas.' });
+  const search = String(req.query.search || '').trim().toLocaleLowerCase('pt-BR').slice(0, 100);
+  const category = String(req.query.category || '').trim().toUpperCase();
+  const items = db.drivers.filter(driver => {
+    if (driver.directoryVisible !== true || driver.status === 'INATIVO') return false;
+    if (category && driver.cnhCategory !== category) return false;
+    if (!search) return true;
+    return [driver.name, driver.city, driver.state].some(value => String(value || '').toLocaleLowerCase('pt-BR').includes(search));
+  }).slice(0, 100).map(driver => ({
+    id: driver.id,
+    name: driver.name,
+    city: driver.city,
+    state: driver.state,
+    cnhCategory: driver.cnhCategory,
+    companyLinkStatus: db.getDriverCompanyLink(driver.id, req.user!.tenantId!)?.status || null
+  }));
+  return res.json(items);
+});
+
+apiRouter.post('/drivers/directory/:id/request', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || !req.user.tenantId) return res.status(403).json({ error: 'Somente administradores reais de uma empresa podem solicitar avaliação.' });
+  const driver = db.drivers.find(item => item.id === req.params.id && item.directoryVisible === true);
+  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado no catálogo.' });
+  const existing = db.getDriverCompanyLink(driver.id, req.user.tenantId);
+  if (existing?.status === 'BLOQUEADO') return res.status(409).json({ error: 'Este motorista está bloqueado para sua empresa.' });
+  if (existing?.status === 'APROVADO' || existing?.status === 'PENDENTE') return res.json({ success: true, companyLink: existing });
+  const link = db.upsertDriverCompanyLink({ driverId: driver.id, tenantId: req.user.tenantId, status: 'PENDENTE', scope: 'EMPRESA', source: 'CONVITE' });
+  db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'SOLICITAR_AVALIACAO_MOTORISTA', entity: 'DriverCompanyLink', entityId: link.id, details: `Solicitada avaliação do motorista ${driver.id} para esta empresa.` });
+  await db.persistNow();
+  return res.status(201).json({ success: true, companyLink: link });
+});
+
+apiRouter.post('/drivers/:id/company-link', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || (req.user.role !== 'SUPER_ADMIN' && !req.user.tenantId)) return res.status(403).json({ error: 'Somente administradores reais podem criar vínculos de motorista.' });
+  const driver = db.drivers.find(item => item.id === req.params.id);
+  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user.tenantId!;
+  if (!tenantId || !db.tenants.some(item => item.id === tenantId)) return res.status(400).json({ error: 'Empresa de vínculo inválida.' });
+  const existing = db.driverCompanyLinks.find(item => item.driverId === driver.id && item.tenantId === tenantId && item.scope === 'EMPRESA');
+  const link = existing || db.upsertDriverCompanyLink({ driverId: driver.id, tenantId, status: 'PENDENTE', scope: 'EMPRESA', source: 'COMPANY_ADMIN_REGISTRATION' });
+  await db.persistNow();
+  return res.status(existing ? 200 : 201).json({ driver: sanitizeDriverLookup(driver), companyLink: link });
+});
+
+apiRouter.get('/drivers/:id/company-profile', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user?.tenantId && req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Empresa não identificada.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : req.user.tenantId!;
+  if (req.user.role !== 'SUPER_ADMIN' && !db.hasDriverCompanyAccess(req.params.id, tenantId, true)) return res.status(403).json({ error: 'Motorista não possui vínculo com esta empresa.' });
+  const profile = db.driverCompanyProfiles.find(item => item.driverId === req.params.id && item.tenantId === tenantId);
+  return res.json(profile || { driverId: req.params.id, tenantId, notes: '', files: [] });
+});
+
+apiRouter.put('/drivers/:id/company-profile', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || !canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user) || (!req.user.tenantId && req.user.role !== 'SUPER_ADMIN')) return res.status(403).json({ error: 'Somente administradores reais podem editar o perfil empresarial do motorista.' });
+  const driver = db.drivers.find(item => item.id === req.params.id);
+  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
+  const tenantId = req.user.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user.tenantId!;
+  if (!tenantId || !db.hasDriverCompanyAccess(driver.id, tenantId, true)) return res.status(403).json({ error: 'Motorista não possui vínculo com esta empresa.' });
+  let profile = db.driverCompanyProfiles.find(item => item.driverId === driver.id && item.tenantId === tenantId);
+  if (!profile) {
+    profile = { id: randomUUID(), driverId: driver.id, tenantId, notes: '', files: [], createdAt: new Date().toISOString() };
+    db.driverCompanyProfiles.unshift(profile);
+  }
+  if (req.body?.notes !== undefined) profile.notes = String(req.body.notes || '').slice(0, 10000);
+  if (Array.isArray(req.body?.files)) {
+    profile.files = req.body.files.filter((file: any) => file && typeof file.name === 'string' && typeof file.dataUrl === 'string' && file.dataUrl.length <= 8_000_000).slice(0, 20).map((file: any) => ({ id: file.id || randomUUID(), name: file.name.slice(0, 180), mimeType: String(file.mimeType || 'application/octet-stream').slice(0, 120), dataUrl: file.dataUrl, createdAt: file.createdAt || new Date().toISOString() }));
+  }
+  profile.updatedAt = new Date().toISOString();
+  await db.persistNow();
+  return res.json(profile);
+});
+
+apiRouter.put('/drivers/:id', async (req: AuthenticatedRequest, res: Response) => {
   const driver = db.drivers.find(d => d.id === req.params.id);
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
-
-  const isSelfDriver = req.user?.role === 'MOTORISTA' && (driver.userId === req.user.id || driver.id === req.user.driverId);
-  const isCompanyAdmin = req.user?.role === 'SUPER_ADMIN' || (Boolean(req.user?.tenantId) && TENANT_ADMIN_ROLES.includes(req.user!.role) && db.hasDriverCompanyAccess(driver.id, req.user!.tenantId!, true));
+  const isRealAccount = Boolean(req.user && !isTestOrDemoUser(req.user));
+  const isSelfDriver = isRealAccount && req.user?.role === 'MOTORISTA' && (driver.userId === req.user.id || driver.id === req.user.driverId);
+  const isCompanyAdmin = isRealAccount && (req.user?.role === 'SUPER_ADMIN' || (Boolean(req.user?.tenantId) && TENANT_ADMIN_ROLES.includes(req.user!.role) && db.hasDriverCompanyAccess(driver.id, req.user!.tenantId!, true)));
   if (!isSelfDriver && !isCompanyAdmin) return res.status(403).json({ error: 'Apenas o próprio motorista ou um administrador da empresa pode editar este cadastro.' });
 
   const body = req.body || {};
@@ -3371,6 +4149,10 @@ apiRouter.put('/drivers/:id', (req: AuthenticatedRequest, res: Response) => {
   if (body.address !== undefined) driver.address = text(body.address, driver.address, 300);
   if (body.city !== undefined) driver.city = text(body.city, driver.city, 120);
   if (body.state !== undefined) driver.state = text(body.state, driver.state, 2).toUpperCase();
+  if (isSelfDriver && typeof body.directoryVisible === 'boolean' && driver.directoryVisible !== body.directoryVisible) {
+    driver.directoryVisible = body.directoryVisible;
+    db.addAuditLog({ ip: requestIp(req), userId: req.user!.id, userName: req.user!.name, userRole: 'MOTORISTA', action: 'CONSENTIMENTO_CATALOGO_MOTORISTA', entity: 'Driver', entityId: driver.id, details: body.directoryVisible ? 'Motorista autorizou a exibição do perfil básico no catálogo para empresas.' : 'Motorista retirou a autorização de exibição do perfil no catálogo para empresas.' });
+  }
   if (isCompanyAdmin) {
     if (body.cpf !== undefined) driver.cpf = text(body.cpf, driver.cpf, 30);
     if (body.rg !== undefined) driver.rg = text(body.rg, driver.rg, 30);
@@ -3392,12 +4174,14 @@ apiRouter.put('/drivers/:id', (req: AuthenticatedRequest, res: Response) => {
     details: `Motorista ${driver.name} atualizado`
   });
 
+  await db.persistNow();
   res.json(sanitizeDriver(driver));
 });
 
 apiRouter.get('/vehicles', (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role === 'SUPER_ADMIN') return res.json(db.vehicles);
   const tenantId = req.user?.tenantId;
+  if (!tenantId && req.user?.role === 'MOTORISTA' && req.user.driverId) return res.json(db.vehicles.filter(vehicle => vehicle.driverId === req.user!.driverId));
   if (!tenantId) return res.json([]);
   const vehicles = db.vehicles.filter(vehicle => vehicle.tenantId === tenantId || (vehicle.tenantId === null && db.hasDriverCompanyAccess(vehicle.driverId, tenantId, true)));
   res.json(vehicles);
@@ -3408,22 +4192,25 @@ apiRouter.get('/company-vehicles', (req: AuthenticatedRequest, res: Response) =>
   if (!req.user?.tenantId) return res.status(403).json({ error: 'Empresa não identificada.' });
   res.json(db.companyVehicles.filter(vehicle => vehicle.tenantId === req.user?.tenantId));
 });
-apiRouter.post('/company-vehicles', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/company-vehicles', async (req: AuthenticatedRequest, res: Response) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem cadastrar veículos próprios.' });
   const tenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || '') : req.user?.tenantId || '';
   if (!tenantId) return res.status(400).json({ error: 'Empresa obrigatória para cadastrar veículo próprio.' });
+  if (!db.tenants.some(tenant => tenant.id === tenantId)) return res.status(400).json({ error: 'Empresa inválida para cadastrar veículo próprio.' });
   const body = req.body || {};
   const plate = normalizePublicPlate(body.plate);
   const renavam = normalizePublicIdentity(body.renavam);
-  if (!plate || !renavam || !body.brand || !body.model || !body.type || !body.bodyType) return res.status(400).json({ error: 'Placa, RENAVAM, tipo, carroceria, marca e modelo são obrigatórios.' });
-  if (db.companyVehicles.some(vehicle => normalizePublicPlate(vehicle.plate) === plate || normalizePublicIdentity(vehicle.renavam) === renavam)) return res.status(409).json({ error: 'Já existe veículo próprio com esta placa ou RENAVAM.' });
+  const chassis = String(body.chassis || '').trim().toUpperCase();
+  if (!plate || !renavam || chassis.length < 5 || !body.brand || !body.model || !body.type || !body.bodyType) return res.status(400).json({ error: 'Placa, RENAVAM, chassi, tipo, carroceria, marca e modelo são obrigatórios.' });
+  if (db.companyVehicles.some(vehicle => vehicle.tenantId === tenantId && (normalizePublicPlate(vehicle.plate) === plate || normalizePublicIdentity(vehicle.renavam) === renavam || (chassis && String(vehicle.chassis || '').trim().toUpperCase() === chassis)))) return res.status(409).json({ error: 'Esta empresa já possui veículo com esta placa, RENAVAM ou chassi.' });
   const now = new Date().toISOString();
-  const vehicle: CompanyVehicle = { id: `company-vehicle-${Date.now()}`, tenantId, type: body.type, brand: String(body.brand).trim(), model: String(body.model).trim(), year: Number(body.year || new Date().getFullYear()), plate: String(body.plate).trim().toUpperCase(), renavam: String(body.renavam).trim(), capacityKg: Number(body.capacityKg || 0), bodyType: body.bodyType, ownerName: String(body.ownerName || '').trim(), ownerCnpj: String(body.ownerCnpj || '').trim(), registrationState: String(body.registrationState || '').trim().toUpperCase(), crlvNumber: String(body.crlvNumber || '').trim(), status: 'ATIVO', notes: String(body.notes || '').trim(), createdAt: now, updatedAt: now };
+  const vehicle: CompanyVehicle = { id: `company-vehicle-${Date.now()}`, tenantId, type: body.type, brand: String(body.brand).trim(), model: String(body.model).trim(), year: Number(body.modelYear || body.year || new Date().getFullYear()), manufactureYear: Number(body.manufactureYear || body.year || new Date().getFullYear()), modelYear: Number(body.modelYear || body.year || new Date().getFullYear()), plate: String(body.plate).trim().toUpperCase(), renavam: String(body.renavam).trim(), chassis, capacityKg: Number(body.capacityKg || 0), bodyType: body.bodyType, color: String(body.color || '').trim(), fuelType: String(body.fuelType || '').trim().toUpperCase(), axleCount: Number(body.axleCount || 0), ownerName: String(body.ownerName || '').trim(), ownerCnpj: String(body.ownerCnpj || '').trim(), registrationState: String(body.registrationState || '').trim().toUpperCase(), crlvNumber: String(body.crlvNumber || '').trim(), insuranceValidUntil: String(body.insuranceValidUntil || '').trim(), status: 'ATIVO', notes: String(body.notes || '').trim(), createdAt: now, updatedAt: now };
   db.companyVehicles.unshift(vehicle);
   db.addAuditLog({ ip: requestIp(req), tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'CRIAR_VEICULO_PROPRIO', entity: 'CompanyVehicle', entityId: vehicle.id, details: `Veículo próprio ${vehicle.plate} cadastrado para documentos e operações da empresa.` });
+  await db.persistNow();
   res.status(201).json(vehicle);
 });
-apiRouter.put('/company-vehicles/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/company-vehicles/:id', async (req: AuthenticatedRequest, res: Response) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem editar veículos próprios.' });
   const vehicle = db.companyVehicles.find(item => item.id === req.params.id);
   if (!vehicle) return res.status(404).json({ error: 'Veículo próprio não encontrado.' });
@@ -3431,19 +4218,22 @@ apiRouter.put('/company-vehicles/:id', (req: AuthenticatedRequest, res: Response
   const body = req.body || {};
   const nextPlate = normalizePublicPlate(body.plate || vehicle.plate);
   const nextRenavam = normalizePublicIdentity(body.renavam || vehicle.renavam);
-  if (db.companyVehicles.some(item => item.id !== vehicle.id && (normalizePublicPlate(item.plate) === nextPlate || normalizePublicIdentity(item.renavam) === nextRenavam))) return res.status(409).json({ error: 'Já existe outro veículo próprio com esta placa ou RENAVAM.' });
-  const allowed = ['type', 'brand', 'model', 'year', 'plate', 'renavam', 'capacityKg', 'bodyType', 'ownerName', 'ownerCnpj', 'registrationState', 'crlvNumber', 'status', 'notes'];
-  for (const key of allowed) if (body[key] !== undefined) (vehicle as any)[key] = key === 'plate' ? String(body[key]).trim().toUpperCase() : body[key];
+  const nextChassis = String(body.chassis || vehicle.chassis || '').trim().toUpperCase();
+  if (db.companyVehicles.some(item => item.id !== vehicle.id && item.tenantId === vehicle.tenantId && (normalizePublicPlate(item.plate) === nextPlate || normalizePublicIdentity(item.renavam) === nextRenavam || (nextChassis && String(item.chassis || '').trim().toUpperCase() === nextChassis)))) return res.status(409).json({ error: 'Esta empresa já possui outro veículo com esta placa, RENAVAM ou chassi.' });
+  const allowed = ['type', 'brand', 'model', 'year', 'manufactureYear', 'modelYear', 'plate', 'renavam', 'chassis', 'capacityKg', 'bodyType', 'color', 'fuelType', 'axleCount', 'ownerName', 'ownerCnpj', 'registrationState', 'crlvNumber', 'insuranceValidUntil', 'status', 'notes'];
+  for (const key of allowed) if (body[key] !== undefined) (vehicle as any)[key] = ['plate', 'chassis', 'fuelType', 'registrationState'].includes(key) ? String(body[key]).trim().toUpperCase() : body[key];
   vehicle.updatedAt = new Date().toISOString();
+  await db.persistNow();
   res.json(vehicle);
 });
-apiRouter.delete('/company-vehicles/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.delete('/company-vehicles/:id', async (req: AuthenticatedRequest, res: Response) => {
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas administradores reais podem desativar veículos próprios.' });
   const vehicle = db.companyVehicles.find(item => item.id === req.params.id);
   if (!vehicle) return res.status(404).json({ error: 'Veículo próprio não encontrado.' });
   if (req.user?.role !== 'SUPER_ADMIN' && vehicle.tenantId !== req.user?.tenantId) return res.status(403).json({ error: 'Este veículo pertence a outra empresa.' });
   vehicle.status = 'INATIVO'; vehicle.updatedAt = new Date().toISOString();
   db.addAuditLog({ ip: requestIp(req), tenantId: vehicle.tenantId, userId: req.user?.id || 'system', userName: req.user?.name || 'Sistema', userRole: req.user?.role || 'ADMIN', action: 'DESATIVAR_VEICULO_PROPRIO', entity: 'CompanyVehicle', entityId: vehicle.id, details: `Veículo próprio ${vehicle.plate} desativado sem apagar histórico.` });
+  await db.persistNow();
   res.json({ success: true, message: 'Veículo próprio desativado; histórico preservado.' });
 });
 /* =========================================================================
@@ -3470,9 +4260,11 @@ apiRouter.get('/freights', (req: AuthenticatedRequest, res: Response) => {
       // Driver sees:
       // 1. All DISPONIVEL or PUBLICADO freights for their tenant (or network)
       // 2. Freights assigned to them
+      // 3. Freights privately directed to them after company approval
       list = list.filter(f =>
         (db.hasDriverCompanyAccess(driverId || '', f.tenantId, false, f.id) && ['DISPONIVEL', 'PUBLICADO'].includes(f.status)) ||
-        f.assignedDriverId === driverId
+        f.assignedDriverId === driverId ||
+        (f.targetedDriverId === driverId && ['APROVADO', 'DISPONIVEL', 'PUBLICADO'].includes(f.status))
       );
     }
   } else {
@@ -3528,6 +4320,9 @@ apiRouter.get('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
 
 // Create new Freight
 apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || isTestOrDemoUser(req.user)) {
+    return res.status(403).json({ error: 'Contas de teste e demonstração não podem gravar fretes.' });
+  }
   if (req.user?.role === 'MOTORISTA') {
     return res.status(403).json({ error: 'Motoristas não possuem permissão para cadastrar fretes' });
   }
@@ -3560,6 +4355,8 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     distanceKm,
     customData,
     companyVehicleId,
+    targetedDriverId,
+    targetedVehicleId,
     publicListingEnabled,
     publicPriceVisibleToRegistered,
     publicInterestEnabled
@@ -3567,17 +4364,21 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   const requestedBudgetId = customData?.budgetId ? String(customData.budgetId) : '';
   const linkedBudget = requestedBudgetId ? db.budgets.find((budget: any) => budget.id === requestedBudgetId && budget.tenantId === tenantId && !budget.convertedFreightId) : undefined;
   if (requestedBudgetId && !linkedBudget) return res.status(400).json({ error: 'Orçamento selecionado não pertence à empresa, não existe ou já foi convertido.' });
-  if (linkedBudget && linkedBudget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode ser vinculado a um frete.' });
+  if (linkedBudget && req.user?.role !== 'SUPER_ADMIN' && linkedBudget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode ser vinculado a um frete.' });
 
   if (!origin?.city || !origin?.state || !destination?.city || !destination?.state || !payment?.price) {
     return res.status(400).json({ error: 'Origem, destino e valor são obrigatórios' });
   }
 
   if (companyVehicleId && !db.companyVehicles.some(vehicle => vehicle.id === companyVehicleId && vehicle.tenantId === tenantId && vehicle.status === 'ATIVO')) return res.status(400).json({ error: 'Veículo próprio selecionado não pertence à empresa ou está inativo.' });
+  const targetedDriver = targetedDriverId ? db.drivers.find(driver => driver.id === String(targetedDriverId) && driver.status !== 'INATIVO' && (driver.tenantId === tenantId || db.hasDriverCompanyAccess(driver.id, tenantId!, true))) : undefined;
+  if (targetedDriverId && !targetedDriver) return res.status(400).json({ error: 'Motorista direcionado não está aprovado para esta empresa ou está inativo.' });
+  const targetedVehicle = targetedVehicleId ? db.vehicles.find(vehicle => vehicle.id === String(targetedVehicleId) && vehicle.driverId === targetedDriver?.id && vehicle.status !== 'INATIVO') : undefined;
+  if (targetedVehicleId && !targetedVehicle) return res.status(400).json({ error: 'Veículo direcionado não pertence ao motorista selecionado ou está inativo.' });
   if (req.body.operationType !== undefined && !['CARGA_GERAL', 'LOGISTICA_VEICULOS'].includes(req.body.operationType)) return res.status(400).json({ error: 'Tipo de operação inválido.' });
   const safeOperationType = req.body.operationType === 'LOGISTICA_VEICULOS' ? 'LOGISTICA_VEICULOS' : 'CARGA_GERAL';
   const safePublicListing = Boolean(publicListingEnabled);
-  const initialStatus: FreightStatus = publishImmediately ? 'DISPONIVEL' : 'RASCUNHO';
+  const initialStatus: FreightStatus = 'AGUARDANDO_APROVACAO';
   const now = new Date().toISOString();
   const nextSeq = db.freights.length + 1;
   const code = `FRT-2026-${String(nextSeq).padStart(4, '0')}`;
@@ -3619,6 +4420,7 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
       contactPhone: destination.contactPhone
     },
     distanceKm: Number(distanceKm) || 450,
+    routeGeometry: req.body?.routeGeometry && typeof req.body.routeGeometry === 'object' ? req.body.routeGeometry : undefined,
     cargo: {
       description: cargo?.description || 'Carga geral',
       type: cargo?.type || 'GERAL',
@@ -3660,6 +4462,12 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     updatedAt: now,
     customData: requestedBudgetId ? { ...(customData || {}), budgetCode: linkedBudget?.code, budgetStatus: linkedBudget?.status, budgetVersion: linkedBudget?.version, budgetFinancials: linkedBudget?.financials, budgetTaxes: linkedBudget?.taxes, budgetExpenses: linkedBudget?.expenses } : customData,
     companyVehicleId: companyVehicleId || undefined,
+    targetedDriverId: targetedDriver?.id,
+    targetedDriverName: targetedDriver?.name,
+    targetedDriverPhone: targetedDriver?.phone,
+    targetedVehicleId: targetedVehicle?.id,
+    targetedVehiclePlate: targetedVehicle?.plate,
+    targetedAt: targetedDriver ? now : undefined,
     publicListingEnabled: safePublicListing,
     publicPriceVisibleToRegistered: safePublicListing && publicPriceVisibleToRegistered !== false,
     publicInterestEnabled: safePublicListing && publicInterestEnabled !== false,
@@ -3668,11 +4476,6 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
   };
 
   db.freights.unshift(newFreight);
-  if (linkedBudget) {
-    linkedBudget.convertedFreightId = newFreight.id;
-    linkedBudget.status = 'CONVERTIDO';
-    linkedBudget.updatedAt = now;
-  }
 
   db.addAuditLog({ ip: requestIp(req),
     tenantId: tenantId || undefined,
@@ -3686,20 +4489,10 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
     details: `Criou frete ${newFreight.code}: ${newFreight.origin.city}/${newFreight.origin.state} ➡️ ${newFreight.destination.city}/${newFreight.destination.state} por R$ ${newFreight.payment.price.toFixed(2)}`
   });
 
-  // If published, notify matching drivers in tenant
+  // If published, notify only the targeted driver or the eligible drivers of this tenant.
   if (publishImmediately) {
-    const eligibleDrivers = db.drivers.filter(d => d.tenantId === tenantId);
-    eligibleDrivers.forEach(d => {
-      db.addNotification({
-        tenantId,
-        userId: d.userId,
-        freightId: newFreight.id,
-        type: 'FRETE_DISPONIVEL',
-        title: '🚚 Novo frete disponível!',
-        message: `${newFreight.origin.city}/${newFreight.origin.state} ➡️ ${newFreight.destination.city}/${newFreight.destination.state} | R$ ${newFreight.payment.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-      });
-    });
-
+    const eligibleDrivers = (targetedDriver ? [targetedDriver] : db.drivers.filter(d => d.tenantId === tenantId || db.hasDriverCompanyAccess(d.id, tenantId, false)))
+      .filter(driver => driverCanReceiveFreightAlert(driver, db.users.find(user => user.id === driver.userId), newFreight, Boolean(targetedDriver)));
     const driverUsers = eligibleDrivers
       .map(driver => db.users.find(user => user.id === driver.userId))
       .filter((user): user is User => Boolean(user));
@@ -3711,13 +4504,18 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
       empresa: newFreight.tenantName,
       tenantId: newFreight.tenantId,
       freightId: newFreight.id,
-      link: process.env.APP_URL || ''
+      eligibleDriverIds: eligibleDrivers.map(driver => driver.id),
+      link: process.env.APP_URL || '',
+      url: `/freights?frete=${encodeURIComponent(newFreight.id)}`
     });
-    sendPushNotificationToAll({
-      title: '🚚 Novo Frete Disponível na Elo Log!',
+    const pushRecipients = driverUsers;
+    void sendPushNotificationToUsers(pushRecipients, {
+      title: '🚚 Novo Frete Disponível no Atendo One!',
       body: `${newFreight.origin.city}/${newFreight.origin.state} ➡️ ${newFreight.destination.city}/${newFreight.destination.state} | R$ ${newFreight.payment.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
-      url: '/'
-    }).catch(console.error);
+      url: `/freights?frete=${encodeURIComponent(newFreight.id)}`,
+      freightId: newFreight.id,
+      tag: `freight-${newFreight.id}`
+    }).catch(() => undefined);
   }
 
   res.status(201).json(newFreight);
@@ -3725,6 +4523,9 @@ apiRouter.post('/freights', (req: AuthenticatedRequest, res: Response) => {
 
 // Update freight details (only while in draft or available)
 apiRouter.put('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || isTestOrDemoUser(req.user) || req.user.role === 'MOTORISTA' || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Somente administradores reais podem editar fretes.' });
+  }
   const freight = db.freights.find(f => f.id === req.params.id);
   if (!freight) return res.status(404).json({ error: 'Frete não encontrado' });
 
@@ -3740,6 +4541,12 @@ apiRouter.put('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
   const body = req.body && typeof req.body === 'object' ? req.body as Record<string, any> : {};
   const nextCompanyVehicleId = body.companyVehicleId !== undefined ? (body.companyVehicleId ? String(body.companyVehicleId) : undefined) : freight.companyVehicleId;
   if (nextCompanyVehicleId && !db.companyVehicles.some(vehicle => vehicle.id === nextCompanyVehicleId && vehicle.tenantId === freight.tenantId && vehicle.status === 'ATIVO')) return res.status(400).json({ error: 'Veículo próprio selecionado não pertence à empresa ou está inativo.' });
+  const nextTargetedDriverId = body.targetedDriverId !== undefined ? (body.targetedDriverId ? String(body.targetedDriverId) : undefined) : freight.targetedDriverId;
+  const nextTargetedDriver = nextTargetedDriverId ? db.drivers.find(driver => driver.id === nextTargetedDriverId && driver.status !== 'INATIVO' && (driver.tenantId === freight.tenantId || db.hasDriverCompanyAccess(driver.id, freight.tenantId, true))) : undefined;
+  if (nextTargetedDriverId && !nextTargetedDriver) return res.status(400).json({ error: 'Motorista direcionado não está aprovado para esta empresa ou está inativo.' });
+  const nextTargetedVehicleId = body.targetedVehicleId !== undefined ? (body.targetedVehicleId ? String(body.targetedVehicleId) : undefined) : freight.targetedVehicleId;
+  const nextTargetedVehicle = nextTargetedVehicleId ? db.vehicles.find(vehicle => vehicle.id === nextTargetedVehicleId && vehicle.driverId === nextTargetedDriver?.id && vehicle.status !== 'INATIVO') : undefined;
+  if (nextTargetedVehicleId && !nextTargetedVehicle) return res.status(400).json({ error: 'Veículo direcionado não pertence ao motorista selecionado ou está inativo.' });
   const nextOperationType = body.operationType !== undefined ? body.operationType : (freight.operationType || 'CARGA_GERAL');
   if (!['CARGA_GERAL', 'LOGISTICA_VEICULOS'].includes(nextOperationType)) return res.status(400).json({ error: 'Tipo de operação inválido.' });
   const requestedStatus = body.status !== undefined ? body.status : (body.publishImmediately === true && freight.status === 'RASCUNHO' ? 'DISPONIVEL' : freight.status);
@@ -3801,6 +4608,12 @@ apiRouter.put('/freights/:id', (req: AuthenticatedRequest, res: Response) => {
   }
   freight.operationType = nextOperationType;
   freight.companyVehicleId = nextCompanyVehicleId;
+  freight.targetedDriverId = nextTargetedDriver?.id;
+  freight.targetedDriverName = nextTargetedDriver?.name;
+  freight.targetedDriverPhone = nextTargetedDriver?.phone;
+  freight.targetedVehicleId = nextTargetedVehicle?.id;
+  freight.targetedVehiclePlate = nextTargetedVehicle?.plate;
+  freight.targetedAt = nextTargetedDriver ? (freight.targetedAt || updatedAt) : undefined;
   freight.updatedAt = updatedAt;
   if (nextStatus !== freight.status) {
     const previousStatus = freight.status;
@@ -3854,7 +4667,7 @@ apiRouter.post('/freights/:id/accept', async (req: AuthenticatedRequest, res: Re
     return res.status(400).json({ error: 'Perfil de motorista não configurado para este usuário' });
   }
 
-  const vehicle = db.vehicles.find(v => v.driverId === driver.id);
+  let vehicle: any;
 
   // Acquire atomic lock on freightId to guarantee transactional concurrency
   const result = await db.withLock(`freight-accept-${freightId}`, async () => {
@@ -3864,8 +4677,10 @@ apiRouter.post('/freights/:id/accept', async (req: AuthenticatedRequest, res: Re
       return { success: false, status: 404, error: 'Frete não encontrado' };
     }
 
-    // Strict state check: Must be DISPONIVEL or PUBLICADO
-    if (freight.status !== 'DISPONIVEL' && freight.status !== 'PUBLICADO') {
+    const isPrivateTarget = freight.targetedDriverId === driver.id;
+    vehicle = db.vehicles.find(v => v.id === freight.targetedVehicleId && v.driverId === driver.id && v.status !== 'INATIVO') || db.vehicles.find(v => v.driverId === driver.id && v.status !== 'INATIVO');
+    // Public freights require DISPONIVEL/PUBLICADO; private targets can accept after company approval.
+    if ((!isPrivateTarget && freight.status !== 'DISPONIVEL' && freight.status !== 'PUBLICADO') || (isPrivateTarget && !['APROVADO', 'DISPONIVEL', 'PUBLICADO'].includes(freight.status))) {
       return {
         success: false,
         status: 409,
@@ -3875,6 +4690,9 @@ apiRouter.post('/freights/:id/accept', async (req: AuthenticatedRequest, res: Re
 
     if (user.driverId && !db.hasDriverCompanyAccess(user.driverId, freight.tenantId, false, freight.id)) {
       return { success: false, status: 403, error: 'A empresa ainda não aprovou este motorista para seus fretes.' };
+    }
+    if (freight.targetedDriverId && freight.targetedDriverId !== driver.id) {
+      return { success: false, status: 403, error: 'Este frete foi direcionado a outro motorista.' };
     }
     if (freight.assignedDriverId) {
       return {
@@ -3940,6 +4758,45 @@ apiRouter.post('/freights/:id/accept', async (req: AuthenticatedRequest, res: Re
   });
 });
 
+// Internal acceptance/driver assignment. Only administrators can make a manual
+// assignment; the driver self-service flow uses /accept instead.
+apiRouter.post('/freights/:id/assign-driver', async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  if (!user) return res.status(401).json({ error: 'Não autenticado.' });
+  if (isTestOrDemoUser(user) || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(user.role)) {
+    return res.status(403).json({ error: 'Somente administradores reais podem direcionar um frete.' });
+  }
+  const freight = db.freights.find(item => item.id === req.params.id);
+  if (!freight) return res.status(404).json({ error: 'Frete não encontrado.' });
+  if (user.role !== 'SUPER_ADMIN' && freight.tenantId !== user.tenantId) return res.status(403).json({ error: 'Este frete pertence a outra empresa.' });
+  const driverId = String(req.body?.driverId || '').trim();
+  const driver = db.drivers.find(item => item.id === driverId);
+  if (!driver) return res.status(404).json({ error: 'Motorista não encontrado.' });
+  if (driver.tenantId !== freight.tenantId && !db.hasDriverCompanyAccess(driver.id, freight.tenantId, true)) return res.status(403).json({ error: 'O motorista não está aprovado para esta empresa.' });
+  if (driver.status === 'INATIVO') return res.status(409).json({ error: 'Motorista inativo não pode ser vinculado ao frete.' });
+
+  const result = await db.withLock(`freight-accept-${freight.id}`, async () => {
+    if (freight.status !== 'DISPONIVEL' && freight.status !== 'PUBLICADO') return { ok: false, status: 409, error: `Frete indisponível para aceite. Status atual: ${freight.status}.` };
+    if (freight.assignedDriverId) return { ok: false, status: 409, error: 'Este frete já foi reservado por outro motorista.' };
+    const vehicle = db.vehicles.find(item => item.driverId === driver.id);
+    const now = new Date().toISOString();
+    freight.status = 'RESERVADO';
+    freight.assignedDriverId = driver.id;
+    freight.assignedDriverName = driver.name;
+    freight.assignedDriverPhone = driver.phone;
+    freight.assignedVehiclePlate = vehicle?.plate || 'Não inf.';
+    freight.assignedVehicleModel = vehicle ? `${vehicle.brand} ${vehicle.model}` : 'Veículo padrão';
+    freight.assignedAt = now;
+    freight.updatedAt = now;
+    freight.statusHistory.push({ status: 'RESERVADO', timestamp: now, changedByUserId: user.id, changedByName: user.name, notes: `Frete aceito internamente e vinculado ao motorista ${driver.name}.` });
+    db.addAuditLog({ ip: requestIp(req), tenantId: freight.tenantId, tenantName: freight.tenantName, userId: user.id, userName: user.name, userRole: user.role, action: 'VINCULO_MOTORISTA_INTERNO', entity: 'Freight', entityId: freight.id, details: `Frete ${freight.code} aceito internamente e vinculado ao motorista ${driver.name}.` });
+    await db.persistNow();
+    return { ok: true, freight };
+  });
+  if (!result.ok) return res.status(result.status || 409).json({ error: result.error });
+  return res.json({ message: 'Frete aceito e motorista vinculado com sucesso.', freight: result.freight });
+});
+
 /* =========================================================================
    7. STATE MACHINE TRANSITION (EM_COLETA, COLETADO, EM_TRANSITO, ENTREGUE, etc.)
    ========================================================================= */
@@ -3967,6 +4824,7 @@ apiRouter.post('/freights/:id/location', async (req: AuthenticatedRequest, res: 
     lat,
     lng,
     speedKmh: Number.isFinite(Number(req.body?.speedKmh)) ? Math.max(0, Math.min(250, Number(req.body.speedKmh))) : undefined,
+    heading: Number.isFinite(Number(req.body?.heading)) ? Math.max(0, Math.min(360, Number(req.body.heading))) : undefined,
     accuracyMeters: Number.isFinite(Number(req.body?.accuracyMeters)) ? Math.max(0, Math.min(10000, Number(req.body.accuracyMeters))) : undefined,
     label: typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 120) : undefined,
     recordedAt: now
@@ -3993,18 +4851,28 @@ apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response
     return res.status(404).json({ error: 'Frete não encontrado' });
   }
 
-  // Security check: ensure authorized to update status (driver assigned or same company tenant)
-  if (req.user?.role !== 'SUPER_ADMIN') {
-    if (req.user?.role === 'MOTORISTA') {
+  if (!req.user || isTestOrDemoUser(req.user)) {
+    return res.status(403).json({ error: 'Contas de teste e demonstração não podem alterar o status do frete.' });
+  }
+
+  // A driver can update only their assigned freight. Company status changes
+  // are reserved for the two administrative roles and the SaaS administrator.
+  const isAssignedDriver = req.user.role === 'MOTORISTA' && freight.assignedDriverId === req.user.driverId;
+  const isCompanyAdmin = ['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)
+    && (req.user.role === 'SUPER_ADMIN' || freight.tenantId === req.user.tenantId);
+  if (!isAssignedDriver && !isCompanyAdmin) {
+    if (req.user.role === 'MOTORISTA') {
       if (freight.assignedDriverId !== req.user.driverId) {
         return res.status(403).json({ error: 'Acesso não autorizado. Este frete não está atribuído a você.' });
       }
-    } else if (freight.tenantId !== req.user?.tenantId) {
-      return res.status(403).json({ error: 'Acesso não autorizado a este frete.' });
     }
+    return res.status(403).json({ error: 'Somente o motorista atribuído ou um administrador da empresa pode alterar este frete.' });
   }
 
   const currentStatus = freight.status;
+  if (['AGUARDANDO_APROVACAO', 'APROVADO'].includes(newStatus) && !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user?.role || '')) {
+    return res.status(403).json({ error: 'Somente Super Admin, Super Admin da empresa ou Admin podem aprovar o frete.' });
+  }
   const allowedTransitions = VALID_STATUS_TRANSITIONS[currentStatus] || [];
 
   if (!allowedTransitions.includes(newStatus)) {
@@ -4086,8 +4954,73 @@ apiRouter.post('/freights/:id/status', (req: AuthenticatedRequest, res: Response
    8. DYNAMIC FORM BUILDER & FORM RESPONSES
    ========================================================================= */
 
-const canManageLocalResources = (user: User | undefined) => Boolean(user && DIRECTORY_ADMIN_ROLES.includes(user.role));
-const resourceTenantId = (req: AuthenticatedRequest) => req.user?.role === 'SUPER_ADMIN' ? String(req.body?.tenantId || req.query?.tenantId || '') : req.user?.tenantId || '';
+const canManageLocalResources = (user: User | undefined) => Boolean(user && DIRECTORY_ADMIN_ROLES.includes(user.role) && !isTestOrDemoUser(user));
+const resourceTenantId = (req: AuthenticatedRequest) => {
+  const requestedTenantId = req.user?.role === 'SUPER_ADMIN'
+    ? String(req.body?.tenantId || req.query?.tenantId || '').trim()
+    : String(req.user?.tenantId || '').trim();
+  if (!requestedTenantId || !db.tenants.some(tenant => tenant.id === requestedTenantId)) return '';
+  if (req.user?.role !== 'SUPER_ADMIN' && requestedTenantId !== req.user?.tenantId) return '';
+  return requestedTenantId;
+};
+const FORM_FIELD_TYPES = new Set<FormFieldType>(['text', 'textarea', 'number', 'cpf', 'cnpj', 'phone', 'email', 'date', 'time', 'select', 'radio', 'checkbox', 'file', 'photo', 'signature']);
+const FORM_OPTION_TYPES = new Set<FormFieldType>(['select', 'radio', 'checkbox']);
+
+function normalizeFormFields(input: unknown): FormField[] | null {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 80) return null;
+  const names = new Set<string>();
+  const fields: FormField[] = [];
+  for (let index = 0; index < input.length; index += 1) {
+    const raw = input[index] as any;
+    if (!raw || typeof raw !== 'object') return null;
+    const type = String(raw.type || '').trim() as FormFieldType;
+    const name = String(raw.name || '').trim().slice(0, 80);
+    const label = String(raw.label || '').trim().slice(0, 240);
+    if (!FORM_FIELD_TYPES.has(type) || !/^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(name) || !label || names.has(name)) return null;
+    names.add(name);
+    const options: string[] | undefined = FORM_OPTION_TYPES.has(type)
+      ? (Array.from(new Set((Array.isArray(raw.options) ? raw.options : []).map((item: unknown) => String(item || '').trim().slice(0, 160)).filter(Boolean))) as string[]).slice(0, 40)
+      : undefined;
+    if (FORM_OPTION_TYPES.has(type) && (!options || options.length < 1)) return null;
+    fields.push({
+      id: String(raw.id || `field-${randomUUID().slice(0, 8)}`).slice(0, 100),
+      name,
+      label,
+      type,
+      placeholder: raw.placeholder === undefined ? undefined : String(raw.placeholder).trim().slice(0, 240),
+      required: raw.required === true,
+      defaultValue: ['string', 'number', 'boolean'].includes(typeof raw.defaultValue) ? raw.defaultValue : undefined,
+      options,
+      order: index + 1
+    });
+  }
+  return fields;
+}
+
+function validateFormAnswers(form: FormDefinition, answers: unknown, isDraft: boolean): string | null {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return 'Respostas inválidas.';
+  const record = answers as Record<string, unknown>;
+  if (JSON.stringify(record).length > 100000) return 'Respostas acima do limite permitido.';
+  if (isDraft) return null;
+  for (const field of form.fields) {
+    const value = record[field.id] ?? record[field.name];
+    const empty = value === undefined || value === null || (typeof value === 'string' && !value.trim()) || (Array.isArray(value) && value.length === 0);
+    if (field.required && empty) return `O campo obrigatório "${field.label}" não foi preenchido.`;
+    if (empty) continue;
+    if (field.type === 'number' && (Array.isArray(value) || !Number.isFinite(Number(value)))) return `A resposta do campo "${field.label}" deve ser numérica.`;
+    if (['text', 'textarea', 'cpf', 'cnpj', 'phone', 'email', 'date', 'time', 'select', 'radio', 'signature'].includes(field.type) && typeof value !== 'string') return `A resposta do campo "${field.label}" é inválida.`;
+    if (field.type === 'email' && typeof value === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) return `O e-mail informado em "${field.label}" é inválido.`;
+    if (field.type === 'date' && typeof value === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) return `A data informada em "${field.label}" é inválida.`;
+    if (field.type === 'time' && typeof value === 'string' && !/^\d{2}:\d{2}$/.test(value)) return `O horário informado em "${field.label}" é inválido.`;
+    if (['text', 'textarea', 'cpf', 'cnpj', 'phone', 'email', 'date', 'time', 'select', 'radio', 'signature'].includes(field.type) && typeof value === 'string' && value.length > 10000) return `O campo "${field.label}" excede o limite permitido.`;
+    if (['file', 'photo'].includes(field.type) && typeof value !== 'string' && !Array.isArray(value)) return `O arquivo informado em "${field.label}" é inválido.`;
+    if (value !== undefined && FORM_OPTION_TYPES.has(field.type)) {
+      const values = Array.isArray(value) ? value : [value];
+      if (values.some(item => typeof item !== 'string' || !field.options?.includes(item))) return `A resposta do campo "${field.label}" é inválida.`;
+    }
+  }
+  return null;
+}
 
 apiRouter.get('/company-stops', (req: AuthenticatedRequest, res: Response) => {
   if (!req.user || !TENANT_USER_ROLES.includes(req.user.role)) return res.status(403).json({ error: 'Acesso não autorizado.' });
@@ -4145,18 +5078,21 @@ apiRouter.post('/forms', (req: AuthenticatedRequest, res: Response) => {
   const { title, description, category, triggerEvent, fields, tenantId } = req.body;
   const targetTenantId = req.user?.role === 'SUPER_ADMIN' ? (tenantId || db.tenants[0].id) : req.user?.tenantId;
 
-  if (!title || !fields || !Array.isArray(fields)) {
+  const normalizedFields = normalizeFormFields(fields);
+  const validCategories = new Set(['CHECKLIST_COLETA', 'CHECKLIST_ENTREGA', 'COMPROVANTE_ENTREGA', 'AVALIACAO_MOTORISTA', 'CADASTRO_MOTORISTA', 'OCORRENCIA']);
+  const validTriggers = new Set(['ANTES_COLETA', 'DURANTE_COLETA', 'EM_TRANSITO', 'NA_ENTREGA', 'FINALIZACAO', 'MANUAL']);
+  if (typeof title !== 'string' || title.trim().length < 2 || title.trim().length > 160 || !normalizedFields || !validCategories.has(String(category || 'CHECKLIST_COLETA')) || !validTriggers.has(String(triggerEvent || 'MANUAL'))) {
     return res.status(400).json({ error: 'Título e campos do formulário são obrigatórios' });
   }
 
   const newForm: FormDefinition = {
     id: `form-${Date.now()}`,
     tenantId: targetTenantId!,
-    title,
-    description: description || '',
+    title: title.trim().slice(0, 160),
+    description: typeof description === 'string' ? description.trim().slice(0, 1000) : '',
     category: category || 'CHECKLIST_COLETA',
     triggerEvent: triggerEvent || 'MANUAL',
-    fields,
+    fields: normalizedFields,
     active: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -4175,6 +5111,7 @@ apiRouter.post('/forms', (req: AuthenticatedRequest, res: Response) => {
     details: `Formulário '${newForm.title}' criado com ${newForm.fields.length} campos`
   });
 
+  void db.persistNow();
   res.status(201).json(newForm);
 });
 
@@ -4182,6 +5119,7 @@ apiRouter.post('/forms/:id/copy', async (req: AuthenticatedRequest, res: Respons
   if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem copiar formulários.' });
   const source = db.forms.find(form => form.id === req.params.id);
   if (!source) return res.status(404).json({ error: 'Modelo de formulário não encontrado.' });
+  if (req.user.role !== 'SUPER_ADMIN' && source.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Este formulário pertence a outra empresa.' });
   const targetTenantId = req.user.role === 'SUPER_ADMIN' ? (req.body?.tenantId || source.tenantId) : req.user.tenantId;
   if (!targetTenantId || !db.tenants.some(tenant => tenant.id === targetTenantId)) return res.status(400).json({ error: 'Empresa de destino inválida.' });
   const now = new Date().toISOString();
@@ -4189,7 +5127,7 @@ apiRouter.post('/forms/:id/copy', async (req: AuthenticatedRequest, res: Respons
     ...source,
     id: `form-${Date.now()}-${randomUUID().slice(0, 8)}`,
     tenantId: targetTenantId,
-    title: req.body?.title || `${source.title} (Cópia)`,
+    title: String(req.body?.title || `${source.title} (Cópia)`).trim().slice(0, 160),
     fields: source.fields.map((field, index) => ({ ...field, id: `field-${randomUUID().slice(0, 8)}`, order: index + 1 })),
     createdAt: now,
     updatedAt: now
@@ -4205,11 +5143,15 @@ apiRouter.put('/forms/:id', async (req: AuthenticatedRequest, res: Response) => 
   const form = db.forms.find(item => item.id === req.params.id);
   if (!form) return res.status(404).json({ error: 'Formulário não encontrado.' });
   if (req.user.role !== 'SUPER_ADMIN' && form.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Este formulário pertence a outra empresa.' });
-  if (typeof req.body?.title === 'string' && req.body.title.trim()) form.title = req.body.title.trim();
-  if (typeof req.body?.description === 'string') form.description = req.body.description;
-  if (Array.isArray(req.body?.fields)) form.fields = req.body.fields.map((field: any, index: number) => ({ ...field, id: field.id || `field-${randomUUID().slice(0, 8)}`, order: index + 1 }));
-  if (req.body?.category) form.category = req.body.category;
-  if (req.body?.triggerEvent) form.triggerEvent = req.body.triggerEvent;
+  if (typeof req.body?.title === 'string' && req.body.title.trim()) form.title = req.body.title.trim().slice(0, 160);
+  if (typeof req.body?.description === 'string') form.description = req.body.description.trim().slice(0, 1000);
+  if (req.body?.fields !== undefined) {
+    const normalizedFields = normalizeFormFields(req.body.fields);
+    if (!normalizedFields) return res.status(400).json({ error: 'Campos inválidos. Revise nomes, tipos, opções e limites.' });
+    form.fields = normalizedFields;
+  }
+  if (req.body?.category && ['CHECKLIST_COLETA', 'CHECKLIST_ENTREGA', 'COMPROVANTE_ENTREGA', 'AVALIACAO_MOTORISTA', 'CADASTRO_MOTORISTA', 'OCORRENCIA'].includes(req.body.category)) form.category = req.body.category;
+  if (req.body?.triggerEvent && ['ANTES_COLETA', 'DURANTE_COLETA', 'EM_TRANSITO', 'NA_ENTREGA', 'FINALIZACAO', 'MANUAL'].includes(req.body.triggerEvent)) form.triggerEvent = req.body.triggerEvent;
   form.updatedAt = new Date().toISOString();
   db.addAuditLog({ ip: requestIp(req), tenantId: form.tenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'EDITAR_FORMULARIO', entity: 'FormDefinition', entityId: form.id, details: `Formulário '${form.title}' editado.` });
   await db.persistNow();
@@ -4217,7 +5159,7 @@ apiRouter.put('/forms/:id', async (req: AuthenticatedRequest, res: Response) => 
 });
 
 // Submit or Update Form Response (Supports Saving Partial / Retirada / Final Entrega)
-apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/forms/responses', async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Não autenticado.' });
   const { responseId, formId, freightId, answers, stage, isDraft } = req.body || {};
   const form = db.forms.find(f => f.id === formId);
@@ -4227,7 +5169,10 @@ apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) =>
   }
   if (req.user.role !== 'SUPER_ADMIN' && form.tenantId !== req.user.tenantId) return res.status(403).json({ error: 'Este formulário pertence a outra empresa.' });
   if (stage !== undefined && !['RETIRADA_INICIADA', 'FINALIZADO_ENTREGA', 'COMPLETO'].includes(stage)) return res.status(400).json({ error: 'Etapa de formulário inválida.' });
-  if (answers !== undefined && (!answers || typeof answers !== 'object' || Array.isArray(answers) || JSON.stringify(answers).length > 100000)) return res.status(400).json({ error: 'Respostas inválidas ou acima do limite permitido.' });
+  if (answers !== undefined) {
+    const answerError = validateFormAnswers(form, answers, isDraft === true);
+    if (answerError) return res.status(400).json({ error: answerError });
+  }
 
   // Security check: ensure associated freight belongs to user's tenant or assigned driver
   if (freightId) {
@@ -4300,6 +5245,7 @@ apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) =>
       details: `${isDraft ? 'Salvo rascunho de progresso' : 'Atualizado formulário'} '${form.title}' (Etapa: ${stage || 'Andamento'})${freightId ? ` para o frete #${freightId}` : ''}`
     });
 
+    await db.persistNow();
     return res.json(existingResponse);
   }
 
@@ -4340,6 +5286,7 @@ apiRouter.post('/forms/responses', (req: AuthenticatedRequest, res: Response) =>
     details: `${isDraft ? 'Iniciou e salvou etapa de retirada' : 'Respondeu e finalizou formulário'} '${form.title}'${freightId ? ` para o frete #${freightId}` : ''}`
   });
 
+  await db.persistNow();
   res.status(201).json(newResponse);
 });
 
@@ -4759,10 +5706,9 @@ apiRouter.post('/integrations/whatsapp/config', async (req: AuthenticatedRequest
   });
 });
 
-// 3. Read Atendo CRM channel status without exposing provider response or credentials
-apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+async function handleWhatsAppStatus(req: AuthenticatedRequest, res: Response, rawTenantId?: unknown) {
   await db.waitForPersistence();
-  const scope = getWhatsAppScope(req, req.query.tenantId);
+  const scope = getWhatsAppScope(req, rawTenantId);
   if (!scope) {
     return res.status(403).json({ error: 'Você não tem permissão para consultar o status WhatsApp desta empresa.' });
   }
@@ -4819,6 +5765,15 @@ apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest,
     db.addErrorLog({ service: 'whatsapp-gateway', route: 'external-status-channel', method: 'GET', event: 'WHATSAPP_STATUS_ERROR', message: 'Falha de comunicação com o gateway WhatsApp.' });
     return res.status(502).json({ success: false, status: 'ERROR', message: 'Falha de comunicação com o gateway WhatsApp.', config: safeWhatsAppConfig(updated, scope) });
   }
+}
+
+// 3. Read Atendo CRM channel status without exposing provider response or credentials
+apiRouter.get('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+  return handleWhatsAppStatus(req, res, req.query.tenantId);
+});
+
+apiRouter.post('/integrations/whatsapp/status', async (req: AuthenticatedRequest, res: Response) => {
+  return handleWhatsAppStatus(req, res, req.body?.tenantId ?? req.query.tenantId);
 });
 
 // 4. Request a temporary QR Code or pairing code from Atendo CRM; neither is persisted
@@ -4893,7 +5848,7 @@ apiRouter.post('/integrations/whatsapp/qr', async (req: AuthenticatedRequest, re
 // 5. Test WhatsApp Gateway Connection. It remains an explicit real-message operation.
 apiRouter.post('/integrations/whatsapp/test', async (req: AuthenticatedRequest, res: Response) => {
   if (req.user?.role !== 'SUPER_ADMIN') {
-    return res.status(403).json({ error: 'Permissão exclusiva do Super Admin do Elo Log.' });
+    return res.status(403).json({ error: 'Permissão exclusiva do Super Admin do Atendo One.' });
   }
 
   const tenantId = getOperationalWhatsAppTenantId(req, req.body?.tenantId);
@@ -5030,7 +5985,18 @@ apiRouter.post('/forms/send-dispatch', async (req: AuthenticatedRequest, res: Re
     receiptText
   } = req.body;
 
-  const tenantId = req.user?.tenantId || 'tenant-translog-01';
+  if (!req.user) return res.status(401).json({ error: 'Não autenticado.' });
+  if (!responseId || typeof responseId !== 'string') return res.status(400).json({ error: 'responseId é obrigatório.' });
+  const response = db.formResponses.find(item => item.id === responseId);
+  if (!response) return res.status(404).json({ error: 'Resposta de formulário não encontrada.' });
+  const responseFreight = response.freightId ? db.freights.find(item => item.id === response.freightId) : undefined;
+  const canAccessResponse = req.user.role === 'SUPER_ADMIN'
+    ? true
+    : response.tenantId === req.user.tenantId && (req.user.role !== 'MOTORISTA' || response.filledByUserId === req.user.id || response.driverId === req.user.driverId);
+  if (!canAccessResponse) return res.status(403).json({ error: 'Você não tem permissão para despachar esta resposta.' });
+  if (responseFreight && responseFreight.tenantId !== response.tenantId) return res.status(409).json({ error: 'A resposta está vinculada a um frete inconsistente.' });
+
+  const tenantId = response.tenantId;
   const cleanPhone = recipientPhone ? formatPhoneForWhatsApp(recipientPhone) : '';
 
   let emailStatus = 'NAO_INFORMADO';
@@ -5086,12 +6052,12 @@ apiRouter.post('/forms/send-dispatch', async (req: AuthenticatedRequest, res: Re
 apiRouter.get('/notifications', (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Não autenticado' });
 
-  const userNotifs = db.notifications.filter(n => n.userId === req.user?.id);
+  const userNotifs = db.notifications.filter(n => n.userId === req.user?.id && (req.user?.role === 'SUPER_ADMIN' || n.tenantId === req.user?.tenantId || n.tenantId === null));
   res.json(userNotifs);
 });
 
 apiRouter.put('/notifications/:id/read', (req: AuthenticatedRequest, res: Response) => {
-  const notif = db.notifications.find(n => n.id === req.params.id && n.userId === req.user?.id);
+  const notif = db.notifications.find(n => n.id === req.params.id && n.userId === req.user?.id && (req.user?.role === 'SUPER_ADMIN' || n.tenantId === req.user?.tenantId || n.tenantId === null));
   if (notif) {
     notif.read = true;
   }
@@ -5100,7 +6066,7 @@ apiRouter.put('/notifications/:id/read', (req: AuthenticatedRequest, res: Respon
 
 apiRouter.put('/notifications/mark-all-read', (req: AuthenticatedRequest, res: Response) => {
   db.notifications.forEach(n => {
-    if (n.userId === req.user?.id) {
+    if (n.userId === req.user?.id && (req.user?.role === 'SUPER_ADMIN' || n.tenantId === req.user?.tenantId || n.tenantId === null)) {
       n.read = true;
     }
   });
@@ -5129,6 +6095,7 @@ apiRouter.delete('/error-logs', (req: AuthenticatedRequest, res: Response) => {
 });
 
 apiRouter.get('/audit-logs', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role === 'MOTORISTA') return res.status(403).json({ error: 'O histórico de auditoria não está disponível para este perfil.' });
   if (req.user?.role === 'SUPER_ADMIN') {
     return res.json(db.auditLogs);
   }
@@ -5140,7 +6107,22 @@ apiRouter.get('/audit-logs', (req: AuthenticatedRequest, res: Response) => {
    11. DASHBOARD STATS
    ========================================================================= */
 
+apiRouter.get('/admin/metrics', (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const recentCutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  return res.json({
+    totalTenants: db.tenants.length,
+    activeTenants: db.tenants.filter(tenant => tenant.status === 'ATIVA').length,
+    totalUsers: db.users.length,
+    recentProvisionings: db.tenants.filter(tenant => {
+      const date = tenant.updatedAt || tenant.createdAt;
+      return date ? new Date(date).getTime() >= recentCutoff : false;
+    }).length
+  });
+});
+
 apiRouter.get('/stats', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role === 'MOTORISTA') return res.status(403).json({ error: 'As métricas operacionais não estão disponíveis para este perfil.' });
   let freights = db.freights;
   let drivers = db.drivers;
   let vehicles = db.vehicles;
@@ -5148,7 +6130,7 @@ apiRouter.get('/stats', (req: AuthenticatedRequest, res: Response) => {
 
   if (req.user?.role !== 'SUPER_ADMIN') {
     freights = freights.filter(f => f.tenantId === req.user?.tenantId);
-    drivers = drivers.filter(d => d.tenantId === req.user?.tenantId);
+    drivers = drivers.filter(d => d.tenantId === req.user?.tenantId || (req.user?.tenantId ? db.hasDriverCompanyAccess(d.id, req.user.tenantId, true) : false));
     vehicles = vehicles.filter(v => v.tenantId === req.user?.tenantId);
     users = users.filter(u => u.tenantId === req.user?.tenantId);
   }
@@ -5184,6 +6166,9 @@ apiRouter.get('/stats', (req: AuthenticatedRequest, res: Response) => {
    ========================================================================= */
 
 apiRouter.delete('/freights/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || isTestOrDemoUser(req.user) || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Somente administradores reais podem cancelar fretes.' });
+  }
   const freight = db.freights.find(f => f.id === req.params.id);
   if (!freight) return res.status(404).json({ error: 'Frete não encontrado' });
   if (req.user?.role !== 'SUPER_ADMIN' && freight.tenantId !== req.user?.tenantId) {
@@ -5191,27 +6176,27 @@ apiRouter.delete('/freights/:id', async (req: AuthenticatedRequest, res: Respons
   }
   const now = new Date().toISOString();
   freight.status = 'CANCELADO';
-  freight.publicListingEnabled = false;
-  freight.publicPublishedAt = undefined;
+  freight.cancelledAt = now;
+  freight.cancelReason = 'Cancelado pelo operador';
   freight.updatedAt = now;
+  freight.statusHistory = freight.statusHistory || [];
+  freight.statusHistory.push({ status: 'CANCELADO', timestamp: now, changedByUserId: req.user?.id || 'system', changedByName: req.user?.name || 'Sistema', notes: freight.cancelReason });
   db.addAuditLog({ ip: requestIp(req),
     tenantId: freight.tenantId,
     userId: req.user?.id || 'system',
     userName: req.user?.name || 'Sistema',
     userRole: req.user?.role || 'ADMIN',
-    action: 'CANCELAR_FRETE',
+    action: 'EXCLUIR_FRETE',
     entity: 'Freight',
     entityId: freight.id,
-    details: `Frete ${freight.code} cancelado sem apagar documentos ou histórico.`
+    details: `Frete ${freight.code} cancelado logicamente; histórico e registros operacionais preservados.`
   });
-  const relevantUsers = db.users.filter(user => user.tenantId === freight.tenantId);
-  void dispatchConfiguredNotification('FRETE_CANCELADO', relevantUsers, { codigo: freight.code, empresa: db.tenants.find(item => item.id === freight.tenantId)?.name || '', link: process.env.APP_URL || '' });
   await db.persistNow();
-  res.json({ success: true, message: 'Frete cancelado; documentos e histórico preservados.' });
+  res.json({ success: true, message: 'Frete cancelado e preservado no histórico.', freight });
 });
 
 apiRouter.delete('/drivers/:id', async (req: AuthenticatedRequest, res: Response) => {
-  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem desativar motoristas.' });
+  if (!req.user || !['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem desativar motoristas.' });
   const driver = db.drivers.find(d => d.id === req.params.id);
   if (!driver) return res.status(404).json({ error: 'Motorista não encontrado' });
   if (req.user?.role !== 'SUPER_ADMIN' && (!req.user?.tenantId || !db.hasDriverCompanyAccess(driver.id, req.user.tenantId, true))) {
@@ -5236,31 +6221,6 @@ apiRouter.delete('/drivers/:id', async (req: AuthenticatedRequest, res: Response
   });
   await db.persistNow();
   res.json({ success: true, message: 'Motorista desativado; cadastro global e histórico preservados.' });
-});
-
-apiRouter.delete('/users/:id', async (req: AuthenticatedRequest, res: Response) => {
-  if (!canManageTenantDirectory(req.user) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente administradores reais podem desativar usuários.' });
-  const targetUser = db.users.find(u => u.id === req.params.id);
-  if (!targetUser) return res.status(404).json({ error: 'Usuário não encontrado' });
-  if (req.user?.role !== 'SUPER_ADMIN' && targetUser.tenantId !== req.user?.tenantId) {
-    return res.status(403).json({ error: 'Acesso não autorizado. Este usuário pertence a outra empresa.' });
-  }
-  if (targetUser.id === req.user?.id) return res.status(400).json({ error: 'Você não pode desativar seu próprio usuário' });
-  targetUser.status = 'BLOQUEADO';
-  targetUser.readOnly = true;
-  targetUser.updatedAt = new Date().toISOString();
-  db.addAuditLog({ ip: requestIp(req),
-    tenantId: targetUser.tenantId || undefined,
-    userId: req.user?.id || 'system',
-    userName: req.user?.name || 'Sistema',
-    userRole: req.user?.role || 'ADMIN',
-    action: 'BLOQUEAR_USUARIO',
-    entity: 'User',
-    entityId: targetUser.id,
-    details: `Usuário ${targetUser.name} (${targetUser.email}) bloqueado sem apagar cadastro ou auditoria.`
-  });
-  await db.persistNow();
-  res.json({ success: true, message: 'Usuário bloqueado; cadastro e histórico preservados.' });
 });
 
 apiRouter.delete('/forms/:id', async (req: AuthenticatedRequest, res: Response) => {
@@ -5314,6 +6274,34 @@ apiRouter.get('/push/vapid-key', (req: AuthenticatedRequest, res: Response) => {
   res.json({ publicKey: publicVapidKey });
 });
 
+apiRouter.post('/mobile/push-token', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'MOTORISTA' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente motoristas reais podem registrar notificações.' });
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const platform = typeof req.body?.platform === 'string' ? req.body.platform.trim().slice(0, 20) : 'android';
+  const isExpoToken = /^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$/.test(token);
+  const isFcmToken = /^[A-Za-z0-9_:.-]{50,4096}$/.test(token) && !isExpoToken;
+  if ((!isExpoToken && !isFcmToken) || (isExpoToken && token.length > 256)) return res.status(400).json({ error: 'Token de notificação inválido.' });
+  const tokenKind = isExpoToken ? 'expo' : 'fcm';
+  if (!(db as any).pushSubscriptions) (db as any).pushSubscriptions = [];
+  const subs = (db as any).pushSubscriptions;
+  const existing = subs.find((item: any) => item?.kind === tokenKind && item.token === token);
+  if (existing && existing.userId !== req.user.id) return res.status(409).json({ error: 'Este dispositivo já está vinculado a outra conta.' });
+  const record = { kind: tokenKind, token, platform, userId: req.user.id, tenantId: req.user.tenantId || '', updatedAt: new Date().toISOString() };
+  if (existing) Object.assign(existing, record); else subs.push(record);
+  await db.persistNow();
+  return res.json({ success: true });
+});
+
+apiRouter.delete('/mobile/push-token', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Sessão necessária para remover a notificação.' });
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const subs = (db as any).pushSubscriptions || [];
+  const before = subs.length;
+  (db as any).pushSubscriptions = subs.filter((item: any) => !((item?.kind === 'expo' || item?.kind === 'fcm') && item.userId === req.user!.id && (!token || item.token === token)));
+  if ((db as any).pushSubscriptions.length !== before) await db.persistNow();
+  return res.json({ success: true });
+});
+
 apiRouter.post('/push/subscribe', async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Perfis de teste e demo não podem registrar notificações.' });
   const subscription = req.body;
@@ -5336,7 +6324,16 @@ apiRouter.post('/push/subscribe', async (req: AuthenticatedRequest, res: Respons
   const subs = (db as any).pushSubscriptions;
   const existing = subs.find((item: any) => item.endpoint === endpoint);
   if (existing && existing.userId !== req.user.id) return res.status(409).json({ error: 'Este dispositivo já está vinculado a outra sessão.' });
-  if (!existing) {
+  if (existing) {
+    Object.assign(existing, {
+      expirationTime: subscription.expirationTime === null ? null : undefined,
+      keys: { p256dh: keys.p256dh, auth: keys.auth },
+      userId: req.user.id,
+      tenantId: req.user.tenantId,
+      updatedAt: new Date().toISOString()
+    });
+    await db.persistNow();
+  } else {
     subs.push({
       endpoint,
       expirationTime: subscription.expirationTime === null ? null : undefined,
@@ -5351,18 +6348,30 @@ apiRouter.post('/push/subscribe', async (req: AuthenticatedRequest, res: Respons
   res.json({ success: true, message: 'Push subscription registrada com sucesso' });
 });
 
+apiRouter.delete('/push/subscribe', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Sessão necessária para remover a assinatura Push.' });
+  const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
+  const subs = (db as any).pushSubscriptions || [];
+  const before = subs.length;
+  (db as any).pushSubscriptions = subs.filter((item: any) => !(item.userId === req.user!.id && (!endpoint || item.endpoint === endpoint)));
+  if ((db as any).pushSubscriptions.length !== before) await db.persistNow();
+  return res.json({ success: true });
+});
+
 apiRouter.post('/push/test', async (req: AuthenticatedRequest, res: Response) => {
-  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Apenas o Super Admin real pode disparar o teste de broadcast.' });
+  if (!req.user || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente usuários reais podem testar as próprias notificações.' });
   if (!publicVapidKey || !privateVapidKey) return res.status(503).json({ error: 'Notificações Push não estão configuradas.' });
   try {
-    await sendPushNotificationToAll({
-      title: 'Teste de Notificação Push',
-      body: 'As notificações push estão ativas e funcionando.',
-      url: '/'
+    const result = await sendPushNotificationToUsers([req.user], {
+      title: 'Atendo One — Push ativado',
+      body: 'Este é um teste individual. O PWA pode permanecer fechado para receber novos alertas.',
+      url: '/freights',
+      tag: `push-test-${req.user.id}`
     });
-    res.json({ success: true, message: 'Notificação de teste disparada com sucesso' });
+    if (result.sent === 0) return res.status(409).json({ error: 'Nenhuma assinatura Push ativa foi encontrada para esta conta. Ative o Push neste dispositivo primeiro.' });
+    res.json({ success: true, message: 'Notificação de teste enviada para este dispositivo.' });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Erro ao enviar notificação de teste' });
+    res.status(500).json({ error: 'Não foi possível enviar a notificação de teste.' });
   }
 });
 
@@ -5371,6 +6380,28 @@ apiRouter.get('/notification-deliveries', (req: AuthenticatedRequest, res: Respo
   if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Apenas o Super Admin pode consultar as entregas.' });
   const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 500);
   res.json(db.notificationDeliveries.slice(0, limit));
+});
+
+apiRouter.get('/tenant/email-config', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user?.tenantId || !TENANT_ADMIN_ROLES.includes(req.user.role)) return res.status(403).json({ error: 'Somente o administrador da empresa pode consultar o SMTP.' });
+  await db.waitForPersistence();
+  const config = db.tenantEmailConfigs.get(req.user.tenantId);
+  return res.json({ ...(config || {}), password: config?.password ? '********' : '' });
+});
+
+apiRouter.put('/tenant/email-config', async (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user?.tenantId || !TENANT_ADMIN_ROLES.includes(req.user.role) || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Somente o administrador real da empresa pode configurar o SMTP.' });
+  const current: any = db.tenantEmailConfigs.get(req.user.tenantId) || {};
+  const body = req.body || {};
+  const password = body.password && body.password !== '********' ? String(body.password) : String(current.password || '');
+  const config: any = { host: String(body.host || current.host || '').trim(), port: Number(body.port || current.port || 587), user: String(body.user || current.user || '').trim(), password, senderEmail: String(body.senderEmail || current.senderEmail || '').trim(), testEmail: String(body.testEmail || current.testEmail || '').trim(), isActive: body.isActive === undefined ? current.isActive !== false : Boolean(body.isActive) };
+  if (!config.host || !config.user || !config.password) return res.status(400).json({ error: 'Servidor, usuário e senha SMTP são obrigatórios.' });
+  if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) return res.status(400).json({ error: 'Porta SMTP inválida.' });
+  try { await db.persistTenantEmailSecret(req.user.tenantId, config); } catch (error: any) { return res.status(503).json({ error: error?.message || 'Não foi possível salvar o SMTP com segurança.' }); }
+  db.tenantEmailConfigs.set(req.user.tenantId, config);
+  await db.persistNow();
+  db.addAuditLog({ ip: requestIp(req), tenantId: req.user.tenantId, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'CONFIG_SMTP_EMPRESA', entity: 'TenantEmailConfig', entityId: req.user.tenantId, details: 'Atualizou a configuração SMTP da empresa.' });
+  return res.json({ success: true, config: { ...config, password: '********' } });
 });
 
 // Editable notification templates. System/error templates remain locked.
@@ -5481,7 +6512,7 @@ apiRouter.put('/tenant/report-templates/:type', async (req: AuthenticatedRequest
 const getEditableTenantNotificationOwner = (req: AuthenticatedRequest): Tenant | undefined => {
   if (!req.user || !['EMPRESA_SUPER_ADMIN', 'ADMIN'].includes(req.user.role) || !req.user.tenantId) return undefined;
   const tenant = db.tenants.find(item => item.id === req.user!.tenantId);
-  return tenant && tenantOwnNumberActive(tenant.id) ? tenant : undefined;
+  return tenant;
 };
 
 const safeTenantNotificationAuditActor = (req: AuthenticatedRequest): User => {
@@ -5491,13 +6522,13 @@ const safeTenantNotificationAuditActor = (req: AuthenticatedRequest): User => {
 
 apiRouter.get('/tenant/notification-templates', (req: AuthenticatedRequest, res: Response) => {
   const tenant = getEditableTenantNotificationOwner(req);
-  if (!tenant) return res.status(403).json({ error: 'A edição de mensagens exige o módulo ativo de WhatsApp com número próprio da empresa.' });
+  if (!tenant) return res.status(403).json({ error: 'Somente administradores da empresa podem consultar suas mensagens.' });
   return res.json(notificationTemplatesForTenant(tenant.id));
 });
 
 apiRouter.put('/tenant/notification-templates/:id', async (req: AuthenticatedRequest, res: Response) => {
   const tenant = getEditableTenantNotificationOwner(req);
-  if (!tenant) return res.status(403).json({ error: 'A edição de mensagens exige o módulo ativo de WhatsApp com número próprio da empresa.' });
+  if (!tenant) return res.status(403).json({ error: 'Somente administradores da empresa podem editar suas mensagens.' });
   if (isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Contas de teste não podem alterar mensagens ou configurações.' });
 
   const globalTemplate = (db.saasGlobalConfig.notificationTemplates || []).find(item => item.id === req.params.id);
@@ -5748,6 +6779,143 @@ const exposePublicSaaSConfig = (config: any) => ({
   seo: safeSeoConfig(config.seo)
 });
 
+const AD_BANNER_FORMATS = new Set<AdBannerFormat>(['STRIP', 'CARD', 'SIDEBAR', 'MODAL']);
+const AD_BANNER_PLACEMENTS = new Set<AdBannerPlacement>(['HOME', 'FREIGHTS', 'OPERATIONS', 'DRIVER_PORTAL', 'DASHBOARD']);
+const AD_BANNER_ROLES = new Set<UserRole>(['SUPER_ADMIN', 'EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'USUARIO', 'MOTORISTA']);
+
+function safeBannerUrl(value: unknown, required = false): string | undefined {
+  const raw = String(value ?? '').trim().slice(0, 2000);
+  if (!raw) return required ? undefined : undefined;
+  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+  try {
+    const parsed = new URL(raw);
+    return ['https:', 'http:'].includes(parsed.protocol) ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function bannerDate(value: unknown): string | undefined {
+  const raw = String(value ?? '').trim();
+  if (!raw) return undefined;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function normalizeBannerInput(input: any, current?: AdBanner): AdBanner | null {
+  const title = String(input?.title ?? current?.title ?? '').trim().slice(0, 120);
+  const imageUrl = safeBannerUrl(input?.imageUrl ?? current?.imageUrl, true);
+  const linkUrl = safeBannerUrl(input?.linkUrl ?? current?.linkUrl);
+  const format = String(input?.format ?? current?.format ?? 'CARD').trim() as AdBannerFormat;
+  const rawPlacements: string[] = (Array.isArray(input?.placements) ? input.placements : current?.placements || []).map((item: unknown) => String(item).trim());
+  const rawRoles: string[] = (Array.isArray(input?.targetRoles) ? input.targetRoles : current?.targetRoles || []).map((item: unknown) => String(item).trim());
+  const placements: AdBannerPlacement[] = Array.from(new Set(rawPlacements)).filter((item): item is AdBannerPlacement => AD_BANNER_PLACEMENTS.has(item as AdBannerPlacement));
+  const targetRoles: UserRole[] = Array.from(new Set(rawRoles)).filter((item): item is UserRole => AD_BANNER_ROLES.has(item as UserRole));
+  const targetTenantIds: string[] = Array.from(new Set((Array.isArray(input?.targetTenantIds) ? input.targetTenantIds : current?.targetTenantIds || []).map((item: unknown) => String(item).trim()).filter(Boolean) as string[])).slice(0, 200);
+  const targetUserIds: string[] = Array.from(new Set((Array.isArray(input?.targetUserIds) ? input.targetUserIds : current?.targetUserIds || []).map((item: unknown) => String(item).trim()).filter(Boolean) as string[])).slice(0, 500);
+  const startsAt = bannerDate(input?.startsAt ?? current?.startsAt);
+  const endsAt = bannerDate(input?.endsAt ?? current?.endsAt);
+  const priority = Number(input?.priority ?? current?.priority ?? 0);
+  if (!title || !imageUrl || !AD_BANNER_FORMATS.has(format) || placements.length === 0 || !Number.isInteger(priority) || priority < 0 || priority > 999) return null;
+  if (endsAt && startsAt && new Date(endsAt).getTime() < new Date(startsAt).getTime()) return null;
+  return {
+    id: current?.id || randomUUID(),
+    title,
+    imageUrl,
+    ...(linkUrl ? { linkUrl } : {}),
+    openInNewTab: input?.openInNewTab === undefined ? Boolean(current?.openInNewTab) : input.openInNewTab === true,
+    format,
+    placements,
+    targetRoles,
+    targetTenantIds,
+    targetUserIds,
+    isActive: input?.isActive === undefined ? current?.isActive !== false : input.isActive === true,
+    ...(startsAt ? { startsAt } : {}),
+    ...(endsAt ? { endsAt } : {}),
+    priority,
+    createdAt: current?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function bannerIsVisibleToUser(banner: AdBanner, user: User, placement?: AdBannerPlacement): boolean {
+  const now = Date.now();
+  if (!banner.isActive || (placement && !banner.placements.includes(placement))) return false;
+  if (banner.startsAt && new Date(banner.startsAt).getTime() > now) return false;
+  if (banner.endsAt && new Date(banner.endsAt).getTime() < now) return false;
+  if (banner.targetRoles.length > 0 && !banner.targetRoles.includes(user.role)) return false;
+  if (banner.targetTenantIds.length > 0 && (!user.tenantId || !banner.targetTenantIds.includes(user.tenantId))) return false;
+  if (banner.targetUserIds.length > 0 && !banner.targetUserIds.includes(user.id)) return false;
+  return true;
+}
+
+function publicBanner(banner: AdBanner) {
+  return {
+    id: banner.id,
+    title: banner.title,
+    imageUrl: banner.imageUrl,
+    linkUrl: banner.linkUrl,
+    openInNewTab: banner.openInNewTab,
+    format: banner.format,
+    placements: banner.placements,
+    priority: banner.priority
+  };
+}
+
+apiRouter.get('/ad-banners/visible', (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Não autenticado.' });
+  const placement = String(req.query.placement || '').trim() as AdBannerPlacement;
+  const banners = (db.saasGlobalConfig.adBanners || [])
+    .filter(banner => bannerIsVisibleToUser(banner, req.user!, AD_BANNER_PLACEMENTS.has(placement) ? placement : undefined))
+    .sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))
+    .map(publicBanner);
+  return res.json(banners);
+});
+
+apiRouter.get('/saas/ad-banners', (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  return res.json(db.saasGlobalConfig.adBanners || []);
+});
+
+apiRouter.post('/saas/ad-banners', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const banner = normalizeBannerInput(req.body);
+  if (!banner) return res.status(400).json({ error: 'Preencha título, imagem, formato e pelo menos um local de exibição válidos.' });
+  if (banner.targetTenantIds.some(id => !db.tenants.some(tenant => tenant.id === id)) || banner.targetUserIds.some(id => !db.users.some(user => user.id === id))) {
+    return res.status(400).json({ error: 'A segmentação selecionada contém uma empresa ou usuário inválido.' });
+  }
+  db.saasGlobalConfig.adBanners = [...(db.saasGlobalConfig.adBanners || []), banner];
+  db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'AD_BANNER_CREATED', entity: 'AdBanner', entityId: banner.id, details: `Banner ${banner.title} criado.` });
+  await db.persistNow();
+  return res.status(201).json(banner);
+});
+
+apiRouter.put('/saas/ad-banners/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const current = (db.saasGlobalConfig.adBanners || []).find(item => item.id === req.params.id);
+  if (!current) return res.status(404).json({ error: 'Banner não encontrado.' });
+  const banner = normalizeBannerInput(req.body, current);
+  if (!banner) return res.status(400).json({ error: 'Os dados do banner são inválidos.' });
+  if (banner.targetTenantIds.some(id => !db.tenants.some(tenant => tenant.id === id)) || banner.targetUserIds.some(id => !db.users.some(user => user.id === id))) {
+    return res.status(400).json({ error: 'A segmentação selecionada contém uma empresa ou usuário inválido.' });
+  }
+  db.saasGlobalConfig.adBanners = (db.saasGlobalConfig.adBanners || []).map(item => item.id === current.id ? banner : item);
+  db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'AD_BANNER_UPDATED', entity: 'AdBanner', entityId: banner.id, details: `Banner ${banner.title} atualizado.` });
+  await db.persistNow();
+  return res.json(banner);
+});
+
+apiRouter.delete('/saas/ad-banners/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN' || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const before = db.saasGlobalConfig.adBanners || [];
+  const found = before.find(item => item.id === req.params.id);
+  if (!found) return res.status(404).json({ error: 'Banner não encontrado.' });
+  db.saasGlobalConfig.adBanners = before.filter(item => item.id !== found.id);
+  db.addAuditLog({ ip: requestIp(req), tenantId: undefined, userId: req.user.id, userName: req.user.name, userRole: req.user.role, action: 'AD_BANNER_DELETED', entity: 'AdBanner', entityId: found.id, details: `Banner ${found.title} removido.` });
+  await db.persistNow();
+  return res.json({ success: true });
+});
+
 apiRouter.get('/saas/config', (req: AuthenticatedRequest, res: Response) => {
   res.setHeader('Cache-Control', req.user?.role === 'SUPER_ADMIN' ? 'no-store' : 'public, max-age=300');
   res.json(req.user?.role === 'SUPER_ADMIN' ? exposeSafeSaaSConfig(db.saasGlobalConfig) : exposePublicSaaSConfig(db.saasGlobalConfig));
@@ -5838,6 +7006,20 @@ apiRouter.post('/saas/config', async (req: AuthenticatedRequest, res: Response) 
   });
   await db.persistNow();
   res.json({ success: true, config: exposeSafeSaaSConfig(db.saasGlobalConfig) });
+});
+apiRouter.post('/saas/mapbox/test', async (req: AuthenticatedRequest, res: Response) => {
+  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Acesso restrito ao Super Administrador.' });
+  const incoming = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '';
+  const token = incoming && incoming !== '********' ? incoming : String(db.saasGlobalConfig.mapboxConfig?.apiKey || process.env.MAPBOX_ACCESS_TOKEN || '').trim();
+  if (!token || !token.startsWith('pk.')) return res.status(400).json({ error: 'Insira um token público do Mapbox válido (iniciado por pk.).' });
+  try {
+    const response = await fetch(`https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${encodeURIComponent(token)}`);
+    if (response.ok) return res.json({ success: true, message: 'Token do Mapbox verificado com sucesso! Conexão estabelecida.' });
+    if (response.status === 401) return res.status(401).json({ error: 'Token inválido ou não autorizado pelo Mapbox.' });
+    return res.status(502).json({ error: `Mapbox respondeu com status ${response.status}.` });
+  } catch {
+    return res.status(502).json({ error: 'Falha de comunicação com o Mapbox.' });
+  }
 });
 /* =========================================================================
    13.1. SQL DATABASE & INSTALLATION MANAGEMENT (SUPER_ADMIN ONLY)
@@ -5948,7 +7130,7 @@ apiRouter.get('/expenses', (req: AuthenticatedRequest, res: Response) => {
     list = list.filter(e => e.driverId === req.user?.id || e.driverId === req.user?.driverId || (req.user?.name && e.driverName === req.user.name));
   } else if (req.user?.role !== 'SUPER_ADMIN') {
     // Tenant users see their company's reports
-    list = list.filter(e => !e.tenantId || e.tenantId === req.user?.tenantId);
+    list = list.filter(e => Boolean(e.tenantId) && e.tenantId === req.user?.tenantId);
   }
 
   if (freightId) {
@@ -5979,7 +7161,7 @@ apiRouter.get('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
       if (!isOwner) {
         return res.status(403).json({ error: 'Acesso não autorizado a este relatório' });
       }
-    } else if (report.tenantId && report.tenantId !== req.user?.tenantId) {
+    } else if (!report.tenantId || report.tenantId !== req.user?.tenantId) {
       return res.status(403).json({ error: 'Acesso não autorizado a relatórios de outra empresa' });
     }
   }
@@ -6016,20 +7198,30 @@ const normalizeExpenseItems = (raw: unknown, fallback: TripExpenseItem[] = []): 
 };
 
 // Create new report
-apiRouter.post('/expenses', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/expenses', async (req: AuthenticatedRequest, res: Response) => {
   const data = req.body && typeof req.body === 'object' ? req.body as Record<string, any> : null;
   if (!req.user || !data) return res.status(400).json({ error: 'Dados da prestação de contas inválidos.' });
+  if (!sqlAdapter.isEnabled()) return res.status(503).json({ error: 'PostgreSQL não está configurado; a prestação não foi salva.' });
   const canSubmitExpense = req.user.role === 'SUPER_ADMIN' || ['EMPRESA_SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'MOTORISTA'].includes(req.user.role);
-  if (!canSubmitExpense || isTestOrDemoUser(req.user)) return res.status(403).json({ error: 'Este perfil não pode criar prestações de contas.' });
+  if (!canSubmitExpense) return res.status(403).json({ error: 'Este perfil não pode criar prestações de contas.' });
 
-  const requestedTenantId = req.user.role === 'SUPER_ADMIN' ? String(data.tenantId || '') : String(req.user.tenantId || '');
+  const requestedTenantId = req.user.role === 'SUPER_ADMIN' || req.user.role === 'MOTORISTA'
+    ? String(data.tenantId || req.user.tenantId || '')
+    : String(req.user.tenantId || '');
   const assignedTenantId = requestedTenantId && db.tenants.some(tenant => tenant.id === requestedTenantId) ? requestedTenantId : '';
   if (!assignedTenantId) return res.status(400).json({ error: 'Empresa válida é obrigatória para a prestação de contas.' });
   const freight = data.freightId ? db.freights.find(item => item.id === String(data.freightId)) : undefined;
   if (data.freightId && (!freight || freight.tenantId !== assignedTenantId)) return res.status(403).json({ error: 'Frete não pertence à empresa informada.' });
-  const requestedDriverId = req.user.role === 'MOTORISTA' ? (req.user.driverId || req.user.id) : String(data.driverId || '');
+  const requestedDriverId = req.user.role === 'MOTORISTA'
+    ? (req.user.driverId || req.user.id)
+    : String(data.driverId || freight?.assignedDriverId || '').trim();
   const driver = requestedDriverId ? db.drivers.find(item => item.id === requestedDriverId || item.userId === requestedDriverId) : undefined;
-  if (!driver || (req.user.role === 'MOTORISTA' && driver.userId !== req.user.id && driver.id !== req.user.driverId) || (!['SUPER_ADMIN', 'MOTORISTA'].includes(req.user.role) && !db.hasDriverCompanyAccess(driver.id, assignedTenantId, true))) return res.status(403).json({ error: 'Motorista não autorizado para esta prestação de contas.' });
+  const driverIsAuthorized = !driver
+    ? req.user.role !== 'MOTORISTA'
+    : (req.user.role === 'SUPER_ADMIN' ||
+      (req.user.role === 'MOTORISTA' && (driver.userId === req.user.id || driver.id === req.user.driverId) && db.hasDriverCompanyAccess(driver.id, assignedTenantId, true)) ||
+      (req.user.role !== 'MOTORISTA' && db.hasDriverCompanyAccess(driver.id, assignedTenantId, true)));
+  if (!driverIsAuthorized) return res.status(403).json({ error: 'Motorista não autorizado para esta prestação de contas.' });
 
   const items = normalizeExpenseItems(data.items);
   const totalExpenses = items.reduce((acc: number, it: any) => acc + (Number(it.amount) || 0), 0);
@@ -6047,15 +7239,19 @@ apiRouter.post('/expenses', (req: AuthenticatedRequest, res: Response) => {
   const advanceAmount = Number(data.advanceAmount) || 0;
   const balanceAmount = advanceAmount - totalExpenses;
   const balanceStatus = balanceAmount >= 0 ? 'A_DEVOLVER' : 'REEMBOLSO_A_RECEBER';
+  const publicToken = !freight?.id ? randomBytes(24).toString('hex') : undefined;
+  const publicCode = publicToken ? `PAC-${new Date().getFullYear()}-${randomInt(100000, 1000000)}` : undefined;
 
   const newReport: TripExpenseReport = {
     id: `exp-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    publicCode,
+    publicToken,
     tenantId: assignedTenantId,
     freightId: freight?.id,
     freightCode: freight?.code,
-    driverId: driver.id,
-    driverName: driver.name,
-    driverPhone: driver.phone,
+    driverId: driver?.id,
+    driverName: normalizeExpenseText(data.driverName, 255) || driver?.name || 'Motorista não informado',
+    driverPhone: normalizeExpenseText(data.driverPhone, 32) || driver?.phone,
     vehiclePlate: normalizeExpenseText(data.vehiclePlate, 20),
     chassis: normalizeExpenseText(data.chassis, 100),
     vehicleModel: normalizeExpenseText(data.vehicleModel, 120),
@@ -6098,11 +7294,20 @@ apiRouter.post('/expenses', (req: AuthenticatedRequest, res: Response) => {
     details: `Prestação de contas criada para a viagem/frete ${newReport.freightCode || newReport.id} (Total: R$ ${totalExpenses.toFixed(2)})`
   });
 
+  try {
+    await db.persistTripExpense(newReport);
+    await db.persistNow();
+  } catch (error) {
+    db.tripExpenses = db.tripExpenses.filter(item => item.id !== newReport.id);
+    console.error('Falha ao persistir nova prestação no PostgreSQL:', error);
+    return res.status(503).json({ error: 'Não foi possível salvar a prestação no PostgreSQL. Verifique a conexão e as migrações do banco.' });
+  }
   res.status(201).json(newReport);
 });
 
 // Update report / change status / approve
-apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/expenses/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!sqlAdapter.isEnabled()) return res.status(503).json({ error: 'PostgreSQL não está configurado; a prestação não foi salva.' });
   const index = (db.tripExpenses || []).findIndex(e => e.id === req.params.id);
   if (index === -1) {
     return res.status(404).json({ error: 'Relatório de despesas não encontrado' });
@@ -6113,7 +7318,7 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
 
   // Tenant isolation & authorization check
   const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
-  const isCompanyStaff = (req.user?.role === 'ADMIN' || req.user?.role === 'EMPRESA_SUPER_ADMIN' || req.user?.role === 'SUPERVISOR') && (!existing.tenantId || existing.tenantId === req.user?.tenantId);
+  const isCompanyStaff = (req.user?.role === 'ADMIN' || req.user?.role === 'EMPRESA_SUPER_ADMIN' || req.user?.role === 'SUPERVISOR') && Boolean(existing.tenantId && existing.tenantId === req.user?.tenantId);
   const isDriverOwner = req.user?.role === 'MOTORISTA' && (existing.driverId === req.user?.id || existing.driverId === req.user?.driverId || existing.driverName === req.user?.name);
 
   if (!isSuperAdmin && !isCompanyStaff && !isDriverOwner) {
@@ -6124,6 +7329,15 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
   if (!['RASCUNHO', 'ENVIADO', 'EM_ANALISE', 'APROVADO', 'REJEITADO', 'QUITADO'].includes(requestedStatus)) return res.status(400).json({ error: 'Status de prestação de contas inválido.' });
   const canApproveExpense = isSuperAdmin || (req.user?.role === 'EMPRESA_SUPER_ADMIN' || req.user?.role === 'ADMIN') && existing.tenantId === req.user?.tenantId;
   if (['APROVADO', 'QUITADO'].includes(requestedStatus) && !canApproveExpense) return res.status(403).json({ error: 'Apenas administradores da empresa podem aprovar ou quitar despesas.' });
+  const requestedTenantIdForUpdate = isSuperAdmin && updates.tenantId !== undefined ? String(updates.tenantId || '') : String(existing.tenantId || '');
+  if (!requestedTenantIdForUpdate || !db.tenants.some(tenant => tenant.id === requestedTenantIdForUpdate)) return res.status(400).json({ error: 'Empresa válida é obrigatória para a prestação de contas.' });
+  const requestedFreightId = updates.freightId === undefined ? existing.freightId : String(updates.freightId || '').trim();
+  const linkedFreight = requestedFreightId ? db.freights.find(item => item.id === requestedFreightId) : undefined;
+  if (requestedFreightId && (!linkedFreight || linkedFreight.tenantId !== requestedTenantIdForUpdate)) return res.status(403).json({ error: 'Frete não pertence à empresa informada.' });
+  const requestedDriverIdForUpdate = updates.driverId === undefined ? existing.driverId : String(updates.driverId || '').trim();
+  const updatedDriver = requestedDriverIdForUpdate ? db.drivers.find(item => item.id === requestedDriverIdForUpdate || item.userId === requestedDriverIdForUpdate) : undefined;
+  if (requestedDriverIdForUpdate && !updatedDriver) return res.status(400).json({ error: 'Motorista informado não encontrado.' });
+  if (updatedDriver && !isSuperAdmin && !db.hasDriverCompanyAccess(updatedDriver.id, requestedTenantIdForUpdate, true)) return res.status(403).json({ error: 'Motorista não autorizado para esta empresa.' });
   // Drivers cannot approve their own expenses or modify reviewer fields.
   if (req.user?.role === 'MOTORISTA' && (existing.status === 'APROVADO' || existing.status === 'QUITADO')) return res.status(403).json({ error: 'Este relatório já foi aprovado/quitado e não pode mais ser alterado pelo motorista.' });
 
@@ -6140,14 +7354,19 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
   const advanceAmount = updates.advanceAmount !== undefined ? Math.max(0, Number(updates.advanceAmount) || 0) : existing.advanceAmount;
   const balanceAmount = advanceAmount - totalExpenses;
   const balanceStatus: TripExpenseReport['balanceStatus'] = balanceAmount >= 0 ? 'A_DEVOLVER' : 'REEMBOLSO_A_RECEBER';
+  const nextStandalone = !requestedFreightId;
+  const publicToken = nextStandalone ? (existing.publicToken || randomBytes(24).toString('hex')) : undefined;
+  const publicCode = nextStandalone ? (existing.publicCode || `PAC-${new Date().getFullYear()}-${randomInt(100000, 1000000)}`) : undefined;
   const updatedReport: TripExpenseReport = {
     id: existing.id,
-    tenantId: existing.tenantId,
-    freightId: existing.freightId,
-    freightCode: existing.freightCode,
-    driverId: existing.driverId,
-    driverName: existing.driverName,
-    driverPhone: existing.driverPhone,
+    publicCode,
+    publicToken,
+    tenantId: requestedTenantIdForUpdate,
+    freightId: requestedFreightId || undefined,
+    freightCode: linkedFreight?.code || (requestedFreightId ? existing.freightCode : undefined),
+    driverId: updatedDriver?.id,
+    driverName: updates.driverName === undefined ? (updatedDriver?.name || existing.driverName || 'Motorista não informado') : (normalizeExpenseText(updates.driverName, 255) || 'Motorista não informado'),
+    driverPhone: updates.driverPhone === undefined ? (updatedDriver?.phone || existing.driverPhone) : normalizeExpenseText(updates.driverPhone, 32),
     vehiclePlate: updates.vehiclePlate === undefined ? existing.vehiclePlate : normalizeExpenseText(updates.vehiclePlate, 20),
     chassis: updates.chassis === undefined ? existing.chassis : normalizeExpenseText(updates.chassis, 100),
     vehicleModel: updates.vehicleModel === undefined ? existing.vehicleModel : normalizeExpenseText(updates.vehicleModel, 120),
@@ -6170,12 +7389,12 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
     items,
     generalNotes: updates.generalNotes === undefined ? existing.generalNotes : normalizeExpenseText(updates.generalNotes, 2000),
     reviewerNotes: canApproveExpense && updates.reviewerNotes !== undefined ? normalizeExpenseText(updates.reviewerNotes, 2000) : existing.reviewerNotes,
-    reviewedBy: existing.reviewedBy,
-    reviewedAt: existing.reviewedAt,
-    approvedAt: existing.approvedAt,
+    reviewedBy: canApproveExpense && updates.reviewedBy !== undefined ? normalizeExpenseText(updates.reviewedBy, 255) : existing.reviewedBy,
+    reviewedAt: canApproveExpense && updates.reviewedAt !== undefined ? (updates.reviewedAt ? String(updates.reviewedAt) : undefined) : existing.reviewedAt,
+    approvedAt: canApproveExpense && updates.approvedAt !== undefined ? (updates.approvedAt ? String(updates.approvedAt) : undefined) : existing.approvedAt,
     createdAt: existing.createdAt,
     updatedAt: new Date().toISOString(),
-    archivedAt: existing.archivedAt
+    archivedAt: canApproveExpense && updates.archivedAt !== undefined ? (updates.archivedAt ? String(updates.archivedAt) : undefined) : existing.archivedAt
   };
 
   if (requestedStatus === 'APROVADO' && existing.status !== 'APROVADO') {
@@ -6197,11 +7416,20 @@ apiRouter.put('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
     details: `Prestação de contas #${updatedReport.id.slice(0, 8)} atualizada (Status: ${updatedReport.status})`
   });
 
+  try {
+    await db.persistTripExpense(updatedReport);
+    await db.persistNow();
+  } catch (error) {
+    db.tripExpenses[index] = existing;
+    console.error('Falha ao persistir atualização da prestação no PostgreSQL:', error);
+    return res.status(503).json({ error: 'Não foi possível atualizar a prestação no PostgreSQL. Verifique a conexão e as migrações do banco.' });
+  }
   res.json(updatedReport);
 });
 
 // Delete report
-apiRouter.delete('/expenses/:id', (req: AuthenticatedRequest, res: Response) => {
+apiRouter.delete('/expenses/:id', async (req: AuthenticatedRequest, res: Response) => {
+  if (!sqlAdapter.isEnabled()) return res.status(503).json({ error: 'PostgreSQL não está configurado; a prestação não foi alterada.' });
   const index = (db.tripExpenses || []).findIndex(e => e.id === req.params.id);
   if (index === -1) {
     return res.status(404).json({ error: 'Relatório não encontrado' });
@@ -6211,13 +7439,15 @@ apiRouter.delete('/expenses/:id', (req: AuthenticatedRequest, res: Response) => 
 
   // Authorization check
   const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
-  const isCompanyAdmin = (req.user?.role === 'ADMIN' || req.user?.role === 'EMPRESA_SUPER_ADMIN') && (!report.tenantId || report.tenantId === req.user?.tenantId);
+  const isCompanyAdmin = (req.user?.role === 'ADMIN' || req.user?.role === 'EMPRESA_SUPER_ADMIN') && Boolean(report.tenantId && report.tenantId === req.user?.tenantId);
   const isDriverOwner = req.user?.role === 'MOTORISTA' && (report.driverId === req.user?.id || report.driverId === req.user?.driverId) && (report.status === 'RASCUNHO' || report.status === 'ENVIADO');
 
   if (!isSuperAdmin && !isCompanyAdmin && !isDriverOwner) {
     return res.status(403).json({ error: 'Você não tem permissão para excluir este relatório' });
   }
 
+  const previousArchivedAt = report.archivedAt;
+  const previousUpdatedAt = report.updatedAt;
   report.archivedAt = new Date().toISOString();
   report.updatedAt = report.archivedAt;
 
@@ -6232,7 +7462,15 @@ apiRouter.delete('/expenses/:id', (req: AuthenticatedRequest, res: Response) => 
     details: `Prestação de contas #${report.id} arquivada sem apagar recibos ou histórico.`
   });
 
-  db.persistNow();
+  try {
+    await db.persistTripExpense(report);
+    await db.persistNow();
+  } catch (error) {
+    report.archivedAt = previousArchivedAt;
+    report.updatedAt = previousUpdatedAt;
+    console.error('Falha ao persistir arquivamento da prestação no PostgreSQL:', error);
+    return res.status(503).json({ error: 'Não foi possível arquivar a prestação no PostgreSQL. Verifique a conexão e as migrações do banco.' });
+  }
   res.json({ success: true, message: 'Relatório arquivado; recibos e histórico preservados.' });
 });
 
@@ -6246,7 +7484,7 @@ apiRouter.post('/help', async (req: AuthenticatedRequest, res: Response) => {
     return res.status(403).json({ error: 'Apenas Super Administradores podem editar a ajuda.' });
   }
   const role = String(req.body?.role || '').trim().toUpperCase();
-  const allowedRoles = new Set(['ADMIN', 'SUPERVISOR', 'USER', 'DRIVER']);
+  const allowedRoles = new Set(['SUPER_ADMIN', 'ADMIN', 'SUPERVISOR', 'USER', 'DRIVER']);
   if (!allowedRoles.has(role)) return res.status(400).json({ error: 'Perfil de ajuda inválido.' });
   const content = sanitizeServerHtml(String(req.body?.content || '').slice(0, 20000));
   const index = db.helpPages.findIndex(h => h.role === role);
@@ -6327,10 +7565,56 @@ const clientPayload = (body: any, tenantId: string, existing?: Client): Client =
 
 apiRouter.get('/clients/cnpj/:cnpj/lookup', async (req: AuthenticatedRequest, res: Response) => {
   if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' });
-  const cnpj = clientCnpj(req.params.cnpj); if (cnpj.length !== 14) return res.status(400).json({ error: 'CNPJ inválido.' });
-  const ip = requestIp(req) || 'unknown'; const nowMs = Date.now(); const attempts = (clientLookupRate.get(ip) || []).filter(timestamp => nowMs - timestamp < CLIENT_LOOKUP_WINDOW_MS); if (attempts.length >= CLIENT_LOOKUP_LIMIT) return res.status(429).json({ error: 'Limite de consultas atingido. Tente novamente em alguns instantes.' }); attempts.push(nowMs); clientLookupRate.set(ip, attempts);
-  const cached = clientLookupCache.get(cnpj); if (cached && cached.expiresAt > nowMs) return res.json({ cnpj, data: cached.data, cached: true });
-  try { const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { headers: { Accept: 'application/json', 'X-Forwarded-For': ip, 'X-Real-IP': ip }, signal: AbortSignal.timeout(10000) }); const data: any = await response.json().catch(() => ({})); if (!response.ok) return res.status(response.status === 404 ? 404 : 502).json({ error: data?.detalhes || data?.message || 'Não foi possível consultar o CNPJ.' }); clientLookupCache.set(cnpj, { data, expiresAt: nowMs + 10 * 60_000 }); db.auditLogs.unshift({ id: randomUUID(), tenantId: req.user?.tenantId, tenantName: req.tenant?.name, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'CONSULTA_CNPJ', entity: 'CLIENT', entityId: cnpj, details: `Consulta CNPJ realizada${ip !== 'unknown' ? ` pelo IP ${ip}` : ''}`, ip, createdAt: new Date().toISOString() }); await db.persistNow(); return res.json({ cnpj, data }); } catch (error) { console.error('CNPJ lookup failed', error); return res.status(502).json({ error: 'Serviço de CNPJ indisponível no momento.' }); }
+  const cnpj = clientCnpj(req.params.cnpj);
+  if (cnpj.length !== 14) return res.status(400).json({ error: 'CNPJ inválido.' });
+  const targetTenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : String(req.user?.tenantId || '');
+  if (req.user?.role === 'SUPER_ADMIN' && targetTenantId && !db.tenants.some(tenant => tenant.id === targetTenantId)) return res.status(400).json({ error: 'Empresa inválida.' });
+
+  // O banco é sempre a primeira fonte. Isso evita consultas externas repetidas
+  // quando outra empresa já cadastrou o mesmo CNPJ anteriormente.
+  const stored = db.clients.find(client => client.cnpj === cnpj && client.status !== 'ARQUIVADO');
+  if (stored) {
+    return res.json({
+      cnpj,
+      source: 'DATABASE',
+      cached: true,
+      existingClient: targetTenantId && stored.tenantId === targetTenantId ? stored : undefined,
+      data: stored.cnpjData || {
+        razao_social: stored.legalName,
+        nome_fantasia: stored.tradeName,
+        logradouro: stored.address,
+        numero: stored.number,
+        bairro: stored.neighborhood,
+        cep: stored.zipCode,
+        municipio: stored.city,
+        uf: stored.state,
+        email: stored.email,
+        telefone1: stored.phone
+      }
+    });
+  }
+
+  const ip = requestIp(req) || 'unknown';
+  const nowMs = Date.now();
+  const attempts = (clientLookupRate.get(ip) || []).filter(timestamp => nowMs - timestamp < CLIENT_LOOKUP_WINDOW_MS);
+  if (attempts.length >= CLIENT_LOOKUP_LIMIT) return res.status(429).json({ error: 'Limite de consultas atingido. Tente novamente em alguns instantes.' });
+  attempts.push(nowMs);
+  clientLookupRate.set(ip, attempts);
+  const cached = clientLookupCache.get(cnpj);
+  if (cached && cached.expiresAt > nowMs) return res.json({ cnpj, data: cached.data, source: 'CACHE' });
+
+  try {
+    const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { headers: { Accept: 'application/json', 'X-Forwarded-For': ip, 'X-Real-IP': ip }, signal: AbortSignal.timeout(10000) });
+    const data: any = await response.json().catch(() => ({}));
+    if (!response.ok) return res.status(response.status === 404 ? 404 : 502).json({ error: data?.detalhes || data?.message || 'Não foi possível consultar o CNPJ.' });
+    clientLookupCache.set(cnpj, { data, expiresAt: nowMs + 10 * 60_000 });
+    db.auditLogs.unshift({ id: randomUUID(), tenantId: req.user?.tenantId, tenantName: req.tenant?.name, userId: req.user!.id, userName: req.user!.name, userRole: req.user!.role, action: 'CONSULTA_CNPJ', entity: 'CLIENT', entityId: cnpj, details: `Consulta cadastral realizada${ip !== 'unknown' ? ` pelo IP ${ip}` : ''}`, ip, createdAt: new Date().toISOString() });
+    await db.persistNow();
+    return res.json({ cnpj, data, source: 'EXTERNAL' });
+  } catch (error) {
+    console.error('CNPJ lookup failed', error);
+    return res.status(502).json({ error: 'Serviço de consulta cadastral indisponível no momento.' });
+  }
 });
 apiRouter.get('/clients', (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const tenantId = req.user?.role === 'SUPER_ADMIN' ? String(req.query.tenantId || '') : String(req.user?.tenantId || ''); const search = String(req.query.search || '').trim().toLowerCase(); return res.json(db.clients.filter(client => (!tenantId || client.tenantId === tenantId) && client.status !== 'ARQUIVADO' && (!search || [client.cnpj, client.legalName, client.tradeName, client.email].some(value => String(value || '').toLowerCase().includes(search))))); });
 apiRouter.post('/clients', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const tenantId = clientTenantId(req); const cnpj = clientCnpj(req.body?.cnpj); if (!tenantId || !db.tenants.some(tenant => tenant.id === tenantId)) return res.status(400).json({ error: 'Empresa inválida.' }); if (cnpj.length !== 14 || !String(req.body?.legalName || req.body?.razaoSocial || '').trim()) return res.status(400).json({ error: 'CNPJ e razão social são obrigatórios.' }); if (db.clients.some(client => client.tenantId === tenantId && client.cnpj === cnpj && client.status !== 'ARQUIVADO')) return res.status(409).json({ error: 'Este CNPJ já está cadastrado.' }); const client = clientPayload(req.body, tenantId); db.clients.unshift(client); await db.persistNow(); return res.status(201).json(client); });
@@ -6368,7 +7652,7 @@ apiRouter.post('/budgets', async (req: AuthenticatedRequest, res: Response) => {
   const tenantId = budgetTenantId(req); if (!tenantId || !db.tenants.some(item => item.id === tenantId)) return res.status(400).json({ error: 'Empresa inválida.' });
   if (req.body?.clientId && !db.clients.some(client => client.id === req.body.clientId && client.tenantId === tenantId && client.status !== 'ARQUIVADO')) return res.status(400).json({ error: 'Cliente inválido para esta empresa.' });
   const now = new Date().toISOString(); const expenses = Array.isArray(req.body?.expenses) ? req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)) : [];
-  const base: any = { id: randomUUID(), tenantId, code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, clientId: req.body?.clientId || undefined, clientName: String(req.body?.clientName || '').trim().slice(0, 180), origin: req.body?.origin || {}, destination: req.body?.destination || {}, date: String(req.body?.date || ''), cargoType: String(req.body?.cargoType || ''), weightKg: Math.max(0, Number(req.body?.weightKg) || 0), quantity: Math.max(0, Number(req.body?.quantity) || 0), vehicleType: String(req.body?.vehicleType || ''), driverId: req.body?.driverId || undefined, distanceKm: Math.max(0, Number(req.body?.distanceKm) || 0), pricePerKm: Math.max(0, Number(req.body?.pricePerKm) || 0), priceTableReference: String(req.body?.priceTableReference || '').slice(0, 160), tolls: Math.max(0, Number(req.body?.tolls) || 0), insurance: Math.max(0, Number(req.body?.insurance) || 0), dailyRate: Math.max(0, Number(req.body?.dailyRate) || 0), dailyCount: Math.max(0, Number(req.body?.dailyCount) || 0), assistantCount: Math.max(0, Number(req.body?.assistantCount) || 0), assistantDailyRate: Math.max(0, Number(req.body?.assistantDailyRate) || 0), estimatedMinutes: Math.max(0, Number(req.body?.estimatedMinutes) || 0), notes: String(req.body?.notes || '').slice(0, 2000), expenses, taxes: Array.isArray(req.body?.taxes) ? req.body.taxes : [], profitType: req.body?.profitType === 'FIXO' ? 'FIXO' : 'PERCENTUAL', profitValue: Number(req.body?.profitValue) || 0, driverPassed: Number(req.body?.driverPassed) || 0, driverPaid: Number(req.body?.driverPaid) || 0, customFields: req.body?.customFields || {}, versions: [], createdAt: now, updatedAt: now };
+  const base: any = { id: randomUUID(), tenantId, code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, clientId: req.body?.clientId || undefined, clientName: String(req.body?.clientName || '').trim().slice(0, 180), origin: req.body?.origin || {}, destination: req.body?.destination || {}, date: String(req.body?.date || ''), cargoType: String(req.body?.cargoType || ''), weightKg: Math.max(0, Number(req.body?.weightKg) || 0), quantity: Math.max(0, Number(req.body?.quantity) || 0), vehicleType: String(req.body?.vehicleType || ''), driverId: req.body?.driverId || undefined, distanceKm: Math.max(0, Number(req.body?.distanceKm) || 0), pricePerKm: Math.max(0, Number(req.body?.pricePerKm) || 0), priceTableReference: String(req.body?.priceTableReference || '').slice(0, 160), tolls: Math.max(0, Number(req.body?.tolls) || 0), insurance: Math.max(0, Number(req.body?.insurance) || 0), dailyRate: Math.max(0, Number(req.body?.dailyRate) || 0), dailyCount: Math.max(0, Number(req.body?.dailyCount) || 0), assistantCount: Math.max(0, Number(req.body?.assistantCount) || 0), assistantDailyRate: Math.max(0, Number(req.body?.assistantDailyRate) || 0), estimatedMinutes: Math.max(0, Number(req.body?.estimatedMinutes) || 0), routeGeometry: req.body?.routeGeometry && typeof req.body.routeGeometry === 'object' ? req.body.routeGeometry : undefined, notes: String(req.body?.notes || '').slice(0, 2000), expenses, taxes: Array.isArray(req.body?.taxes) ? req.body.taxes : [], profitType: req.body?.profitType === 'FIXO' ? 'FIXO' : 'PERCENTUAL', profitValue: Number(req.body?.profitValue) || 0, driverPassed: Number(req.body?.driverPassed) || 0, driverPaid: Number(req.body?.driverPaid) || 0, customFields: req.body?.customFields || {}, versions: [], createdAt: now, updatedAt: now };
   base.financials = calculateBudget(base); const version = { id: randomUUID(), budgetId: base.id, version: 1, snapshot: JSON.parse(JSON.stringify(base)), createdAt: now, createdByUserId: req.user!.id }; base.versions = [version]; db.budgets.unshift(base); await db.persistNow(); res.status(201).json(base);
 });
 apiRouter.get('/budgets/:id', (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget = budgetForRequest(req, req.params.id); return budget ? res.json(budget) : res.status(404).json({ error: 'Orçamento não encontrado.' }); });
@@ -6377,9 +7661,9 @@ apiRouter.put('/budgets/:id', async (req: AuthenticatedRequest, res: Response) =
   const expectedVersion = req.body?.expectedVersion === undefined ? undefined : Number(req.body.expectedVersion);
   if (expectedVersion !== undefined && (!Number.isInteger(expectedVersion) || expectedVersion !== budget.version)) return res.status(409).json({ error: 'Este orçamento foi alterado por outra sessão. Recarregue os dados antes de salvar.', currentVersion: budget.version });
   if (req.body?.clientId !== undefined && !db.clients.some(client => client.id === req.body.clientId && client.tenantId === budget.tenantId && client.status !== 'ARQUIVADO')) return res.status(400).json({ error: 'Cliente inválido para esta empresa.' });
-  const allowed = ['clientId','clientName','origin','destination','date','cargoType','weightKg','quantity','vehicleType','driverId','distanceKm','pricePerKm','priceTableReference','tolls','insurance','dailyRate','dailyCount','assistantCount','assistantDailyRate','estimatedMinutes','notes','taxes','profitType','profitValue','driverPassed','driverPaid','customFields']; for (const key of allowed) if (req.body[key] !== undefined) budget[key] = req.body[key]; if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)); budget.version += 1; budget.updatedAt = new Date().toISOString(); budget.financials = calculateBudget(budget); budget.versions.push({ id: randomUUID(), budgetId: budget.id, version: budget.version, snapshot: JSON.parse(JSON.stringify(budget)), createdAt: budget.updatedAt, createdByUserId: req.user!.id }); await db.persistNow(); res.json(budget);
+  const allowed = ['clientId','clientName','origin','destination','date','cargoType','weightKg','quantity','vehicleType','bodyType','bodyTypeOther','driverId','distanceKm','pricePerKm','priceTableReference','tolls','insurance','dailyRate','dailyCount','assistantCount','assistantDailyRate','estimatedMinutes','routeGeometry','notes','taxes','profitType','profitValue','driverPassed','driverPaid','customFields']; for (const key of allowed) if (req.body[key] !== undefined) budget[key] = req.body[key]; if (Array.isArray(req.body.expenses)) budget.expenses = req.body.expenses.map((item: any, index: number) => normalizeExpense(item, index)); budget.version += 1; budget.updatedAt = new Date().toISOString(); budget.financials = calculateBudget(budget); budget.versions.push({ id: randomUUID(), budgetId: budget.id, version: budget.version, snapshot: JSON.parse(JSON.stringify(budget)), createdAt: budget.updatedAt, createdByUserId: req.user!.id }); await db.persistNow(); res.json(budget);
 });
 apiRouter.post('/budgets/:id/status', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const status = String(req.body?.status || ''); if (!validBudgetTransition[budget.status]?.includes(status)) return res.status(409).json({ error: `Transição ${budget.status} → ${status} não permitida.` }); budget.status = status; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });
 apiRouter.post('/budgets/:id/duplicate', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const source: any = budgetForRequest(req, req.params.id); if (!source) return res.status(404).json({ error: 'Orçamento não encontrado.' }); const now = new Date().toISOString(); const copy: any = { ...JSON.parse(JSON.stringify(source)), id: randomUUID(), code: `ORC-${new Date().getFullYear()}-${String(db.budgets.length + 1).padStart(4, '0')}`, status: 'RASCUNHO', version: 1, convertedFreightId: undefined, createdAt: now, updatedAt: now, versions: [] }; copy.expenses = copy.expenses.map((item: any, index: number) => ({ ...item, id: randomUUID() })); copy.financials = calculateBudget(copy); copy.versions = [{ id: randomUUID(), budgetId: copy.id, version: 1, snapshot: JSON.parse(JSON.stringify(copy)), createdAt: now, createdByUserId: req.user!.id }]; db.budgets.unshift(copy); await db.persistNow(); res.status(201).json(copy); });
-apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const inferredCargoType = ['GERAL', 'FRAGIL', 'REFRIGERADA', 'PERIGOSA', 'ALIMENTOS', 'CONSTRUCAO', 'MAQUINARIO', 'GRAOS'].includes(String(budget.cargoType || '').toUpperCase()) ? String(budget.cargoType).toUpperCase() : 'GERAL'; const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, cargo: { description: budget.cargoType || 'Carga geral', type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: 'RASCUNHO', statusHistory: [], createdByUserId: req.user!.id, createdByName: req.user!.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: 'BUDGET_CONVERSION' }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
+apiRouter.post('/budgets/:id/convert', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.convertedFreightId) return res.json({ budget, freightId: budget.convertedFreightId, idempotent: true }); if (req.user?.role !== 'SUPER_ADMIN' && budget.status !== 'APROVADO') return res.status(409).json({ error: 'Apenas orçamento aprovado pode virar frete.' }); const now = new Date().toISOString(); const inferredCargoType = ['VEICULO', 'GERAL', 'FRAGIL', 'REFRIGERADA', 'PERIGOSA', 'ALIMENTOS', 'CONSTRUCAO', 'MAQUINARIO', 'GRAOS'].includes(String(budget.cargoType || '').toUpperCase()) ? String(budget.cargoType).toUpperCase() : 'GERAL'; const freight: any = { id: randomUUID(), code: `FRT-${new Date().getFullYear()}-${String(db.freights.length + 1).padStart(4, '0')}`, tenantId: budget.tenantId, tenantName: db.tenants.find(t => t.id === budget.tenantId)?.name, origin: budget.origin, destination: budget.destination, distanceKm: budget.distanceKm, routeGeometry: budget.routeGeometry, cargo: { description: budget.cargoType || 'Carga geral', type: inferredCargoType, weightKg: budget.weightKg, volumeCount: budget.quantity, notes: budget.notes, requiresInsurance: Number(budget.insurance || 0) > 0 }, requirements: { vehicleType: budget.vehicleType || 'TRUCK', bodyTypeRequired: budget.bodyType || undefined, bodyTypeOther: budget.bodyType === 'OUTRO' ? budget.bodyTypeOther || undefined : undefined, minCapacityKg: budget.weightKg }, payment: { price: budget.financials.totalFreight, clientRevenue: budget.financials.totalFreight, driverCost: budget.financials.driverPaid, paymentMethod: 'A_VISTA', tollIncluded: Number(budget.tolls || 0) > 0, notes: budget.priceTableReference || budget.notes }, status: 'AGUARDANDO_APROVACAO', statusHistory: [{ status: 'AGUARDANDO_APROVACAO', timestamp: now, changedByUserId: req.user!.id, changedByName: req.user!.name, notes: 'Frete gerado a partir de orçamento e aguardando aprovação administrativa.' }], createdByUserId: req.user!.id, createdByName: req.user!.name, requestedBudgetId: budget.id, createdAt: now, updatedAt: now, customData: { budgetId: budget.id, budgetCode: budget.code, budgetStatus: budget.status, budgetVersion: budget.version, budgetFinancials: budget.financials, budgetTaxes: budget.taxes, budgetExpenses: budget.expenses, source: 'BUDGET_CONVERSION' }, publicTrackingEnabled: false, publicTrackingToken: randomBytes(16).toString('hex') }; db.freights.unshift(freight); budget.convertedFreightId = freight.id; budget.status = 'CONVERTIDO'; budget.updatedAt = now; await db.persistNow(); res.status(201).json({ budget, freightId: freight.id, idempotent: false }); });
 apiRouter.delete('/budgets/:id', async (req: AuthenticatedRequest, res: Response) => { if (!budgetActor(req)) return res.status(403).json({ error: 'Sem permissão.' }); const budget: any = budgetForRequest(req, req.params.id); if (!budget) return res.status(404).json({ error: 'Orçamento não encontrado.' }); if (budget.status === 'CONVERTIDO') return res.status(409).json({ error: 'Orçamento convertido não pode ser apagado.' }); budget.status = 'CANCELADO'; budget.updatedAt = new Date().toISOString(); await db.persistNow(); res.json(budget); });

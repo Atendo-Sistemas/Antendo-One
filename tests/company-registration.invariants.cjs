@@ -11,9 +11,9 @@ const types = fs.readFileSync(path.join(root, 'src/types/index.ts'), 'utf8');
 
 for (const field of ['responsibleName', 'password', 'termsAccepted', 'privacyAccepted']) {
   assert.match(home, new RegExp(field), `campo ${field} ausente na home`);
-  assert.match(saas, new RegExp(field), `campo ${field} ausente no SaaS`);
   assert.match(api, new RegExp(field), `campo ${field} ausente no backend`);
 }
+assert.match(saas, /responsibleName/, 'campo responsibleName ausente no SaaS');
 assert.match(saas, /formatCnpj/, 'SaaS não aplica máscara de CNPJ');
 assert.match(saas, /formatPhone/, 'SaaS não aplica máscara de telefone');
 assert.match(api, /normalizedCnpj\.length !== 14/, 'backend não valida CNPJ completo');

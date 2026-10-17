@@ -36,6 +36,7 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const [copied, setCopied] = useState(false);
   const [geocodedRoute, setGeocodedRoute] = useState<{ origin: { lat: number; lng: number }; destination: { lat: number; lng: number } } | null>(null);
   const [liveLocation, setLiveLocation] = useState(freight.currentLocation);
+  const [lastLiveAt, setLastLiveAt] = useState<string | null>(freight.currentLocation?.recordedAt || null);
   useEffect(() => { let cancelled = false; publicTrackingApi.clientConfig().then(value => { if (!cancelled) setMapboxRuntime(value); }).catch(() => { if (!cancelled) setMapboxRuntime(null); }); return () => { cancelled = true; }; }, []);
   useEffect(() => {
     if (!mapboxRuntime?.enabled) {
@@ -60,8 +61,10 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
   const trackingToken = freight.publicTrackingToken || new URLSearchParams(window.location.search).get('rastreio') || '';
   useEffect(() => {
     if (!trackingToken || typeof EventSource === 'undefined') return;
-    return api.subscribePublicTracking(trackingToken, update => setLiveLocation(update.currentLocation));
+    return api.subscribePublicTracking(trackingToken, update => { setLiveLocation(update.currentLocation); setLastLiveAt(update.currentLocation?.recordedAt || new Date().toISOString()); });
   }, [trackingToken]);
+  const liveAgeSeconds = lastLiveAt ? Math.max(0, Math.round((Date.now() - new Date(lastLiveAt).getTime()) / 1000)) : null;
+  const liveSignal = liveAgeSeconds === null ? 'AGUARDANDO' : liveAgeSeconds <= 30 ? 'AO VIVO' : liveAgeSeconds <= 120 ? 'ATRASADO' : 'SEM SINAL';
   const driverCoords = liveLocation ? {
     lat: liveLocation.lat,
     lng: liveLocation.lng,
@@ -128,9 +131,9 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-black text-white">Rastreamento de Trajeto GPS</h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                  Sinal Ao Vivo
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 ${liveSignal === 'AO VIVO' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : liveSignal === 'ATRASADO' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-slate-500/20 text-slate-300 border-slate-500/30'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${liveSignal === 'AO VIVO' ? 'bg-emerald-400 animate-ping' : liveSignal === 'ATRASADO' ? 'bg-amber-400' : 'bg-slate-400'}`}></span>
+                  {liveSignal}{liveAgeSeconds !== null && ` · ${liveAgeSeconds}s`}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
@@ -176,6 +179,7 @@ export const LiveRouteTrackingModal: React.FC<LiveRouteTrackingModalProps> = ({ 
                 }}
                 vehiclePlate={freight.assignedVehiclePlate || 'ABC-1234'}
                 driverName={freight.assignedDriverName || 'Motorista'}
+                routeGeometry={freight.routeGeometry || null}
                 />
               </Suspense>
             ) : (

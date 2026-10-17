@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { api, budgetApi } from '../../services/api';
+import { api, budgetApi, tenantApi } from '../../services/api';
 import { useSaaS } from '../../context/SaaSContext';
 import { useAuth } from '../../context/AuthContext';
-import { VehicleType, CargoType, PaymentMethod, BodyType, Freight, OperationType, CompanyVehicle, Budget } from '../../types';
+import { CepLookupField } from '../common/CepLookupField';
+import { VehicleType, CargoType, PaymentMethod, BodyType, Freight, OperationType, CompanyVehicle, Vehicle, Budget, Tenant } from '../../types';
 import { Truck, MapPin, DollarSign, Calendar, Package, X, Sparkles, AlertCircle, Split } from 'lucide-react';
 
 interface FreightFormModalProps {
@@ -15,7 +16,11 @@ interface FreightFormModalProps {
 
 export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onClose, onSuccess, freightToEdit, simulateOnly = false }) => {
   const { getField } = useSaaS();
-  const { tenant } = useAuth();
+  const { user, tenant } = useAuth();
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const [availableTenants, setAvailableTenants] = useState<Tenant[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState('');
+  const effectiveTenantId = isSuperAdmin ? selectedTenantId : tenant?.id || '';
   const allowedOps = tenant?.allowedOperations || ['CARGA_GERAL'];
 
   const fCargoDesc = getField('freightForm', 'cargoDescription') || { label: 'Descrição da Carga', placeholder: 'Ex: Carga de milho ensacado', enabled: true, required: true };
@@ -45,6 +50,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const [originCity, setOriginCity] = useState('São José do Rio Preto');
   const [originState, setOriginState] = useState('SP');
   const [originZip, setOriginZip] = useState('15015-000');
+  const [originNeighborhood, setOriginNeighborhood] = useState('Centro');
   const [originAddress, setOriginAddress] = useState('Av. Alberto Andaló');
   const [originNumber, setOriginNumber] = useState('3100');
   const [originDate, setOriginDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -53,6 +59,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const [destCity, setDestCity] = useState('São Paulo');
   const [destState, setDestState] = useState('SP');
   const [destZip, setDestZip] = useState('01001-000');
+  const [destNeighborhood, setDestNeighborhood] = useState('Bela Vista');
   const [destAddress, setDestAddress] = useState('Av. Paulista');
   const [destNumber, setDestNumber] = useState('1000');
   const [destDate, setDestDate] = useState(() => {
@@ -70,6 +77,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
 
   const [cargoDesc, setCargoDesc] = useState('Carga geral paletizada - Peças automotivas');
   const [cargoType, setCargoType] = useState<CargoType>(allowedOps.includes('CARGA_GERAL') ? 'GERAL' : 'VEICULO');
+  const isVehicleCargo = cargoType === 'VEICULO';
   const [weightKg, setWeightKg] = useState('8500');
   const [volumeCount, setVolumeCount] = useState('16');
   const [cargoNotes, setCargoNotes] = useState('Carga com NF e Manifesto emitidos. Carga segurada.');
@@ -83,9 +91,11 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const [platesStatus, setPlatesStatus] = useState('S/ PLACA');
 
   const [vehicleType, setVehicleType] = useState<VehicleType>('TRUCK');
+  const [vehicleTypeManual, setVehicleTypeManual] = useState('');
   const [vehicleBrand, setVehicleBrand] = useState('Volkswagen');
   const [otherVehicleBrand, setOtherVehicleBrand] = useState('');
   const [bodyType, setBodyType] = useState<BodyType>('BAU');
+  const [otherBodyType, setOtherBodyType] = useState('');
   const [minCapacityKg, setMinCapacityKg] = useState('8000');
 
   const [price, setPrice] = useState('1850.00');
@@ -95,32 +105,54 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
 
   const [publishImmediately, setPublishImmediately] = useState(true);
   const [companyVehicles, setCompanyVehicles] = useState<CompanyVehicle[]>([]);
+  const [companyDrivers, setCompanyDrivers] = useState<any[]>([]);
+  const [driverVehicles, setDriverVehicles] = useState<Vehicle[]>([]);
+  const [targetedDriverId, setTargetedDriverId] = useState('');
+  const [targetedVehicleId, setTargetedVehicleId] = useState('');
+  useEffect(() => {
+    if (!targetedDriverId) { setTargetedVehicleId(''); return; }
+    const eligible = driverVehicles.filter(vehicle => vehicle.driverId === targetedDriverId && vehicle.status !== 'INATIVO');
+    if (!eligible.some(vehicle => vehicle.id === targetedVehicleId)) setTargetedVehicleId(eligible[0]?.id || '');
+  }, [targetedDriverId, driverVehicles, targetedVehicleId]);
   const [companyVehicleId, setCompanyVehicleId] = useState('');
   const [publicListingEnabled, setPublicListingEnabled] = useState(false);
   const [publicPriceVisibleToRegistered, setPublicPriceVisibleToRegistered] = useState(true);
   const [publicInterestEnabled, setPublicInterestEnabled] = useState(true);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [selectedBudgetId, setSelectedBudgetId] = useState('');
-  const [addressSuggestions, setAddressSuggestions] = useState<{ side: 'origin' | 'destination'; items: Array<{ id: string; placeName: string; city?: string; state?: string; lat: number; lng: number }> }>({ side: 'origin', items: [] });
+  const [addressSuggestions, setAddressSuggestions] = useState<{ side: 'origin' | 'destination'; items: Array<{ id: string; placeName: string; address?: string; city?: string; state?: string; zipCode?: string; number?: string; neighborhood?: string; lat: number; lng: number }> }>({ side: 'origin', items: [] });
   const [routeLoading, setRouteLoading] = useState(false);
   const [mapboxMessage, setMapboxMessage] = useState('');
   const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
+  const [routeGeometry, setRouteGeometry] = useState<any>(null);
   const addressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const addressCache = React.useRef(new Map<string, Array<{ id: string; placeName: string; city?: string; state?: string; lat: number; lng: number }>>());
+  const addressAbort = React.useRef<AbortController | null>(null);
+  const addressCache = React.useRef(new Map<string, Array<{ id: string; placeName: string; address?: string; city?: string; state?: string; zipCode?: string; number?: string; neighborhood?: string; lat: number; lng: number }>>());
   const [originCoordinates, setOriginCoordinates] = useState<{ lat?: number; lng?: number; mapboxPlaceId?: string }>({});
   const [destinationCoordinates, setDestinationCoordinates] = useState<{ lat?: number; lng?: number; mapboxPlaceId?: string }>({});
 
   useEffect(() => {
-    if (isOpen && tenant?.id) {
-      api.getCompanyVehicles().then(setCompanyVehicles).catch(() => setCompanyVehicles([]));
-      budgetApi.list().then(result => setBudgets(result.filter(item => item.status === 'APROVADO' && !item.convertedFreightId))).catch(() => setBudgets([]));
+    if (isOpen && isSuperAdmin) {
+      tenantApi.listTenants().then(result => {
+        setAvailableTenants(result);
+        setSelectedTenantId(current => current || freightToEdit?.tenantId || result[0]?.id || '');
+      }).catch(() => setAvailableTenants([]));
+    } else if (!isOpen) {
+      setAvailableTenants([]);
     }
-  }, [isOpen, tenant?.id]);
+    if (isOpen && effectiveTenantId) {
+      api.getCompanyVehicles().then(setCompanyVehicles).catch(() => setCompanyVehicles([]));
+      api.getDrivers('', effectiveTenantId).then(setCompanyDrivers).catch(() => setCompanyDrivers([]));
+      api.getVehicles().then(setDriverVehicles).catch(() => setDriverVehicles([]));
+      budgetApi.list(undefined, effectiveTenantId).then(result => setBudgets(result.filter(item => !item.convertedFreightId && !['CANCELADO', 'CONVERTIDO'].includes(item.status) && (isSuperAdmin || item.status === 'APROVADO')))).catch(() => setBudgets([]));
+    }
+  }, [isOpen, isSuperAdmin, effectiveTenantId, freightToEdit?.tenantId]);
   useEffect(() => {
     if (freightToEdit) {
       setOriginCity(freightToEdit.origin.city);
       setOriginState(freightToEdit.origin.state);
       setOriginZip(freightToEdit.origin.zipCode);
+      setOriginNeighborhood(freightToEdit.origin.neighborhood || '');
       setOriginAddress(freightToEdit.origin.address);
       setOriginNumber(freightToEdit.origin.number);
       setOriginDate(freightToEdit.origin.date);
@@ -129,6 +161,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setDestCity(freightToEdit.destination.city);
       setDestState(freightToEdit.destination.state);
       setDestZip(freightToEdit.destination.zipCode);
+      setDestNeighborhood(freightToEdit.destination.neighborhood || '');
       setDestAddress(freightToEdit.destination.address);
       setDestNumber(freightToEdit.destination.number);
       setDestDate(freightToEdit.destination.date);
@@ -151,6 +184,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setPlatesStatus(freightToEdit.cargo.platesStatus || 'S/ PLACA');
 
       setVehicleType(freightToEdit.requirements.vehicleType);
+      setVehicleTypeManual(String(freightToEdit.requirements.vehicleType || ''));
       if (freightToEdit.requirements.vehicleBrand) {
         const brand = freightToEdit.requirements.vehicleBrand;
         const standardBrands = ['Volkswagen', 'Mercedes-Benz', 'Iveco', 'Scania', 'Ford', 'Volvo'];
@@ -162,6 +196,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
         }
       }
       setBodyType(freightToEdit.requirements.bodyTypeRequired || 'BAU');
+      setOtherBodyType(freightToEdit.requirements.bodyTypeOther || '');
       setMinCapacityKg(String(freightToEdit.requirements.minCapacityKg || 5000));
 
       setPrice(String(freightToEdit.payment.price));
@@ -169,6 +204,8 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setTollIncluded(freightToEdit.payment.tollIncluded);
       setPaymentNotes(freightToEdit.payment.notes || '');
       setCompanyVehicleId(freightToEdit.companyVehicleId || '');
+      setTargetedDriverId(freightToEdit.targetedDriverId || '');
+      setTargetedVehicleId(freightToEdit.targetedVehicleId || '');
       setPublicListingEnabled(freightToEdit.publicListingEnabled === true);
       setPublicPriceVisibleToRegistered(freightToEdit.publicPriceVisibleToRegistered !== false);
       setPublicInterestEnabled(freightToEdit.publicInterestEnabled !== false);
@@ -186,14 +223,20 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
       setClientRevenue('');
       setDriverCost('');
       setCompanyVehicleId('');
+      setTargetedDriverId('');
+      setTargetedVehicleId('');
+      setVehicleTypeManual('');
       setPublicListingEnabled(false);
       setPublicPriceVisibleToRegistered(true);
       setPublicInterestEnabled(true);
       setSelectedBudgetId('');
       setOriginCoordinates({});
       setDestinationCoordinates({});
+      setOriginNeighborhood('');
+      setDestNeighborhood('');
+      if (!isSuperAdmin) setSelectedTenantId(tenant?.id || '');
     }
-  }, [isOpen, freightToEdit]);
+  }, [isOpen, freightToEdit, isSuperAdmin, tenant?.id]);
 
   if (!isOpen) return null;
 
@@ -238,53 +281,78 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
   const searchAddress = (side: 'origin' | 'destination', value: string) => {
     if (side === 'origin') { setOriginAddress(value); setOriginCoordinates({}); }
     else { setDestAddress(value); setDestinationCoordinates({}); }
+    setRouteDistanceKm(null);
+    setRouteGeometry(null);
     if (addressTimer.current) clearTimeout(addressTimer.current);
+    addressAbort.current?.abort();
     if (value.trim().length < 3) return setAddressSuggestions({ side, items: [] });
-    const query = value.trim();
+    const query = [value.trim(), side === 'origin' ? originCity : destCity, side === 'origin' ? originState : destState, 'Brasil'].filter(Boolean).join(', ');
     const cached = addressCache.current.get(query.toLowerCase());
     if (cached) return setAddressSuggestions({ side, items: cached });
     addressTimer.current = setTimeout(async () => {
+      const controller = new AbortController();
+      addressAbort.current = controller;
       try {
-        const result = await budgetApi.geocode(query);
-        addressCache.current.set(query.toLowerCase(), result);
-        setAddressSuggestions({ side, items: result });
-      } catch { setAddressSuggestions({ side, items: [] }); }
+        const result = await budgetApi.geocode(query, controller.signal);
+        if (controller.signal.aborted) return;
+        const items = Array.isArray(result) ? result.filter(item => item && item.id && (item.placeName || item.address)) : [];
+        addressCache.current.set(query.toLowerCase(), items);
+        setAddressSuggestions({ side, items });
+      } catch (error) {
+        if ((error as DOMException)?.name !== 'AbortError' && !controller.signal.aborted) {
+          setAddressSuggestions({ side, items: [] });
+        }
+      }
     }, 350);
   };
 
-  const chooseAddress = (side: 'origin' | 'destination', item: { id: string; placeName: string; city?: string; state?: string; lat: number; lng: number }) => {
+  const chooseAddress = (side: 'origin' | 'destination', item: { id: string; placeName: string; address?: string; city?: string; state?: string; zipCode?: string; number?: string; neighborhood?: string; lat: number; lng: number }) => {
     if (side === 'origin') {
-      setOriginAddress(item.placeName); setOriginCity(item.city || originCity); setOriginState(item.state || originState);
+      setOriginAddress(item.address || item.placeName); setOriginCity(item.city || originCity); setOriginState(item.state || originState); if (item.zipCode) setOriginZip(item.zipCode); if (item.number) setOriginNumber(item.number); if (item.neighborhood) setOriginNeighborhood(item.neighborhood);
       setOriginCoordinates({ lat: item.lat, lng: item.lng, mapboxPlaceId: item.id });
     } else {
-      setDestAddress(item.placeName); setDestCity(item.city || destCity); setDestState(item.state || destState);
+      setDestAddress(item.address || item.placeName); setDestCity(item.city || destCity); setDestState(item.state || destState); if (item.zipCode) setDestZip(item.zipCode); if (item.number) setDestNumber(item.number); if (item.neighborhood) setDestNeighborhood(item.neighborhood);
       setDestinationCoordinates({ lat: item.lat, lng: item.lng, mapboxPlaceId: item.id });
     }
     setAddressSuggestions({ side, items: [] });
   };
 
   const calculateFreightRoute = async () => {
-    if (originCoordinates.lat === undefined || originCoordinates.lng === undefined || destinationCoordinates.lat === undefined || destinationCoordinates.lng === undefined) {
-      setMapboxMessage('Selecione um endereço de origem e um de destino nas sugestões de endereço.');
-      return;
-    }
     try {
       setRouteLoading(true); setMapboxMessage('');
-      const route = await budgetApi.directions({ lat: originCoordinates.lat, lng: originCoordinates.lng }, { lat: destinationCoordinates.lat, lng: destinationCoordinates.lng });
+      let origin = originCoordinates;
+      let destination = destinationCoordinates;
+      if (origin.lat === undefined || origin.lng === undefined) {
+        const result = await budgetApi.geocode([originAddress, originNumber, originCity, originState, 'Brasil'].filter(Boolean).join(', '));
+        if (result[0]) { origin = { lat: result[0].lat, lng: result[0].lng, mapboxPlaceId: result[0].id }; setOriginCoordinates(origin); }
+      }
+      if (destination.lat === undefined || destination.lng === undefined) {
+        const result = await budgetApi.geocode([destAddress, destNumber, destCity, destState, 'Brasil'].filter(Boolean).join(', '));
+        if (result[0]) { destination = { lat: result[0].lat, lng: result[0].lng, mapboxPlaceId: result[0].id }; setDestinationCoordinates(destination); }
+      }
+      if (origin.lat === undefined || origin.lng === undefined || destination.lat === undefined || destination.lng === undefined) {
+        setMapboxMessage('Informe endereços válidos de origem e destino para calcular a rota.');
+        return;
+      }
+      const route = await budgetApi.directions({ lat: origin.lat, lng: origin.lng }, { lat: destination.lat, lng: destination.lng });
       setMapboxMessage(`Rota calculada: ${route.distanceKm.toFixed(2)} km · aproximadamente ${Math.round(route.estimatedMinutes)} min.`);
-      setRouteDistanceKm(Number(route.distanceKm.toFixed(2)));
+      setRouteDistanceKm(Number(route.distanceKm.toFixed(2))); setRouteGeometry(route.geometry || null);
     } catch (err: any) { setMapboxMessage(err.message || 'Não foi possível calcular a rota.'); }
     finally { setRouteLoading(false); }
   };
 
   const applyBudget = (budget: Budget) => {
     setSelectedBudgetId(budget.id);
-    setOriginCity(budget.origin?.city || ''); setOriginState(budget.origin?.state || ''); setOriginZip(budget.origin?.zipCode || ''); setOriginAddress(budget.origin?.address || '');
-    setDestCity(budget.destination?.city || ''); setDestState(budget.destination?.state || ''); setDestZip(budget.destination?.zipCode || ''); setDestAddress(budget.destination?.address || '');
+    setOriginCity(budget.origin?.city || ''); setOriginState(budget.origin?.state || ''); setOriginZip(budget.origin?.zipCode || ''); setOriginNeighborhood(budget.origin?.neighborhood || ''); setOriginAddress(budget.origin?.address || '');
+    setDestCity(budget.destination?.city || ''); setDestState(budget.destination?.state || ''); setDestZip(budget.destination?.zipCode || ''); setDestNeighborhood(budget.destination?.neighborhood || ''); setDestAddress(budget.destination?.address || '');
     setOriginCoordinates({ lat: budget.origin?.lat, lng: budget.origin?.lng, mapboxPlaceId: budget.origin?.mapboxPlaceId });
     setDestinationCoordinates({ lat: budget.destination?.lat, lng: budget.destination?.lng, mapboxPlaceId: budget.destination?.mapboxPlaceId });
-    setCargoDesc(budget.cargoType || ''); setWeightKg(String(budget.weightKg || '')); setVolumeCount(String(budget.quantity || 1));
-    setPrice(String(budget.financials?.totalFreight || 0)); setDriverCost(String(budget.driverPaid || 0)); setRouteDistanceKm(budget.distanceKm || null);
+    setOriginDate(budget.date || originDate); setDestDate(budget.destination?.date || destDate);
+    setCargoDesc(budget.cargoType || ''); setCargoType((String(budget.cargoType || '').toUpperCase() === 'VEICULO' ? 'VEICULO' : 'GERAL') as CargoType); setWeightKg(String(budget.weightKg || '')); setVolumeCount(String(budget.quantity || 1));
+    setVehicleType((budget.vehicleType || 'TRUCK') as VehicleType); setVehicleTypeManual(budget.vehicleType || '');
+    const budgetVehicleData = budget as Budget & { bodyType?: BodyType; bodyTypeOther?: string };
+    setBodyType((budgetVehicleData.bodyType || 'BAU') as BodyType); setOtherBodyType(budgetVehicleData.bodyTypeOther || '');
+    setPrice(String(budget.financials?.totalFreight || 0)); setDriverCost(String(budget.driverPaid || budget.financials?.driverPaid || 0)); setRouteDistanceKm(budget.distanceKm || null); setRouteGeometry(budget.routeGeometry || null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -293,10 +361,16 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
     setError(null);
 
     try {
+      if (isSuperAdmin && !selectedTenantId) {
+        setError('Selecione a empresa responsável pelo frete.');
+        return;
+      }
       const payload = {
+        ...(isSuperAdmin ? { tenantId: selectedTenantId } : {}),
         operationType,
         origin: {
           zipCode: originZip,
+          neighborhood: originNeighborhood,
           address: originAddress,
           number: originNumber,
           city: originCity,
@@ -307,6 +381,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
         },
         destination: {
           zipCode: destZip,
+          neighborhood: destNeighborhood,
           address: destAddress,
           number: destNumber,
           city: destCity,
@@ -318,8 +393,8 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
         cargo: {
           description: cargoDesc,
           type: cargoType,
-          weightKg: Number(weightKg),
-          volumeCount: Number(volumeCount),
+          weightKg: isVehicleCargo ? 0 : Number(weightKg),
+          volumeCount: isVehicleCargo ? 0 : Number(volumeCount),
           notes: cargoNotes,
           requiresInsurance: true,
           vehicleProduct,
@@ -330,9 +405,10 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
           platesStatus
         },
         requirements: {
-          vehicleType,
+          vehicleType: isVehicleCargo ? (vehicleTypeManual.trim() || undefined) : vehicleType,
           vehicleBrand: vehicleBrand === 'Outro' ? otherVehicleBrand : vehicleBrand,
           bodyTypeRequired: bodyType,
+          bodyTypeOther: bodyType === 'OUTRO' ? otherBodyType.trim() || undefined : undefined,
           minCapacityKg: Number(minCapacityKg),
           trackerRequired: true
         },
@@ -345,8 +421,11 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
           notes: paymentNotes
         },
         distanceKm: routeDistanceKm || 0,
+        routeGeometry: routeGeometry || undefined,
         publishImmediately,
         companyVehicleId: companyVehicleId || undefined,
+        targetedDriverId: targetedDriverId || null,
+        targetedVehicleId: targetedDriverId ? (targetedVehicleId || null) : null,
         publicListingEnabled,
         publicPriceVisibleToRegistered,
         publicInterestEnabled,
@@ -437,6 +516,17 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
           </div>
         )}
 
+        {isSuperAdmin && (
+          <label className="block space-y-1.5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-900/60 dark:bg-amber-950/30">
+            <span className="font-bold text-amber-900 dark:text-amber-200">Empresa do frete *</span>
+            <select value={selectedTenantId} onChange={event => setSelectedTenantId(event.target.value)} className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-amber-500 dark:border-amber-800 dark:bg-slate-900 dark:text-white">
+              <option value="">Selecione a empresa responsável</option>
+              {availableTenants.filter(item => item.status !== 'BLOQUEADA').map(item => <option key={item.id} value={item.id}>{item.name} — {item.cnpj}</option>)}
+            </select>
+            {!selectedTenantId && <span className="text-amber-700 dark:text-amber-300">Selecione uma empresa antes de publicar o frete.</span>}
+          </label>
+        )}
+
         {!freightToEdit && !simulateOnly && (
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900/50 dark:bg-indigo-950/20">
             <label className="block text-xs font-bold uppercase tracking-wider text-indigo-800 dark:text-indigo-300">Usar orçamento existente (opcional)
@@ -515,7 +605,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       type="text"
                       required={fOriginCity.required}
                       value={originCity}
-                      onChange={e => setOriginCity(e.target.value)}
+                      onChange={e => { setOriginCity(e.target.value); setOriginCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }}
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                       placeholder={fOriginCity.placeholder}
                     />
@@ -531,7 +621,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       required={fOriginState.required}
                       maxLength={2}
                       value={originState}
-                      onChange={e => setOriginState(e.target.value.toUpperCase())}
+                      onChange={e => { setOriginState(e.target.value.toUpperCase()); setOriginCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }}
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium uppercase"
                       placeholder={fOriginState.placeholder}
                     />
@@ -553,7 +643,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                       placeholder={fOriginAddress.placeholder}
                     />
-                    {addressSuggestions.side === 'origin' && addressSuggestions.items.length > 0 && <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-xl">{addressSuggestions.items.map(item => <button type="button" key={item.id} onClick={() => chooseAddress('origin', item)} className="block w-full border-b p-2 text-left text-xs hover:bg-emerald-50">{item.placeName}</button>)}</div>}
+                    {addressSuggestions.side === 'origin' && addressSuggestions.items.length > 0 && <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-xl">{addressSuggestions.items.map(item => <button type="button" key={item.id} onClick={() => chooseAddress('origin', item)} className="block w-full border-b p-2 text-left text-xs hover:bg-emerald-50"><strong className="block">{item.placeName}</strong><span className="text-[10px] text-slate-500">{[item.address, item.neighborhood, item.city, item.state, item.zipCode].filter(Boolean).join(' · ')}</span></button>)}</div>}
                   </div>
                 )}
                 {fOriginNumber.enabled && (
@@ -571,6 +661,15 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                     />
                   </div>
                 )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">CEP Origem
+                  <CepLookupField value={originZip} onChange={setOriginZip} onFound={data => { setOriginZip(data.zipCode); setOriginAddress(data.address || originAddress); setOriginNeighborhood(data.neighborhood || originNeighborhood); setOriginCity(data.city || originCity); setOriginState(data.state || originState); setOriginCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }} className="mt-1" />
+                </label>
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Bairro Origem
+                  <input value={originNeighborhood} onChange={e => setOriginNeighborhood(e.target.value)} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="Bairro" />
+                </label>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -613,7 +712,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       type="text"
                       required={fDestCity.required}
                       value={destCity}
-                      onChange={e => setDestCity(e.target.value)}
+                      onChange={e => { setDestCity(e.target.value); setDestinationCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }}
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                       placeholder={fDestCity.placeholder}
                     />
@@ -629,7 +728,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       required={fDestState.required}
                       maxLength={2}
                       value={destState}
-                      onChange={e => setDestState(e.target.value.toUpperCase())}
+                      onChange={e => { setDestState(e.target.value.toUpperCase()); setDestinationCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }}
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium uppercase"
                       placeholder={fDestState.placeholder}
                     />
@@ -651,7 +750,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                       className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                       placeholder={fDestAddress.placeholder}
                     />
-                    {addressSuggestions.side === 'destination' && addressSuggestions.items.length > 0 && <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-xl">{addressSuggestions.items.map(item => <button type="button" key={item.id} onClick={() => chooseAddress('destination', item)} className="block w-full border-b p-2 text-left text-xs hover:bg-emerald-50">{item.placeName}</button>)}</div>}
+                    {addressSuggestions.side === 'destination' && addressSuggestions.items.length > 0 && <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-xl">{addressSuggestions.items.map(item => <button type="button" key={item.id} onClick={() => chooseAddress('destination', item)} className="block w-full border-b p-2 text-left text-xs hover:bg-emerald-50"><strong className="block">{item.placeName}</strong><span className="text-[10px] text-slate-500">{[item.address, item.neighborhood, item.city, item.state, item.zipCode].filter(Boolean).join(' · ')}</span></button>)}</div>}
                   </div>
                 )}
                 {fDestNumber.enabled && (
@@ -669,6 +768,15 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                     />
                   </div>
                 )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">CEP Destino
+                  <CepLookupField value={destZip} onChange={setDestZip} onFound={data => { setDestZip(data.zipCode); setDestAddress(data.address || destAddress); setDestNeighborhood(data.neighborhood || destNeighborhood); setDestCity(data.city || destCity); setDestState(data.state || destState); setDestinationCoordinates({}); setRouteDistanceKm(null); setRouteGeometry(null); }} className="mt-1" />
+                </label>
+                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Bairro Destino
+                  <input value={destNeighborhood} onChange={e => setDestNeighborhood(e.target.value)} className="mt-1 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="Bairro" />
+                </label>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
@@ -700,7 +808,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
               <button type="button" onClick={() => void calculateFreightRoute()} disabled={routeLoading} className="rounded-lg border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-700 disabled:opacity-50">{routeLoading ? 'Calculando rota…' : 'Calcular rota'}</button>
               {routeDistanceKm !== null && <span className="text-xs font-bold text-sky-800">{routeDistanceKm.toFixed(2)} km</span>}
             </div>
-            <p className="mt-2 text-[11px] text-sky-700">Digite o endereço e selecione uma sugestão de endereço para origem e destino antes de calcular.</p>
+            <p className="mt-2 text-[11px] text-sky-700">Digite os endereços e selecione as sugestões de endereço para origem e destino antes de calcular. Selecione um endereço quando houver mais de uma opção.</p>
             {mapboxMessage && <p className="mt-1 text-[11px] font-semibold text-sky-800">{mapboxMessage}</p>}
           </div>
 
@@ -751,7 +859,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {fWeight.enabled && (
+              {!isVehicleCargo && fWeight.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                     {fWeight.label} {fWeight.required && <span className="text-red-500">*</span>}
@@ -766,7 +874,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                   />
                 </div>
               )}
-              {fVolumes.enabled && (
+              {!isVehicleCargo && fVolumes.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                     {fVolumes.label} {fVolumes.required && <span className="text-red-500">*</span>}
@@ -781,7 +889,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                   />
                 </div>
               )}
-              {fVehicleType.enabled && (
+              {!isVehicleCargo && fVehicleType.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
                     {fVehicleType.label} {fVehicleType.required && <span className="text-red-500">*</span>}
@@ -802,14 +910,20 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                   </select>
                 </div>
               )}
+              {isVehicleCargo && (
+                <div className="sm:col-span-2">
+                  <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">Tipo de veículo / caminhão / implemento (opcional)</label>
+                  <input type="text" value={vehicleTypeManual} onChange={e => setVehicleTypeManual(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium" placeholder="Ex.: Caminhão VW 24.280, carreta, implemento..." />
+                </div>
+              )}
               {fBodyType.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    {fBodyType.label} {fBodyType.required && <span className="text-red-500">*</span>}
+                    {fBodyType.label} {!isVehicleCargo && fBodyType.required && <span className="text-red-500">*</span>}
                   </label>
                   <select
                     value={bodyType}
-                    required={fBodyType.required}
+                    required={!isVehicleCargo && fBodyType.required}
                     onChange={e => setBodyType(e.target.value as BodyType)}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                   >
@@ -819,7 +933,18 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                     <option value="GRANELEIRO">Graneleiro</option>
                     <option value="REFRIGERADO">Refrigerado</option>
                     <option value="PLATAFORMA">Plataforma</option>
+                    <option value="OUTRO">Outros</option>
                   </select>
+                  {bodyType === 'OUTRO' && (
+                    <input
+                      type="text"
+                      required={!isVehicleCargo}
+                      value={otherBodyType}
+                      onChange={e => setOtherBodyType(e.target.value)}
+                      className="mt-2 w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
+                      placeholder="Informe o tipo de carroceria"
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -828,11 +953,11 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
               {fBrand.enabled && (
                 <div>
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    {fBrand.label} {fBrand.required && <span className="text-red-500">*</span>}
+                    {fBrand.label} {!isVehicleCargo && fBrand.required && <span className="text-red-500">*</span>}
                   </label>
                   <select
                     value={vehicleBrand}
-                    required={fBrand.required}
+                    required={!isVehicleCargo && fBrand.required}
                     onChange={e => setVehicleBrand(e.target.value)}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold"
                   >
@@ -851,7 +976,7 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
                   <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block mb-1">Especifique a Marca / Veículo</label>
                   <input
                     type="text"
-                    required={vehicleBrand === 'Outro'}
+                    required={!isVehicleCargo && vehicleBrand === 'Outro'}
                     value={otherVehicleBrand}
                     onChange={e => setOtherVehicleBrand(e.target.value)}
                     className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
@@ -1036,6 +1161,15 @@ export const FreightFormModal: React.FC<FreightFormModalProps> = ({ isOpen, onCl
               />
               <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
             </label>
+          </div>
+
+          <div className="p-3.5 bg-violet-50/70 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 rounded-xl space-y-3">
+            <div><span className="text-xs font-bold text-violet-900 dark:text-violet-200 block">Direcionar para um motorista específico (opcional)</span><span className="text-[11px] text-violet-800/80 dark:text-violet-300/80">Sem publicar na vitrine, o frete ficará disponível somente no painel do motorista selecionado após a aprovação da empresa. Se nada for selecionado, o frete seguirá o fluxo normal.</span></div>
+            <select value={targetedDriverId} onChange={e => { setTargetedDriverId(e.target.value); if (!e.target.value) setTargetedVehicleId(''); }} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-800 rounded-lg text-xs">
+              <option value="">Nenhum motorista específico</option>
+              {companyDrivers.filter(driver => driver.status !== 'INATIVO').map(driver => <option key={driver.id} value={driver.id}>{driver.name}{driver.city ? ` — ${driver.city}/${driver.state || ''}` : ''}</option>)}
+            </select>
+            {targetedDriverId && <select value={targetedVehicleId} onChange={e => setTargetedVehicleId(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-violet-200 dark:border-violet-800 rounded-lg text-xs"><option value="">Qualquer veículo elegível do motorista</option>{driverVehicles.filter(vehicle => vehicle.driverId === targetedDriverId && vehicle.status !== 'INATIVO').map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate} • {vehicle.brand} {vehicle.model}</option>)}</select>}
           </div>
 
           {(

@@ -6,7 +6,7 @@ services:
   # ============================================================================
   postgres:
     image: postgres:16-alpine
-    container_name: elo-log-postgres
+    container_name: atendo-one-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
@@ -19,7 +19,7 @@ services:
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     networks:
-      - elo-log-network
+      - atendo-one-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${DB_USER} -d $${DB_NAME}"]
       interval: 5s
@@ -29,21 +29,21 @@ services:
   # ============================================================================
   # APLICAÇÃO ELO LOG (SAAS MULTI-TENANT + COMPRESSÃO DE IMAGENS)
   # ============================================================================
-  elo-log:
+  atendo-one:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: elo-log-app
+    container_name: atendo-one-app
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      # Mapeia a porta interna 3000 do container para a porta 3000 (ou outra porta livre) da sua VPS
-      - "${APP_PORT:-3000}:3000"
+      # APP_PORT controla a porta externa; PORT controla a porta interna da aplicação.
+      - "${APP_PORT:-3000}:${PORT:-3000}"
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=${PORT:-3000}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       # Conexão com o banco SQL PostgreSQL
       - DB_TYPE=postgres
@@ -53,6 +53,9 @@ services:
       - DB_USER=${DB_USER:?DB_USER is required}
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
       - DATABASE_URL=postgresql://${DB_USER:?DB_USER is required}:${DB_PASSWORD:?DB_PASSWORD is required}@postgres:5432/${DB_NAME:?DB_NAME is required}
+      # app_state permanece em transição; só ativar após migração relacional validada.
+      - RLS_DOMAIN_MODE=${RLS_DOMAIN_MODE:-snapshot}
+      - NORMALIZED_DOMAIN_RLS=${NORMALIZED_DOMAIN_RLS:-false}
       # Compressão Automática de Imagens
       - IMAGE_COMPRESSION_ENABLED=true
       - IMAGE_QUALITY=0.8
@@ -63,13 +66,13 @@ services:
     secrets:
       - elolog_config_encryption_key
     networks:
-      - elo-log-network
+      - atendo-one-network
       # Caso use um proxy reverso global rodando em outra rede, descomente a rede abaixo:
       # - proxy-network
 
 networks:
-  elo-log-network:
-    name: elo-log-network
+  atendo-one-network:
+    name: atendo-one-network
     driver: bridge
   # Caso use rede externa para conectar com Nginx Proxy Manager, Traefik ou Caddy, descomente abaixo:
   # proxy-network:

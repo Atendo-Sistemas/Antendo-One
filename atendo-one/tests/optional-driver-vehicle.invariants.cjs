@@ -1,0 +1,11 @@
+const fs = require('node:fs');
+const api = fs.readFileSync('server/api.ts', 'utf8');
+const publicUi = fs.readFileSync('src/components/common/FreightInterestModal.tsx', 'utf8');
+if (!api.includes('const hasVehicle = Boolean')) throw new Error('ADMIN_OPTIONAL_VEHICLE_GUARD_MISSING');
+if (!api.includes('vehiclesCount: hasVehicle ? 1 : 0')) throw new Error('OPTIONAL_VEHICLE_COUNT_MISSING');
+if (!api.includes('if (newVehicle) db.vehicles.push(newVehicle)')) throw new Error('OPTIONAL_VEHICLE_PERSISTENCE_GUARD_MISSING');
+if (!api.includes("const required = ['email', 'cpf', 'cnh', 'cnhCategory', 'cnhExpiresAt', 'city', 'state']")) throw new Error('PUBLIC_DRIVER_REQUIRED_FIELDS_MISSING');
+if (!api.includes('const hasVehicleData = vehicleKeys.some')) throw new Error('PUBLIC_OPTIONAL_VEHICLE_GUARD_MISSING');
+if (!publicUi.includes('Tipo de veículo (opcional)')) throw new Error('PUBLIC_OPTIONAL_VEHICLE_UI_MISSING');
+if (!publicUi.includes('Placa (opcional)')) throw new Error('PUBLIC_OPTIONAL_PLATE_UI_MISSING');
+console.log('OPTIONAL_DRIVER_VEHICLE_INVARIANTS_OK');

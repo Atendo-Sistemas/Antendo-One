@@ -14,6 +14,7 @@ assert.match(db, /SELECT id, ciphertext FROM app_secrets WHERE id LIKE \$1/);
 assert.match(db, /token: ''/);
 assert.match(api, /Authorization: `Bearer \$\{config\.token\.trim\(\)\}`/);
 assert.match(api, /apiRouter\.get\('\/integrations\/whatsapp\/status'/);
+assert.match(api, /apiRouter\.post\('\/integrations\/whatsapp\/status'/);
 assert.match(api, /apiRouter\.post\('\/integrations\/whatsapp\/qr'/);
 assert.match(api, /callWhatsAppGateway\(config, '\/statuschannel'/);
 assert.match(api, /callWhatsAppGateway\(config, '\/qrcode'/);
@@ -27,6 +28,8 @@ assert.match(api, /if \(tenantConfig\?\.token && tenantConfig\.baseUrl\) return 
 assert.ok(!api.includes('bearertoken='), 'O token não deve ser enviado na query string.');
 assert.match(client, /getWhatsAppStatus/);
 assert.match(client, /requestWhatsAppQr/);
+assert.match(modal, /const refreshedConfig = await api\.getWhatsAppConfig\(selectedTenantId \|\| undefined\)/);
+assert.match(modal, /setTokenSaved\(Boolean\(config\.tokenMasked\)\)/);
 assert.match(modal, /Gerar QR Code/);
 assert.match(modal, /QR Code temporário/);
 assert.match(modal, /Nunca é exibido|nunca é exibido|nunca é exibido/, 'A UI deve informar que o token não é exibido.');

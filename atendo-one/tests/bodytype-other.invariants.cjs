@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..');
+const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+const freight = read('src/components/freight/FreightFormModal.tsx');
+const budget = read('src/components/budgets/BudgetManager.tsx');
+const types = read('src/types/index.ts');
+const api = read('server/api.ts');
+assert.match(freight, /<option value="OUTRO">Outros<\/option>/);
+assert.match(freight, /bodyType === 'OUTRO'/);
+assert.match(freight, /bodyTypeOther: bodyType === 'OUTRO'/);
+assert.match(budget, /draft\.bodyType/);
+assert.match(budget, /draft\.bodyTypeOther/);
+assert.match(types, /\| 'OUTRO';/);
+assert.match(api, /'bodyType','bodyTypeOther'/);
+assert.match(api, /bodyTypeRequired: budget\.bodyType/);
+console.log('BODYTYPE_OTHER_INVARIANTS_OK');

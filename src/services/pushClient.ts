@@ -82,3 +82,20 @@ export async function testPushNotification(): Promise<{ success: boolean; messag
     return { success: false, message: err.message };
   }
 }
+
+export async function unregisterPushNotifications(): Promise<void> {
+  const authToken = getAuthToken();
+  if (!authToken || !('serviceWorker' in navigator)) return;
+  const registration = await navigator.serviceWorker.getRegistration('/');
+  const subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) return;
+  await fetch('/api/push/subscribe', {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${authToken}`
+    },
+    body: JSON.stringify({ endpoint: subscription.endpoint })
+  });
+  await subscription.unsubscribe();
+}

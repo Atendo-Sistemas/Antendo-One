@@ -5,9 +5,10 @@ version: '3.8'
 # ==============================================================================
 # Como implantar no Portainer:
 # 1. No painel do Portainer, vá em: Stacks -> Add stack
-# 2. Nome da Stack: "elo-log"
+# 2. Nome da Stack: "atendo-one"
 # 3. No campo "Web editor", cole todo o conteúdo deste arquivo.
-# 4. Ajuste as variáveis em "Environment variables" se desejar personalizar senhas.
+# 4. Defina DB_PASSWORD, JWT_SECRET e CONFIG_ENCRYPTION_KEY em "Environment variables".
+#    Mantenha CONFIG_ENCRYPTION_KEY estável para continuar lendo configurações protegidas.
 # 5. Clique em "Deploy the stack". O banco e as tabelas serão criados sozinhos!
 # ==============================================================================
 
@@ -17,7 +18,7 @@ services:
   # ============================================================================
   postgres:
     image: postgres:16-alpine
-    container_name: elo-log-postgres
+    container_name: atendo-one-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-elolog}
@@ -29,7 +30,7 @@ services:
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     networks:
-      - elo-log-network
+      - atendo-one-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-elolog_user} -d ${DB_NAME:-elolog}"]
       interval: 5s
@@ -39,9 +40,9 @@ services:
   # ============================================================================
   # APLICAÇÃO ELO LOG (SAAS MULTI-TENANT COM COMPRESSÃO E API)
   # ============================================================================
-  elo-log:
+  atendo-one:
     image: node:20-alpine
-    container_name: elo-log-app
+    container_name: atendo-one-app
     restart: unless-stopped
     working_dir: /app
     command: sh -c "npm install --production=false && npm run build && npm start"
@@ -49,11 +50,11 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${APP_PORT:-3000}:3000"
+      - "${APP_PORT:-3000}:${PORT:-3000}"
     environment:
       - NODE_ENV=production
-      - PORT=3000
-      - JWT_SECRET=${JWT_SECRET:-elolog_jwt_secret_token_change_in_prod}
+      - PORT=${PORT:-3000}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set}
       # Conexão com o banco SQL PostgreSQL
       - DB_TYPE=postgres
       - DB_HOST=postgres
@@ -62,6 +63,10 @@ services:
       - DB_USER=${DB_USER:-elolog_user}
       - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - DATABASE_URL=postgresql://${DB_USER:-elolog_user}:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/${DB_NAME:-elolog}
+      - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY must be set}
+      # app_state permanece em transição; só ativar após migração relacional validada.
+      - RLS_DOMAIN_MODE=${RLS_DOMAIN_MODE:-snapshot}
+      - NORMALIZED_DOMAIN_RLS=${NORMALIZED_DOMAIN_RLS:-false}
       # Otimização e Compressão de Fotos / Imagens
       - IMAGE_COMPRESSION_ENABLED=true
       - IMAGE_QUALITY=0.8
@@ -72,11 +77,11 @@ services:
       - WHATSAPP_API_URL=${WHATSAPP_API_URL:-}
       - WHATSAPP_API_TOKEN=${WHATSAPP_API_TOKEN:-}
     networks:
-      - elo-log-network
+      - atendo-one-network
 
 networks:
-  elo-log-network:
-    name: elo-log-network
+  atendo-one-network:
+    name: atendo-one-network
     driver: bridge
 
 volumes:

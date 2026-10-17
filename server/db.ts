@@ -14,6 +14,7 @@ import {
   ErrorLogEntry,
   UserRole,
   WhatsAppConfig,
+  EmailConfig,
   SaaSGlobalConfig,
   PlanConfig,
   TripExpenseReport,
@@ -41,6 +42,7 @@ const WHATSAPP_SECRET_ID = 'whatsapp-global';
 const WHATSAPP_TENANT_SECRET_PREFIX = 'whatsapp-tenant:';
 const MAPBOX_SECRET_ID = 'mapbox-global';
 const EMAIL_SECRET_ID = 'smtp-global';
+const EMAIL_TENANT_SECRET_PREFIX = 'smtp-tenant:';
 const ASAAS_SECRET_ID = 'asaas-global';
 const ATENDO_CRM_ADMIN_SECRET_ID = 'atendo-crm-admin';
 export const PUBLIC_DEMO_TENANT_ID = 'tenant-demo-public';
@@ -129,6 +131,7 @@ class DatabaseStore {
   errorLogs: ErrorLogEntry[] = [];
   visitAnalytics: VisitAnalyticsBucket[] = [];
   driverCompanyLinks: DriverCompanyLink[] = [];
+  driverCompanyProfiles: any[] = [];
   freightInterests: FreightInterest[] = [];
   companyVehicles: CompanyVehicle[] = [];
   companyStops: CompanyStop[] = [];
@@ -148,6 +151,7 @@ class DatabaseStore {
     { role: 'DRIVER', content: '' }
   ];
   whatsappConfigs: Map<string, WhatsAppConfig> = new Map();
+  tenantEmailConfigs: Map<string, Partial<EmailConfig>> = new Map();
   tenantNotificationTemplates: Map<string, NotificationTemplate[]> = new Map();
   tenantReportTemplates: Map<string, TenantReportTemplate[]> = new Map();
   globalWhatsAppConfig: WhatsAppConfig = {
@@ -308,6 +312,7 @@ class DatabaseStore {
       allowIndexing: true
     },
     notificationTemplates: defaultNotificationTemplates.map(template => ({ ...template, variables: [...template.variables] })),
+    adBanners: [],
     asaasConfig: {
       enabled: false,
       environment: 'sandbox',
@@ -326,6 +331,7 @@ class DatabaseStore {
   private persistenceReady: Promise<void>;
   private persistenceQueue: Promise<void> = Promise.resolve();
   private analyticsPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  private tripExpenseSchemaReady: Promise<void> | null = null;
   legalDocumentVersions: LegalDocumentVersion[] = [];
 
   constructor() {
@@ -442,6 +448,22 @@ class DatabaseStore {
     this.ensureDriverDataDisclosure();
     this.ensureLegalCompleteness();
     this.ensureDriverCompanyLinks();
+    this.ensureHelpPages();
+  }
+
+  private ensureHelpPages(): void {
+    const defaults: Record<string, string> = {
+      SUPER_ADMIN: '<h1>Manual do Super Admin</h1><p>Administre empresas, usuários, permissões, integrações, mensagens e conteúdo global do Atendo One.</p><h2>Segurança</h2><p>Use o princípio do menor privilégio, selecione a empresa correta em sessões assistidas e nunca compartilhe tokens ou credenciais.</p><h2>Empresas</h2><p>Cadastre e acompanhe empresas clientes. As configurações de cada empresa permanecem isoladas e alterações importantes ficam registradas na auditoria.</p>',
+      ADMIN: '<h1>Manual do administrador da empresa</h1><p>Gerencie a operação da sua empresa, incluindo usuários autorizados, motoristas, veículos, fretes, documentos e notificações.</p><h2>Permissões</h2><p>Conceda somente os acessos necessários. O Super Admin SaaS é reservado à administração global e não deve ser criado pela empresa cliente.</p><h2>Notificações</h2><p>Em Mensagens da empresa, personalize os textos operacionais. Os canais e tokens são controlados pelo Atendo One e os envios respeitam o consentimento e o vínculo empresarial.</p><h2>Alertas de frete</h2><p>Configure o raio e o fallback regional em Alertas de frete para direcionar avisos apenas aos motoristas elegíveis da sua empresa.</p>',
+      SUPERVISOR: '<h1>Manual do supervisor</h1><p>Acompanhe fretes, motoristas, ocorrências, formulários e documentos conforme as permissões concedidas pelo administrador da empresa.</p><h2>Operação</h2><p>Confirme os dados antes de salvar etapas e comunique divergências pelo fluxo interno da empresa. Configurações financeiras, integrações e permissões administrativas permanecem protegidas.</p>',
+      USER: '<h1>Manual do usuário</h1><p>Consulte os módulos liberados pela empresa, preencha os formulários com dados corretos e mantenha seu contato atualizado.</p><h2>Notificações</h2><p>Em Preferências de notificações, escolha os canais operacionais autorizados. Mensagens essenciais de segurança podem continuar sendo enviadas para proteger a conta.</p>',
+      DRIVER: '<h1>Manual do motorista</h1><p>Consulte seus fretes, acompanhe as etapas da viagem e mantenha seus dados cadastrais e documentos atualizados.</p><h2>Alertas por proximidade</h2><p>Você pode autorizar notificações Push e localização para receber oportunidades próximas. A localização é usada somente dentro das regras da empresa vinculada e pode ser desativada a qualquer momento.</p>'
+    };
+    for (const [role, content] of Object.entries(defaults)) {
+      const page = this.helpPages.find(item => item.role === role);
+      if (!page) this.helpPages.push({ role, content });
+      else if (!String(page.content || '').replace(/<[^>]+>/g, '').trim()) page.content = content;
+    }
   }
   private ensureLegalCompleteness(): void {
     const now = new Date().toISOString();
@@ -490,13 +512,13 @@ class DatabaseStore {
   private ensureAnalyticsTermsDisclosure(): void {
     const terms = this.pages.find(item => item.tenantId === null && item.slug === 'termos-de-uso');
     if (!terms || terms.content.includes('Finalidade da medição de visitas')) return;
-    terms.content += '<h2>Finalidade da medição de visitas</h2><p>O Elo Log poderá medir de forma agregada e proporcional as visitas às páginas públicas para entender quais conteúdos e canais despertam interesse. Saber de onde vêm as visitas ajuda a melhorar os conteúdos, corrigir problemas de navegação, avaliar campanhas e aprimorar as informações oferecidas a transportadoras e motoristas. A medição não registra formulários, não armazena o endereço IP completo, não cria fingerprint individual e não vende dados pessoais. Parâmetros de campanha e referenciadores podem ser agrupados para fins estatísticos, observando as configurações de privacidade aplicáveis.</p>';
+    terms.content += '<h2>Finalidade da medição de visitas</h2><p>O Atendo One poderá medir de forma agregada e proporcional as visitas às páginas públicas para entender quais conteúdos e canais despertam interesse. Saber de onde vêm as visitas ajuda a melhorar os conteúdos, corrigir problemas de navegação, avaliar campanhas e aprimorar as informações oferecidas a transportadoras e motoristas. A medição não registra formulários, não armazena o endereço IP completo, não cria fingerprint individual e não vende dados pessoais. Parâmetros de campanha e referenciadores podem ser agrupados para fins estatísticos, observando as configurações de privacidade aplicáveis.</p>';
     terms.updatedAt = new Date().toISOString();
   }
   private ensureAnalyticsPrivacyDisclosure(): void {
     const privacy = this.pages.find(item => item.tenantId === null && item.slug === 'politica-de-privacidade');
     if (!privacy || privacy.content.includes('Dados de acesso e analytics')) return;
-    privacy.content += '<h2>Dados de acesso e analytics</h2><p>Para melhorar o conteúdo, a navegação e as campanhas, o Elo Log poderá registrar estatísticas agregadas de acesso às páginas públicas. Essas estatísticas podem incluir a rota acessada, a data, a origem geral, o referenciador apenas pelo domínio, parâmetros de campanha, tipo de dispositivo e, quando fornecido pelo proxy, o país. O endereço IP completo, formulários, senhas, códigos e fingerprint individual não são registrados por este mecanismo. Os registros técnicos são mantidos por no máximo 366 dias, com acesso restrito ao Super Admin, e não são vendidos a terceiros.</p>';
+    privacy.content += '<h2>Dados de acesso e analytics</h2><p>Para melhorar o conteúdo, a navegação e as campanhas, o Atendo One poderá registrar estatísticas agregadas de acesso às páginas públicas. Essas estatísticas podem incluir a rota acessada, a data, a origem geral, o referenciador apenas pelo domínio, parâmetros de campanha, tipo de dispositivo e, quando fornecido pelo proxy, o país. O endereço IP completo, formulários, senhas, códigos e fingerprint individual não são registrados por este mecanismo. Os registros técnicos são mantidos por no máximo 366 dias, com acesso restrito ao Super Admin, e não são vendidos a terceiros.</p>';
     privacy.updatedAt = new Date().toISOString();
   }
   private ensureDriverDataDisclosure(): void {
@@ -508,6 +530,10 @@ class DatabaseStore {
     const privacy = this.pages.find(item => item.tenantId === null && item.slug === 'politica-de-privacidade');
     if (privacy && !privacy.content.includes('Compartilhamento básico com empresas')) {
       privacy.content += '<h2>Compartilhamento básico com empresas</h2><p>Quando o motorista demonstra interesse em um frete ou solicita vínculo empresarial, dados básicos necessários à análise podem ser apresentados à empresa responsável, como nome, telefone, e-mail, cidade, documentos de habilitação e dados do veículo informados no cadastro. O compartilhamento é limitado à finalidade de avaliar a solicitação e operar o frete. A empresa que recebe os dados assume a responsabilidade pela validação específica de sua operação; uma validação anterior não substitui essa responsabilidade.</p><p>Dados de preço permanecem protegidos e só são retornados em área autenticada quando a regra do frete permitir. Registros históricos de vínculos, veículos próprios e decisões administrativas são preservados para rastreabilidade, inclusive quando um vínculo é desativado.</p>';
+      privacy.updatedAt = new Date().toISOString();
+    }
+    if (privacy && !privacy.content.includes('Catálogo de motoristas com autorização')) {
+      privacy.content += '<h2>Catálogo de motoristas com autorização</h2><p>O motorista pode escolher, por autorização específica e revogável, se deseja exibir seu nome, cidade, estado e categoria da CNH no catálogo de empresas. Telefone, CPF e documentos não são exibidos na busca e só são compartilhados com a empresa que solicita a avaliação do vínculo. Cada empresa registra sua própria avaliação de aptidão, sem alterar a avaliação ou os vínculos do motorista com outras empresas.</p>';
       privacy.updatedAt = new Date().toISOString();
     }
   }
@@ -601,6 +627,7 @@ class DatabaseStore {
       errorLogs: this.errorLogs,
       visitAnalytics: this.visitAnalytics,
       driverCompanyLinks: this.driverCompanyLinks,
+      driverCompanyProfiles: this.driverCompanyProfiles,
       freightInterests: this.freightInterests,
       companyVehicles: this.companyVehicles,
       companyStops: this.companyStops,
@@ -615,6 +642,7 @@ class DatabaseStore {
       helpPages: this.helpPages,
       legalDocumentVersions: this.legalDocumentVersions,
       whatsappConfigs: safeWhatsAppConfigs,
+      tenantEmailConfigs: Object.fromEntries(Array.from(this.tenantEmailConfigs.entries()).map(([tenantId, config]) => [tenantId, { ...config, password: '' } ])),
       tenantNotificationTemplates: safeTenantNotificationTemplates,
       tenantReportTemplates: safeTenantReportTemplates,
       globalWhatsAppConfig: redactWhatsApp(this.globalWhatsAppConfig),
@@ -631,11 +659,13 @@ class DatabaseStore {
         await this.hydrateSecureWhatsAppConfig();
         await this.hydrateSecureMapboxConfig();
         await this.hydrateSecureEmailConfig();
+        await this.hydrateSecureTenantEmailConfigs();
         await this.hydrateSecureAsaasConfig();
+        await this.hydrateTripExpensesFromRelational();
         this.ensureSystemContent();
         return;
       }
-    for (const key of ['tenants', 'users', 'drivers', 'vehicles', 'freights', 'freightLocations', 'tripExpenses', 'notifications', 'notificationDeliveries', 'pushSubscriptions', 'forms', 'formResponses', 'auditLogs', 'errorLogs', 'visitAnalytics', 'driverCompanyLinks', 'freightInterests', 'companyVehicles', 'companyStops', 'lodgingPartners', 'clients', 'budgets', 'tenantBudgetForms', 'pages', 'posts', 'asaasPayments', 'asaasSubscriptions', 'helpPages', 'legalDocumentVersions']) {
+    for (const key of ['tenants', 'users', 'drivers', 'vehicles', 'freights', 'freightLocations', 'tripExpenses', 'notifications', 'notificationDeliveries', 'pushSubscriptions', 'forms', 'formResponses', 'auditLogs', 'errorLogs', 'visitAnalytics', 'driverCompanyLinks', 'driverCompanyProfiles', 'freightInterests', 'companyVehicles', 'companyStops', 'lodgingPartners', 'clients', 'budgets', 'tenantBudgetForms', 'pages', 'posts', 'asaasPayments', 'asaasSubscriptions', 'helpPages', 'legalDocumentVersions']) {
         if (Array.isArray(state[key])) (this as any)[key] = state[key];
       }
       if (state.whatsappConfigs && typeof state.whatsappConfigs === 'object') {
@@ -643,6 +673,9 @@ class DatabaseStore {
           tenantId,
           { ...(config as any), token: '' }
         ]));
+      }
+      if (state.tenantEmailConfigs && typeof state.tenantEmailConfigs === 'object') {
+        this.tenantEmailConfigs = new Map(Object.entries(state.tenantEmailConfigs).map(([tenantId, config]) => [tenantId, { ...(config as any), password: '' }]));
       }
       if (state.tenantNotificationTemplates && typeof state.tenantNotificationTemplates === 'object') {
         this.tenantNotificationTemplates = new Map(Object.entries(state.tenantNotificationTemplates).map(([tenantId, templates]) => [
@@ -682,6 +715,8 @@ class DatabaseStore {
       }
       await this.hydrateSecureWhatsAppConfig();
       await this.hydrateSecureMapboxConfig();
+      await this.hydrateSecureEmailConfig();
+      await this.hydrateSecureTenantEmailConfigs();
       if (state.saasGlobalConfig) {
         const persisted = state.saasGlobalConfig;
         const runtime = this.saasGlobalConfig;
@@ -710,10 +745,10 @@ class DatabaseStore {
         };
         const layout: any = this.saasGlobalConfig.layout || {};
         const legacyBranding: Record<string, [string, string]> = {
-          logoText: ['ELO LOG', 'ATENDO ONE'],
+          logoText: ['ATENDO ONE', 'ATENDO ONE'],
           homeBadgeText: ['Solução Completa Multi-Tenant de Carga', 'Gestão completa para sua operação de transporte'],
-          homeSubtitle: ['O Elo Log conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.', 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.'],
-          footerText: ['Elo Log • Gestão Logística Integrada © 2026', 'Atendo One • Gestão Logística Integrada © 2026']
+          homeSubtitle: ['O Atendo One conecta transportadoras e motoristas com total isolamento e segurança. Publique fretes, controle frotas, execute checklists eletrônicos e audite sua operação logística em uma plataforma ágil e offline-ready.', 'O Atendo One conecta transportadoras, equipes e motoristas com segurança. Publique fretes, controle sua frota, execute checklists eletrônicos e acompanhe toda a operação em um só lugar.'],
+          footerText: ['Atendo One • Gestão Logística Integrada © 2026', 'Atendo One • Gestão Logística Integrada © 2026']
         };
         let brandingChanged = false;
         for (const [key, [legacy, current]] of Object.entries(legacyBranding)) {
@@ -723,9 +758,11 @@ class DatabaseStore {
       }
       await this.hydrateSecureEmailConfig();
       await this.hydrateSecureAsaasConfig();
+      await this.hydrateTripExpensesFromRelational();
       this.ensureSystemContent();
       if (process.env.DISABLE_RETENTION_CLEANUP !== 'true') await this.pruneOperationalData();
     } catch (error: any) {
+      if (process.env.NODE_ENV === 'production') throw error;
       if (!String(error?.message || '').includes('relation "app_state" does not exist')) {
         console.warn('PostgreSQL state hydration skipped:', error?.message || error);
       }
@@ -968,6 +1005,19 @@ class DatabaseStore {
       await this.persistEmailSecret(runtimeConfig);
     }
   }
+  private async hydrateSecureTenantEmailConfigs(): Promise<void> {
+    if (!sqlAdapter.isEnabled() || !getConfigEncryptionKey()) return;
+    try {
+      const result = await sqlAdapter.query<{ id: string; ciphertext: string }>('SELECT id, ciphertext FROM app_secrets WHERE id LIKE $1', [`${EMAIL_TENANT_SECRET_PREFIX}%`]);
+      for (const row of result.rows) {
+        const tenantId = row.id.slice(EMAIL_TENANT_SECRET_PREFIX.length);
+        const secret = decryptConfigSecret(row.ciphertext);
+        if (tenantId && secret?.host && secret?.user && secret?.password) this.tenantEmailConfigs.set(tenantId, secret);
+      }
+    } catch (error: any) {
+      if (!String(error?.message || '').includes('relation "app_secrets" does not exist')) console.warn('Secure tenant SMTP hydration skipped:', error?.message || error);
+    }
+  }
   async persistEmailSecret(config: { host: string; port?: number; user: string; password: string; senderEmail?: string; testEmail?: string; isActive?: boolean }): Promise<void> {
     if (!sqlAdapter.isEnabled()) {
       throw new Error('A persistência PostgreSQL precisa estar habilitada para salvar a configuração SMTP com segurança.');
@@ -993,6 +1043,12 @@ class DatabaseStore {
        ON CONFLICT (id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = CURRENT_TIMESTAMP`,
       [EMAIL_SECRET_ID, ciphertext]
     );
+  }
+  async persistTenantEmailSecret(tenantId: string, config: { host: string; port?: number; user: string; password: string; senderEmail?: string; testEmail?: string; isActive?: boolean }): Promise<void> {
+    if (!sqlAdapter.isEnabled()) throw new Error('A persistência PostgreSQL precisa estar habilitada para salvar a configuração SMTP com segurança.');
+    const ciphertext = encryptConfigSecret({ ...config, port: Number(config.port || 587), isActive: config.isActive !== false });
+    await sqlAdapter.query(`CREATE TABLE IF NOT EXISTS app_secrets (id TEXT PRIMARY KEY, ciphertext TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+    await sqlAdapter.query(`INSERT INTO app_secrets (id, ciphertext, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = CURRENT_TIMESTAMP`, [`${EMAIL_TENANT_SECRET_PREFIX}${tenantId}`, ciphertext]);
   }
   async persistWhatsAppSecret(baseUrl: string, token: string): Promise<void> {
     if (!sqlAdapter.isEnabled()) {
@@ -1059,12 +1115,110 @@ class DatabaseStore {
           ['default', JSON.stringify(this.serializeState())]
         );
       } catch (error: any) {
+        if (process.env.NODE_ENV === 'production') throw error;
         if (!String(error?.message || '').includes('relation "app_state" does not exist')) {
           console.warn('PostgreSQL state persistence failed:', error?.message || error);
         }
       }
-    }).catch(() => {});
+    });
     await this.persistenceQueue;
+  }
+
+  private async ensureTripExpenseSchema(): Promise<void> {
+    if (!sqlAdapter.isEnabled()) throw new Error('PostgreSQL não está configurado para persistir prestações de contas.');
+    if (!this.tripExpenseSchemaReady) {
+      this.tripExpenseSchemaReady = sqlAdapter.query(`
+        ALTER TABLE IF EXISTS trip_expenses ALTER COLUMN driver_id DROP NOT NULL;
+        ALTER TABLE IF EXISTS trip_expenses ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+        ALTER TABLE IF EXISTS trip_expenses ADD COLUMN IF NOT EXISTS public_code TEXT;
+        ALTER TABLE IF EXISTS trip_expenses ADD COLUMN IF NOT EXISTS public_token TEXT;
+      `).then(() => undefined).catch(error => {
+        this.tripExpenseSchemaReady = null;
+        throw error;
+      });
+    }
+    await this.tripExpenseSchemaReady;
+  }
+
+  /** Persiste a prestação na tabela relacional, mantendo todos os campos e itens JSON. */
+  async persistTripExpense(report: TripExpenseReport): Promise<void> {
+    await this.ensureTripExpenseSchema();
+    await sqlAdapter.query(`
+      INSERT INTO trip_expenses (
+        id, tenant_id, freight_id, freight_code, driver_id, driver_name, driver_phone,
+        vehicle_plate, vehicle_model, chassis, client_name, start_date, end_date, trip_days,
+        initial_km, final_km, total_km, total_liters, average_km_per_liter, cost_per_km,
+        advance_amount, driver_labor_amount, total_expenses, balance_amount, balance_status,
+        status, items, general_notes, reviewer_notes, reviewed_by, reviewed_at, approved_at,
+        archived_at, created_at, updated_at, public_code, public_token
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, '')::date,
+        NULLIF($13, '')::date, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+        $25, $26, $27::jsonb, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        tenant_id = EXCLUDED.tenant_id, freight_id = EXCLUDED.freight_id,
+        freight_code = EXCLUDED.freight_code, driver_id = EXCLUDED.driver_id,
+        driver_name = EXCLUDED.driver_name, driver_phone = EXCLUDED.driver_phone,
+        vehicle_plate = EXCLUDED.vehicle_plate, vehicle_model = EXCLUDED.vehicle_model,
+        chassis = EXCLUDED.chassis, client_name = EXCLUDED.client_name,
+        start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date,
+        trip_days = EXCLUDED.trip_days, initial_km = EXCLUDED.initial_km,
+        final_km = EXCLUDED.final_km, total_km = EXCLUDED.total_km,
+        total_liters = EXCLUDED.total_liters, average_km_per_liter = EXCLUDED.average_km_per_liter,
+        cost_per_km = EXCLUDED.cost_per_km, advance_amount = EXCLUDED.advance_amount,
+        driver_labor_amount = EXCLUDED.driver_labor_amount, total_expenses = EXCLUDED.total_expenses,
+        balance_amount = EXCLUDED.balance_amount, balance_status = EXCLUDED.balance_status,
+        status = EXCLUDED.status, items = EXCLUDED.items, general_notes = EXCLUDED.general_notes,
+        reviewer_notes = EXCLUDED.reviewer_notes, reviewed_by = EXCLUDED.reviewed_by,
+        reviewed_at = EXCLUDED.reviewed_at, approved_at = EXCLUDED.approved_at,
+        archived_at = EXCLUDED.archived_at, updated_at = EXCLUDED.updated_at,
+        public_code = EXCLUDED.public_code, public_token = EXCLUDED.public_token
+    `, [
+      report.id, report.tenantId || null, report.freightId || null, report.freightCode || null,
+      report.driverId || null, report.driverName || 'Motorista não informado', report.driverPhone || null,
+      report.vehiclePlate || null, report.vehicleModel || null, report.chassis || null,
+      report.clientName || null, report.startDate || '', report.endDate || '', report.tripDays || 1,
+      report.initialKm || 0, report.finalKm || 0, report.totalKm || 0, report.totalLiters || 0,
+      report.averageKmPerLiter || 0, report.costPerKm || 0, report.advanceAmount || 0,
+      report.driverLaborAmount || 0, report.totalExpenses || 0, report.balanceAmount || 0,
+      report.balanceStatus, report.status, JSON.stringify(report.items || []), report.generalNotes || null,
+      report.reviewerNotes || null, report.reviewedBy || null, report.reviewedAt || null,
+      report.approvedAt || null, report.archivedAt || null, report.createdAt, report.updatedAt,
+      report.publicCode || null, report.publicToken || null
+    ]);
+  }
+
+  private async hydrateTripExpensesFromRelational(): Promise<void> {
+    if (!sqlAdapter.isEnabled()) return;
+    try {
+      const result = await sqlAdapter.query<any>(`SELECT * FROM trip_expenses ORDER BY updated_at DESC`);
+      if (!result.rows.length) return;
+      const iso = (value: any) => value instanceof Date ? value.toISOString() : String(value || '');
+      this.tripExpenses = result.rows.map(row => ({
+        id: String(row.id), publicCode: row.public_code || undefined, publicToken: row.public_token || undefined,
+        tenantId: row.tenant_id || undefined, freightId: row.freight_id || undefined,
+        freightCode: row.freight_code || undefined, driverId: row.driver_id || undefined,
+        driverName: row.driver_name || 'Motorista não informado', driverPhone: row.driver_phone || undefined,
+        vehiclePlate: row.vehicle_plate || undefined, vehicleModel: row.vehicle_model || undefined,
+        chassis: row.chassis || undefined, clientName: row.client_name || undefined,
+        startDate: iso(row.start_date).slice(0, 10), endDate: iso(row.end_date).slice(0, 10),
+        tripDays: Number(row.trip_days) || 1, initialKm: Number(row.initial_km) || 0,
+        finalKm: Number(row.final_km) || 0, totalKm: Number(row.total_km) || 0,
+        totalLiters: Number(row.total_liters) || 0, averageKmPerLiter: Number(row.average_km_per_liter) || 0,
+        costPerKm: Number(row.cost_per_km) || 0, advanceAmount: Number(row.advance_amount) || 0,
+        driverLaborAmount: Number(row.driver_labor_amount) || 0, totalExpenses: Number(row.total_expenses) || 0,
+        balanceAmount: Number(row.balance_amount) || 0, balanceStatus: row.balance_status,
+        status: row.status, items: Array.isArray(row.items) ? row.items : [],
+        generalNotes: row.general_notes || undefined, reviewerNotes: row.reviewer_notes || undefined,
+        reviewedBy: row.reviewed_by || undefined, reviewedAt: row.reviewed_at ? iso(row.reviewed_at) : undefined,
+        approvedAt: row.approved_at ? iso(row.approved_at) : undefined,
+        archivedAt: row.archived_at ? iso(row.archived_at) : undefined,
+        createdAt: iso(row.created_at), updatedAt: iso(row.updated_at)
+      }));
+    } catch (error: any) {
+      if (!String(error?.message || '').includes('relation "trip_expenses" does not exist')) throw error;
+    }
   }
 
   // Mutex wrapper to guarantee single atomic transaction for a given key
@@ -1930,7 +2084,7 @@ class DatabaseStore {
       {
         id: 'form-checklist-elolog',
         tenantId: 'tenant-translog-01',
-        title: 'Checklist / Vistoria de Entrega e Retirada de Veículo e Carga (Modelo Elo Log)',
+        title: 'Checklist / Vistoria de Entrega e Retirada de Veículo e Carga (Modelo Atendo One)',
         description: 'Modelo oficial de vistoria e checklist de entrega/retirada com conferência de documentos, avarias, 17 itens de equipamentos, odômetro (KM) e assinaturas de origem/destino.',
         category: 'CHECKLIST_ENTREGA',
         triggerEvent: 'NA_ENTREGA',
