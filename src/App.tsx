@@ -22,6 +22,7 @@ import { PrivacyPolicy } from './components/common/PrivacyPolicy';
 import { PublicContentPage } from './components/common/PublicContentPage';
 import { PublicContentIndexPage } from './components/common/PublicContentIndexPage';
 import { FreightShowcasePage } from './components/common/FreightShowcasePage';
+import { PublicDriverRegistrationPage } from './components/common/PublicDriverRegistrationPage';
 import { PublicExpensePage } from './components/common/PublicExpensePage';
 const CompanyVehicleManager = lazy(() => import('./components/company/CompanyVehicleManager').then(m => ({ default: m.CompanyVehicleManager })));
 const CompanyBillingPanel = lazy(() => import('./components/company/CompanyBillingPanel').then(m => ({ default: m.CompanyBillingPanel })));
@@ -166,6 +167,7 @@ const AppContent: React.FC = () => {
   if (publicPath === '/elo-log' || (typeof window !== 'undefined' && window.location.pathname === '/elo-log')) return <PublicContentIndexPage section="elo-log" />;
   if (publicPath === '/conteudo') return <PublicContentIndexPage section="conteudo" />;
   if (publicPath === '/vitrine-fretes') return <FreightShowcasePage />;
+  if (publicPath === '/cadastro-motorista') return <PublicDriverRegistrationPage />;
 
   if (!user) {
     return (
