@@ -35,5 +35,10 @@ assert.match(companyDashboard, /totalFreights === 0[\s\S]*?Cadastrar motorista/,
 assert.match(approvals, /Não apto nesta empresa/, 'company decisions must be explicitly company-specific');
 assert.match(manager, /id="driver-company-file-input" type="file"[\s\S]*?htmlFor="driver-company-file-input"[\s\S]*?Selecionar arquivo[\s\S]*?Máximo de 5 MB por arquivo/, 'driver edit modal must show an accessible attachment control with the per-file limit');
 assert.match(manager, /file\.size > 5 \* 1024 \* 1024[\s\S]*?companyFileError/, 'oversized attachments must remain rejected with a visible error');
+assert.match(manager, /removeCompanyLink[\s\S]*?Excluir da empresa/, 'company admins must be able to remove a driver from their company');
+assert.match(manager, /api\.unlinkDriverFromCompany\(link\.id\)/, 'removing a driver must target only its company link');
+assert.match(api, /apiRouter\.delete\('\/driver-company-links\/:id'[\s\S]*?link\.scope !== 'EMPRESA'[\s\S]*?link\.tenantId !== req\.user\?\.tenantId[\s\S]*?link\.status = 'REMOVIDO'/, 'company unlink must be scoped to one company and preserve a removed link record');
+assert.match(api, /companyLink\.status === 'APROVADO' \|\| companyLink\.status === 'PENDENTE'/, 'removed company links must no longer include legacy-owned drivers in that company list');
+assert.match(api, /cadastro global e vínculos com outras empresas preservados/, 'removing one company link must preserve the global driver and other company links');
 
 console.log('DRIVER_DIRECTORY_INVARIANTS_OK');
